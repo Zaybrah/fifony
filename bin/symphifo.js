@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { cwd, env, exit, argv, execPath } from "node:process";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -9,7 +10,8 @@ const __dirname = dirname(__filename);
 const packageRoot = resolve(__dirname, "..");
 const workspaceRoot = env.SYMPHIFO_WORKSPACE_ROOT ?? cwd();
 const cliScript = resolve(packageRoot, "src", "cli.ts");
-const tsxCli = resolve(packageRoot, "node_modules", "tsx", "dist", "cli.mjs");
+const require = createRequire(import.meta.url);
+const tsxCli = require.resolve("tsx/dist/cli.mjs");
 
 const child = spawn(execPath, [tsxCli, cliScript, ...argv.slice(2)], {
   cwd: workspaceRoot,

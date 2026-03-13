@@ -2,12 +2,14 @@ import { spawn } from "node:child_process";
 import { cwd, env, execPath, exit, kill, pid } from "node:process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { createCLI, type CommandParseResult } from "cli-args-parser";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const packageRoot = resolve(__dirname, "..");
+const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8")) as {
   name?: string;
   version?: string;
@@ -15,7 +17,7 @@ const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json")
 };
 const runtimeScript = resolve(packageRoot, "src", "runtime", "run-local.ts");
 const mcpScript = resolve(packageRoot, "src", "mcp", "server.ts");
-const tsxCli = resolve(packageRoot, "node_modules", "tsx", "dist", "cli.mjs");
+const tsxCli = require.resolve("tsx/dist/cli.mjs");
 
 const commonOptions = {
   workspace: {
