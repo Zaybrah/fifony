@@ -119,6 +119,21 @@ export async function startApiServer(
       : events;
   };
 
+  const resourceConfigs: Record<string, Record<string, unknown>> = {
+    [S3DB_RUNTIME_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
+    [S3DB_ISSUE_RESOURCE]: { auth: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] },
+    [S3DB_EVENT_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
+    [S3DB_AGENT_SESSION_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
+    [S3DB_AGENT_PIPELINE_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
+  };
+
+  const existingResources = await (stateDb as { listResources?: () => Promise<Array<{ name: string }>> }).listResources?.();
+  for (const item of existingResources || []) {
+    if (typeof item?.name === "string" && item.name.startsWith("symphifo_") && !resourceConfigs[item.name]) {
+      resourceConfigs[item.name] = { enabled: false };
+    }
+  }
+
   const dashboardHtml = indexHtml || fallback;
 
   const apiPlugin = new ApiPlugin({
@@ -132,11 +147,7 @@ export async function startApiServer(
     compression: { enabled: true, threshold: 1024 },
     health: { enabled: true },
     resources: {
-      [S3DB_RUNTIME_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
-      [S3DB_ISSUE_RESOURCE]: { auth: false, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] },
-      [S3DB_EVENT_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
-      [S3DB_AGENT_SESSION_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
-      [S3DB_AGENT_PIPELINE_RESOURCE]: { auth: false, methods: ["GET", "HEAD", "OPTIONS"] },
+      ...resourceConfigs,
     },
     routes: {
       "GET /state": async () => ({
