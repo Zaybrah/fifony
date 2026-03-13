@@ -1,9 +1,9 @@
 import pino from "pino";
-import { env } from "node:process";
+import { env, stdout } from "node:process";
 import { join } from "node:path";
 
 const level = env.SYMPHIFO_LOG_LEVEL ?? "info";
-const pretty = env.SYMPHIFO_LOG_PRETTY === "1";
+const pretty = env.SYMPHIFO_LOG_PRETTY === "1" || (env.SYMPHIFO_LOG_PRETTY !== "0" && stdout.isTTY);
 
 function createTransports(logPath?: string) {
   const targets: pino.TransportTargetOptions[] = [];
