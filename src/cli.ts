@@ -15,6 +15,7 @@ const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json")
 };
 const runtimeScript = resolve(packageRoot, "src", "runtime", "run-local.ts");
 const mcpScript = resolve(packageRoot, "src", "mcp", "server.ts");
+const tsxCli = resolve(packageRoot, "node_modules", "tsx", "dist", "cli.mjs");
 
 const commonOptions = {
   workspace: {
@@ -102,7 +103,7 @@ async function runRuntime(mode: "cli" | "mcp", result: CommandParseResult): Prom
   const runtimeArgs = buildRuntimeArgs(result);
 
   const outcome = await new Promise<{ code?: number | null; signal?: NodeJS.Signals | null }>((resolvePromise, rejectPromise) => {
-    const child = spawn(execPath, ["--disable-warning=ExperimentalWarning", "--experimental-strip-types", runtimeScript, ...runtimeArgs], {
+    const child = spawn(execPath, [tsxCli, runtimeScript, ...runtimeArgs], {
       cwd: workspaceRoot,
       stdio: "inherit",
       env: {
@@ -138,7 +139,7 @@ async function runMcpServer(result: CommandParseResult): Promise<void> {
   const persistenceRoot = resolve(persistence ?? env.SYMPHIFO_PERSISTENCE ?? workspaceRoot);
 
   const outcome = await new Promise<{ code?: number | null; signal?: NodeJS.Signals | null }>((resolvePromise, rejectPromise) => {
-    const child = spawn(execPath, ["--disable-warning=ExperimentalWarning", "--experimental-strip-types", mcpScript], {
+    const child = spawn(execPath, [tsxCli, mcpScript], {
       cwd: workspaceRoot,
       stdio: "inherit",
       env: {
