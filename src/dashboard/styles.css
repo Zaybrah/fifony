@@ -253,33 +253,7 @@ h2 {
   transition: border-color 150ms, opacity 150ms;
 }
 
-/* ── Health badge states ───────────────────────────────────────────────────── */
-
-.badge-health-ok {
-  border-color: var(--ok);
-  color: var(--ok);
-}
-
-.badge-health-warn {
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
-.badge-health-offline {
-  border-color: var(--danger);
-  color: var(--danger);
-  animation: offline-pulse 2s ease-in-out infinite;
-}
-
-@keyframes offline-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.badge-refreshing {
-  opacity: 0.5;
-  border-color: var(--toxin);
-}
+/* DaisyUI badges handle health states — no custom CSS needed */
 
 /* ── Issue count & batch toolbar ───────────────────────────────────────────── */
 
@@ -1181,25 +1155,6 @@ h2 {
 }
 
 /* ── 6. Connection badge animations ──────────────────────────────────────────── */
-
-.badge-health-ok {
-  animation: badge-breathe 2s ease-in-out 1;
-}
-
-.badge-reconnecting {
-  border-color: var(--warn);
-  color: var(--warn);
-  position: relative;
-}
-
-.badge-reconnecting::after {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border: 2px solid transparent;
-  border-top-color: var(--warn);
-  animation: badge-spinner 800ms linear infinite;
-}
 
 /* ── 7. Detail panel transitions ─────────────────────────────────────────────── */
 

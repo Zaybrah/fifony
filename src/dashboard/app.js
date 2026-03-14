@@ -1982,7 +1982,7 @@ async function loadHealth() {
 
     const status = payload.status || "ok";
     healthBadge.textContent = `status: ${status}`;
-    healthBadge.className = `badge badge-health-${status === "ok" ? "ok" : "warn"}`;
+    healthBadge.className = `badge ${status === "ok" ? "badge-success" : "badge-warning"}`;
 
     // Notify on status transitions
     if (lastHealthStatus && lastHealthStatus !== status) {
@@ -1991,7 +1991,7 @@ async function loadHealth() {
     lastHealthStatus = status;
   } catch (error) {
     healthBadge.textContent = "status: offline";
-    healthBadge.className = "badge badge-health-offline";
+    healthBadge.className = "badge badge-error";
     if (lastHealthStatus !== "offline") {
       showToast("Connection lost", "error", 3000);
     }
@@ -2017,7 +2017,7 @@ async function refreshSessions() {
 }
 
 async function refresh() {
-  refreshBadge.classList.add("badge-refreshing");
+  refreshBadge.classList.add("opacity-50");
   try {
     await loadState();
     await loadEvents();
@@ -2025,7 +2025,7 @@ async function refresh() {
   } catch (error) {
     issueListEl.innerHTML = `<p class="muted">Error loading runtime state: ${escapeHtml(error.message || error)}</p>`;
   } finally {
-    refreshBadge.classList.remove("badge-refreshing");
+    refreshBadge.classList.remove("opacity-50");
   }
 }
 
@@ -2265,7 +2265,7 @@ function connectWebSocket() {
     wsReconnectCount = 0;
     stopPollingFallback();
     healthBadge.textContent = "realtime";
-    healthBadge.className = "badge badge-health-ok";
+    healthBadge.className = "badge badge-success";
     if (lastHealthStatus === "offline" || lastHealthStatus === "polling") {
       showToast("Connected — realtime updates active", "success", 2000);
     }
@@ -2311,24 +2311,14 @@ function connectWebSocket() {
     ws = null;
     wsReconnectCount++;
 
-    if (wsReconnectCount >= 3) {
-      // Give up on WS, fall back to polling permanently (until user clicks Reload)
-      startPollingFallback();
-      lastHealthStatus = "polling";
-    } else {
-      healthBadge.textContent = "reconnecting";
-      healthBadge.className = "badge badge-reconnecting";
-      lastHealthStatus = "offline";
+    healthBadge.innerHTML = '<span class="loading loading-spinner loading-xs"></span> connecting';
+    healthBadge.className = "badge badge-warning gap-1";
+    lastHealthStatus = "offline";
 
-      // Reconnect with backoff
-      clearTimeout(wsReconnectTimer);
-      wsReconnectTimer = setTimeout(() => {
-        connectWebSocket();
-      }, 3000);
-
-      // Start polling as fallback while disconnected
-      startPollingFallback();
-    }
+    // Always try to reconnect with backoff
+    clearTimeout(wsReconnectTimer);
+    const delay = Math.min(1000 * Math.pow(2, wsReconnectCount), 15000);
+    wsReconnectTimer = setTimeout(() => connectWebSocket(), delay);
   };
 
   ws.onerror = () => {
@@ -2336,22 +2326,10 @@ function connectWebSocket() {
   };
 }
 
-function startPollingFallback() {
-  if (pollingTimer) return;
-  lastHealthStatus = "polling";
-  healthBadge.textContent = "polling";
-  healthBadge.className = "badge badge-health-warn";
-  pollingTimer = setInterval(() => {
-    refresh();
-  }, 3000);
-}
-
-function stopPollingFallback() {
-  if (pollingTimer) {
-    clearInterval(pollingTimer);
-    pollingTimer = null;
-  }
-}
+// No polling fallback needed — WS is the only realtime channel.
+// On reconnect, a single loadState() fetch is done via the "connected" message handler.
+function startPollingFallback() {}
+function stopPollingFallback() {}
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
