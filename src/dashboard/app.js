@@ -116,6 +116,9 @@ let activeKpiFilter = null;
 let previousKpiValues = {};
 let previousIssueStates = new Map();
 let viewMode = localStorage.getItem("symphifo-view-mode") || "board";
+let expandedKanbanCards = new Set();
+let collapsedColumns = new Set(JSON.parse(localStorage.getItem("symphifo-collapsed-columns") || "[]"));
+let isDraggingKanban = false;
 
 // ── Tab switching ────────────────────────────────────────────────────────────
 
@@ -861,8 +864,15 @@ function renderKanban(issues = []) {
     });
   }
 
+  // WIP limit: only for "In Progress", based on workerConcurrency
+  const wipLimit = appState.config?.workerConcurrency || 2;
+
   kanbanBoard.innerHTML = columns.map((state) => {
     const cards = grouped[state];
+    const isCollapsed = collapsedColumns.has(state);
+    const canCollapse = state === "Done" || state === "Cancelled";
+    const isOverWip = state === "In Progress" && cards.length >= wipLimit;
+
     const emptyMessages = {
       "Todo": null, // special CTA
       "In Progress": "Issues move here when agents start working",
@@ -883,11 +893,38 @@ function renderKanban(issues = []) {
     const cardsHtml = cards.length
       ? cards.map((issue) => {
           const isSelected = selectedDetailId === issue.id;
+          const isExpanded = expandedKanbanCards.has(issue.id);
           const quickActions = issue.state === "Blocked" || issue.state === "Done" || issue.state === "Cancelled"
             ? `<div class="kanban-card-actions"><button data-action="retry" data-id="${escapeHtml(issue.id)}" title="Retry">↻</button></div>`
             : issue.state === "In Progress" || issue.state === "In Review"
             ? `<div class="kanban-card-actions"><button data-action="cancel" data-id="${escapeHtml(issue.id)}" title="Cancel">✕</button></div>`
             : "";
+
+          // Expanded content
+          const desc = issue.description || "";
+          const truncDesc = desc.length > 150 ? escapeHtml(desc.slice(0, 150)) + "..." : escapeHtml(desc);
+          const truncError = issue.lastError ? (issue.lastError.length > 80 ? escapeHtml(issue.lastError.slice(0, 80)) + "..." : escapeHtml(issue.lastError)) : "";
+          const attempts = issue.attempts || 0;
+          const maxAttempts = issue.maxAttempts || 1;
+
+          const expandedHtml = `<div class="kanban-card-expand${isExpanded ? " open" : ""}">
+              <div class="kanban-card-expand-inner">
+                ${desc ? `<div class="kanban-card-desc">${truncDesc}</div>` : ""}
+                ${truncError ? `<div class="kanban-card-error">${truncError}</div>` : ""}
+                ${attempts > 0 ? `<div class="kanban-card-attempts">${attempts}/${maxAttempts} attempts</div>` : ""}
+                <div class="kanban-card-updated">${timeAgo(issue.updatedAt)}</div>
+                <div class="kanban-card-detail-btn" data-action="open-detail" data-id="${escapeHtml(issue.id)}">details</div>
+              </div>
+            </div>`;
+
+          // Progress bar
+          let progressHtml = "";
+          if (attempts > 0) {
+            const pct = Math.min(100, Math.round((attempts / maxAttempts) * 100));
+            const pClass = issue.state === "Done" ? "ok" : attempts >= maxAttempts ? "danger" : "warn";
+            progressHtml = `<div class="kanban-card-progress"><div class="kanban-card-progress-fill ${pClass}" style="width:${pct}%"></div></div>`;
+          }
+
           return `<div class="kanban-card${isSelected ? " selected" : ""}" data-issue-id="${escapeHtml(issue.id)}" draggable="true">
             <div class="kanban-card-header">
               <span class="kanban-card-id">${escapeHtml(issue.identifier)}</span>
@@ -899,12 +936,25 @@ function renderKanban(issues = []) {
               ${issue.capabilityCategory ? `<span class="kanban-card-capability">${escapeHtml(issue.capabilityCategory)}</span>` : ""}
               ${issue.durationMs ? `<span class="kanban-card-priority">${formatDuration(issue.durationMs)}</span>` : ""}
             </div>
+            ${expandedHtml}
+            ${progressHtml}
           </div>`;
         }).join("")
       : emptyHtml;
 
-    return `<div class="kanban-column" data-state="${escapeHtml(state)}">
+    const collapseBtn = canCollapse
+      ? `<button class="kanban-column-collapse-btn" data-action="toggle-collapse" data-col="${escapeHtml(state)}" title="${isCollapsed ? "Expand" : "Collapse"}">${isCollapsed ? "\u25B8" : "\u25BE"}</button>`
+      : "";
+
+    const columnClasses = [
+      "kanban-column",
+      isCollapsed ? "collapsed" : "",
+      isOverWip ? "kanban-column-over-wip" : "",
+    ].filter(Boolean).join(" ");
+
+    return `<div class="${columnClasses}" data-state="${escapeHtml(state)}">
       <div class="kanban-column-header">
+        ${collapseBtn}
         <span class="kanban-column-title">${escapeHtml(state)}</span>
         <span class="kanban-column-count">${cards.length}</span>
       </div>
@@ -931,11 +981,24 @@ function wireKanbanDragAndDrop() {
 
   kanbanBoard.querySelectorAll(".kanban-card[draggable]").forEach((card) => {
     card.addEventListener("dragstart", (e) => {
+      isDraggingKanban = true;
       e.dataTransfer.setData("text/plain", card.dataset.issueId);
       e.dataTransfer.effectAllowed = "move";
       card.classList.add("dragging");
+
+      // Custom drag ghost with reduced opacity
+      const ghost = card.cloneNode(true);
+      ghost.style.position = "absolute";
+      ghost.style.top = "-9999px";
+      ghost.style.opacity = "0.7";
+      ghost.style.width = card.offsetWidth + "px";
+      ghost.style.transform = "rotate(1deg)";
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, e.offsetX, e.offsetY);
+      requestAnimationFrame(() => ghost.remove());
     });
     card.addEventListener("dragend", () => {
+      isDraggingKanban = false;
       card.classList.remove("dragging");
     });
   });
@@ -973,36 +1036,78 @@ function wireKanbanDragAndDrop() {
   });
 }
 
+function openKanbanDetail(issueId) {
+  const issue = (appState.issues || []).find((i) => i.id === issueId);
+  if (!issue) return;
+  selectedDetailId = issueId;
+  renderKanbanDetail(issue);
+  renderKanban(appState.issues || []);
+}
+
 function wireKanbanCardClicks() {
   if (!kanbanBoard) return;
 
   kanbanBoard.querySelectorAll(".kanban-card").forEach((card) => {
+    // Single click: toggle inline expand (not detail panel)
     card.addEventListener("click", (e) => {
-      // Don't trigger on action button clicks
       if (e.target.closest(".kanban-card-actions")) return;
+      if (e.target.closest(".kanban-card-detail-btn")) return;
+      if (isDraggingKanban) return;
 
       const issueId = card.dataset.issueId;
       if (!issueId) return;
-      const issue = (appState.issues || []).find((i) => i.id === issueId);
-      if (!issue) return;
 
-      // Toggle selection
-      if (selectedDetailId === issueId) {
-        selectedDetailId = null;
-        if (kanbanDetail) kanbanDetail.hidden = true;
-        clearDetailPanel();
+      // Toggle expanded state
+      if (expandedKanbanCards.has(issueId)) {
+        expandedKanbanCards.delete(issueId);
       } else {
-        selectedDetailId = issueId;
-        renderKanbanDetail(issue);
+        expandedKanbanCards.add(issueId);
       }
 
-      renderKanban(appState.issues || []);
+      // Animate the expand area without full re-render
+      const expandEl = card.querySelector(".kanban-card-expand");
+      if (expandEl) {
+        expandEl.classList.toggle("open", expandedKanbanCards.has(issueId));
+      }
+    });
+
+    // Double click: open detail panel
+    card.addEventListener("dblclick", (e) => {
+      if (e.target.closest(".kanban-card-actions")) return;
+      const issueId = card.dataset.issueId;
+      if (!issueId) return;
+      openKanbanDetail(issueId);
+    });
+  });
+
+  // Wire "details" link buttons inside expanded cards
+  kanbanBoard.querySelectorAll("[data-action='open-detail']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (id) openKanbanDetail(id);
     });
   });
 
   // Wire kanban empty CTA click (Todo column)
   kanbanBoard.querySelectorAll("[data-action='kanban-create-cta']").forEach((cta) => {
     cta.addEventListener("click", () => toggleCreateForm());
+  });
+
+  // Wire column collapse toggle buttons
+  kanbanBoard.querySelectorAll("[data-action='toggle-collapse']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const col = btn.dataset.col;
+      if (!col) return;
+      if (collapsedColumns.has(col)) {
+        collapsedColumns.delete(col);
+      } else {
+        collapsedColumns.add(col);
+      }
+      localStorage.setItem("symphifo-collapsed-columns", JSON.stringify([...collapsedColumns]));
+      renderKanban(appState.issues || []);
+    });
   });
 
   // Wire quick action buttons on kanban cards

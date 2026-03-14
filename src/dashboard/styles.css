@@ -1683,13 +1683,14 @@ button:disabled {
   min-height: 300px;
   display: flex;
   flex-direction: column;
+  transition: min-width 200ms ease, max-width 200ms ease;
 }
 
 .kanban-column-header {
   padding: 10px;
   border-bottom: 1px solid var(--ash);
   display: flex;
-  justify-content: space-between;
+  gap: 6px;
   align-items: center;
   position: sticky;
   top: 0;
@@ -1703,6 +1704,7 @@ button:disabled {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--slate);
+  flex: 1;
 }
 
 .kanban-column-count {
@@ -1809,8 +1811,8 @@ button:disabled {
 
 /* Kanban drag-and-drop visuals */
 .kanban-card.dragging {
-  opacity: 0.5;
-  transform: rotate(2deg);
+  opacity: 0.4;
+  transform: scale(0.98) rotate(1deg);
 }
 
 .kanban-column.drag-over {
@@ -2072,6 +2074,129 @@ button:disabled {
   border: none;
   padding: 0;
   background: transparent;
+}
+
+/* ── Kanban card expand (inline description toggle) ────────────────────── */
+
+.kanban-card-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.kanban-card-expand.open {
+  grid-template-rows: 1fr;
+}
+
+.kanban-card-expand-inner {
+  overflow: hidden;
+  margin-top: 0;
+}
+
+.kanban-card-expand.open .kanban-card-expand-inner {
+  margin-top: 6px;
+}
+
+.kanban-card-desc {
+  font-size: 0.7rem;
+  color: var(--silver);
+  line-height: 1.4;
+}
+
+.kanban-card-detail-btn {
+  font-size: 0.65rem;
+  color: var(--iron);
+  cursor: pointer;
+  margin-top: 4px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.kanban-card-detail-btn:hover {
+  color: var(--plague);
+}
+
+/* ── Kanban WIP limits ─────────────────────────────────────────────────── */
+
+.kanban-column-over-wip {
+  border-top-color: var(--danger) !important;
+}
+
+.kanban-column-over-wip .kanban-column-count {
+  background: var(--danger);
+  color: var(--frost);
+}
+
+/* ── Kanban column collapse ────────────────────────────────────────────── */
+
+.kanban-column.collapsed {
+  min-width: 60px;
+  max-width: 60px;
+}
+
+.kanban-column.collapsed .kanban-cards {
+  display: none;
+}
+
+.kanban-column.collapsed .kanban-column-title {
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+  white-space: nowrap;
+}
+
+.kanban-column-collapse-btn {
+  background: transparent;
+  border: none;
+  color: var(--iron);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0 4px;
+  transition: color 150ms;
+}
+
+.kanban-column-collapse-btn:hover {
+  color: var(--frost);
+}
+
+/* ── Kanban card progress bar ──────────────────────────────────────────── */
+
+.kanban-card-progress {
+  height: 2px;
+  margin-top: 4px;
+  background: var(--ash);
+  overflow: hidden;
+}
+
+.kanban-card-progress-fill {
+  height: 100%;
+  transition: width 300ms ease;
+}
+
+.kanban-card-progress-fill.ok { background: var(--ok); }
+.kanban-card-progress-fill.warn { background: var(--warn); }
+.kanban-card-progress-fill.danger { background: var(--danger); }
+
+/* ── Kanban card expanded error/meta ───────────────────────────────────── */
+
+.kanban-card-error {
+  font-size: 0.65rem;
+  color: var(--danger);
+  margin-top: 3px;
+  line-height: 1.3;
+  font-family: ui-monospace, monospace;
+}
+
+.kanban-card-attempts {
+  font-size: 0.62rem;
+  color: var(--iron);
+  margin-top: 2px;
+  font-family: ui-monospace, monospace;
+}
+
+.kanban-card-updated {
+  font-size: 0.62rem;
+  color: var(--iron);
+  margin-top: 1px;
 }
 
 @media (min-width: 900px) {
