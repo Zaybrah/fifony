@@ -185,7 +185,9 @@ body {
 /* ── Shell ────────────────────────────────────────────────────────────────── */
 
 .shell {
-  max-width: 1140px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 24px;
 }
@@ -342,6 +344,7 @@ h2 {
 
 .tab-panel {
   animation: tab-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  padding-top: 8px;
 }
 
 .tab-panel[hidden] {
@@ -379,10 +382,74 @@ h2 {
 
 .toolbar {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toolbar-actions {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-accordion {
+  border: 1px solid var(--ash);
+  border-radius: 6px;
+  background: var(--stone);
+  width: 100%;
+  overflow: hidden;
+}
+
+.filter-accordion[open] {
+  box-shadow: var(--glow-weak);
+}
+
+.filter-accordion-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 8px 10px;
+  color: var(--slate);
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  user-select: none;
+  background: color-mix(in srgb, var(--ash) 82%, transparent);
+}
+
+.filter-accordion-summary::marker,
+.filter-accordion-summary::-webkit-details-marker {
+  display: none;
+}
+
+.filter-accordion-summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 150ms;
+}
+
+.filter-accordion[open] .filter-accordion-summary::before {
+  transform: rotate(45deg);
+}
+
+.filter-accordion-content {
+  border-top: 1px solid var(--ash);
+  padding: 10px;
+}
+
+@media (min-width: 900px) {
+  .toolbar {
+    flex-direction: column;
+    gap: 10px;
+  }
 }
 
 .toolbar-right {
@@ -1241,17 +1308,21 @@ h2 {
 /* ── Kanban board ─────────────────────────────────────────────────────────── */
 
 .kanban-board {
+  width: 100%;
   display: grid;
-  grid-template-columns: repeat(6, minmax(200px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
   overflow-x: auto;
   padding-bottom: 8px;
+  /* Fill remaining viewport height */
+  min-height: calc(100vh - 260px);
 }
 
 .kanban-column {
   background: var(--stone);
   border: 1px solid var(--ash);
-  min-height: 300px;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   transition: min-width 200ms ease, max-width 200ms ease;
@@ -1293,7 +1364,7 @@ h2 {
   flex-direction: column;
   gap: 4px;
   overflow-y: auto;
-  max-height: 65vh;
+  /* Cards scroll within column, column fills board height */
 }
 
 .kanban-card {
@@ -1744,7 +1815,7 @@ h2 {
 
 @media (min-width: 900px) {
   .shell {
-    max-width: 1400px;
+    max-width: 100%;
   }
 
   .issues-master-detail {
