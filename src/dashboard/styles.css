@@ -1773,6 +1773,52 @@ button:disabled {
   font-size: 0.72rem;
 }
 
+.kanban-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kanban-card-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.kanban-card-actions button {
+  background: transparent;
+  border: 1px solid var(--ash);
+  color: var(--iron);
+  width: 22px;
+  height: 22px;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 150ms, color 150ms, opacity 150ms;
+  opacity: 0;
+}
+
+.kanban-card:hover .kanban-card-actions button {
+  opacity: 1;
+}
+
+.kanban-card-actions button:hover {
+  border-color: var(--toxin);
+  color: var(--frost);
+}
+
+.kanban-detail {
+  margin-top: 8px;
+  background: var(--crypt);
+  border: 1px solid var(--ash);
+  padding: 16px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
 /* ── Two-panel layout (desktop >= 900px) ─────────────────────────────────── */
 
 .issues-master-detail {

@@ -100,6 +100,8 @@ const detailPanel = document.getElementById("detail-panel");
 const detailPlaceholder = document.getElementById("detail-placeholder");
 
 const kanbanBoard = document.getElementById("kanban-board");
+const kanbanDetail = document.getElementById("kanban-detail");
+const kanbanDetailContent = document.getElementById("kanban-detail-content");
 const issuesMasterDetail = document.querySelector(".issues-master-detail");
 
 let appState = {};
@@ -773,12 +775,21 @@ function renderKanban(issues = []) {
     const cardsHtml = cards.length
       ? cards.map((issue) => {
           const isSelected = selectedDetailId === issue.id;
+          const quickActions = issue.state === "Blocked" || issue.state === "Done" || issue.state === "Cancelled"
+            ? `<div class="kanban-card-actions"><button data-action="retry" data-id="${escapeHtml(issue.id)}" title="Retry">↻</button></div>`
+            : issue.state === "In Progress" || issue.state === "In Review"
+            ? `<div class="kanban-card-actions"><button data-action="cancel" data-id="${escapeHtml(issue.id)}" title="Cancel">✕</button></div>`
+            : "";
           return `<div class="kanban-card${isSelected ? " selected" : ""}" data-issue-id="${escapeHtml(issue.id)}" draggable="true">
-            <div class="kanban-card-id">${escapeHtml(issue.identifier)}</div>
+            <div class="kanban-card-header">
+              <span class="kanban-card-id">${escapeHtml(issue.identifier)}</span>
+              ${quickActions}
+            </div>
             <div class="kanban-card-title">${escapeHtml(issue.title)}</div>
             <div class="kanban-card-meta">
               <span class="kanban-card-priority">P${escapeHtml(issue.priority)}</span>
               ${issue.capabilityCategory ? `<span class="kanban-card-capability">${escapeHtml(issue.capabilityCategory)}</span>` : ""}
+              ${issue.durationMs ? `<span class="kanban-card-priority">${formatDuration(issue.durationMs)}</span>` : ""}
             </div>
           </div>`;
         }).join("")
@@ -858,19 +869,113 @@ function wireKanbanCardClicks() {
   if (!kanbanBoard) return;
 
   kanbanBoard.querySelectorAll(".kanban-card").forEach((card) => {
-    card.addEventListener("click", () => {
+    card.addEventListener("click", (e) => {
+      // Don't trigger on action button clicks
+      if (e.target.closest(".kanban-card-actions")) return;
+
       const issueId = card.dataset.issueId;
       if (!issueId) return;
       const issue = (appState.issues || []).find((i) => i.id === issueId);
       if (!issue) return;
 
       // Toggle selection
-      selectedDetailId = selectedDetailId === issueId ? null : issueId;
+      if (selectedDetailId === issueId) {
+        selectedDetailId = null;
+        if (kanbanDetail) kanbanDetail.hidden = true;
+        clearDetailPanel();
+      } else {
+        selectedDetailId = issueId;
+        renderKanbanDetail(issue);
+      }
 
-      // Re-render to update selection highlight
       renderKanban(appState.issues || []);
     });
   });
+
+  // Wire quick action buttons on kanban cards
+  kanbanBoard.querySelectorAll(".kanban-card-actions button").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      if (!action || !id) return;
+
+      try {
+        if (action === "retry") {
+          await withLoading(btn, async () => {
+            await post(`/issues/${encodeURIComponent(id)}/retry`);
+            await syncAfterAction();
+          });
+        } else if (action === "cancel") {
+          await withLoading(btn, async () => {
+            await post(`/issues/${encodeURIComponent(id)}/cancel`);
+            await syncAfterAction();
+          });
+        }
+      } catch (err) {
+        showToast(err.message || "Action failed.");
+      }
+    });
+  });
+}
+
+function renderKanbanDetail(issue) {
+  if (!kanbanDetail || !kanbanDetailContent) return;
+  kanbanDetail.hidden = false;
+
+  const stateActions = issue.state === "Blocked"
+    ? `<button class="action-button" data-action="retry" data-id="${escapeHtml(issue.id)}">Retry</button>
+       <button class="action-button" data-action="state" data-id="${escapeHtml(issue.id)}" data-payload="Todo">Set Todo</button>
+       <button class="action-button" data-action="cancel" data-id="${escapeHtml(issue.id)}">Cancel</button>`
+    : issue.state === "Todo"
+    ? `<button class="action-button" data-action="state" data-id="${escapeHtml(issue.id)}" data-payload="In Progress">Start</button>
+       <button class="action-button" data-action="cancel" data-id="${escapeHtml(issue.id)}" data-payload="Cancelled">Cancel</button>`
+    : issue.state === "Done" || issue.state === "Cancelled"
+    ? `<button class="action-button" data-action="retry" data-id="${escapeHtml(issue.id)}">Retry</button>`
+    : `<button class="action-button" data-action="cancel" data-id="${escapeHtml(issue.id)}">Cancel</button>`;
+
+  kanbanDetailContent.innerHTML = `
+    <div class="detail-issue-header" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--ash);">
+      <span class="mono" style="color:var(--plague);font-size:0.72rem;font-weight:600;">${escapeHtml(issue.identifier)}</span>
+      <span style="color:var(--frost);font-size:0.78rem;font-weight:600;flex:1;">${escapeHtml(issue.title)}</span>
+      <button type="button" class="btn-close-detail" id="kanban-close-detail" title="Close">&times;</button>
+    </div>
+    <p class="muted" style="margin:0 0 8px;">${escapeHtml(issue.description || "No description")}</p>
+    <div class="meta">
+      <span class="${stateClass(issue.state)}">${escapeHtml(issue.state)}</span>
+      <span>Priority ${escapeHtml(issue.priority)}</span>
+      <span>Attempts ${escapeHtml(issue.attempts || 0)}/${escapeHtml(issue.maxAttempts || 1)}</span>
+      ${issue.durationMs ? `<span>Duration ${formatDuration(issue.durationMs)}</span>` : ""}
+    </div>
+    ${issue.lastError ? `<details class="error-detail" style="margin-top:8px;"><summary>Last error</summary><pre class="mono">${escapeHtml(issue.lastError)}</pre></details>` : ""}
+    <div class="actions" style="margin-top:8px;">${stateActions}</div>
+    <div class="session-panel" id="kanban-session-panel" style="margin-top:10px;">${sessionLoadingSkeleton()}</div>
+  `;
+
+  // Wire close button
+  document.getElementById("kanban-close-detail")?.addEventListener("click", () => {
+    selectedDetailId = null;
+    kanbanDetail.hidden = true;
+    renderKanban(appState.issues || []);
+  });
+
+  // Wire action buttons
+  kanbanDetailContent.querySelectorAll(".action-button[data-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      const payload = btn.dataset.payload || "";
+      if (!action || !id) return;
+      try {
+        if (action === "state") await setIssueState(id, payload, btn);
+        else if (action === "retry") await retryIssue(id, btn);
+        else if (action === "cancel") await cancelIssue(id, btn);
+      } catch (err) { showToast(err.message); }
+    });
+  });
+
+  // Load sessions
+  loadSessionsForPanel(issue.id, "kanban-session-panel");
 }
 
 function setViewMode(mode) {
@@ -891,6 +996,7 @@ function setViewMode(mode) {
   } else {
     if (issuesMasterDetail) issuesMasterDetail.hidden = false;
     if (kanbanBoard) kanbanBoard.hidden = true;
+    if (kanbanDetail) kanbanDetail.hidden = true;
     renderIssues(issues);
   }
 }
