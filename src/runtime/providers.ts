@@ -79,11 +79,31 @@ export function resolveAgentCommand(
   return getProviderDefaultCommand(provider);
 }
 
+const CLAUDE_RESULT_SCHEMA = JSON.stringify({
+  type: "object",
+  properties: {
+    status: { type: "string", enum: ["done", "continue", "blocked", "failed"] },
+    summary: { type: "string" },
+    nextPrompt: { type: "string" },
+  },
+  required: ["status"],
+});
+
 export function getProviderDefaultCommand(provider: string): string {
   // Prompt is piped via stdin and also written to SYMPHIFONY_PROMPT_FILE.
   // Use stdin redirection as primary for large prompts (avoids E2BIG).
   if (provider === "codex") return "codex exec --skip-git-repo-check < \"$SYMPHIFONY_PROMPT_FILE\"";
-  if (provider === "claude") return "claude --print --dangerously-skip-permissions < \"$SYMPHIFONY_PROMPT_FILE\"";
+  if (provider === "claude") {
+    return [
+      "claude",
+      "--print",
+      "--dangerously-skip-permissions",
+      "--no-session-persistence",
+      "--output-format json",
+      `--json-schema '${CLAUDE_RESULT_SCHEMA}'`,
+      "< \"$SYMPHIFONY_PROMPT_FILE\"",
+    ].join(" ");
+  }
   return "";
 }
 

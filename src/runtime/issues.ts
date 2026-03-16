@@ -139,13 +139,14 @@ export function loadSeedIssues(
 
 export function nextLocalIssueId(issues: IssueEntry[]): string {
   const maxId = issues.reduce((current, issue) => {
-    const match = issue.identifier.match(/^LOCAL-(\d+)$/);
+    // Support both old LOCAL-N and new #N formats
+    const match = issue.identifier.match(/^(?:LOCAL-|#)(\d+)$/);
     if (!match) return current;
     const parsed = Number.parseInt(match[1], 10);
     return Number.isFinite(parsed) ? Math.max(current, parsed) : current;
   }, 0);
 
-  return `LOCAL-${maxId + 1}`;
+  return `#${maxId + 1}`;
 }
 
 export function createIssueFromPayload(
@@ -154,7 +155,7 @@ export function createIssueFromPayload(
   workflowDefinition: WorkflowDefinition | null,
 ): IssueEntry {
   const identifier = toStringValue(payload.identifier, nextLocalIssueId(issues));
-  const id = toStringValue(payload.id, identifier);
+  const id = toStringValue(payload.id, identifier.replace(/^#/, "issue-"));
   const createdAt = now();
   const blockedBy = toStringArray(payload.blockedBy);
   const legacyBlockedBy = toStringArray(payload.blocked_by);
@@ -203,7 +204,7 @@ export function deriveConfig(args: string[]): RuntimeConfig {
   let pollIntervalMs = parseEnvNumber("SYMPHIFONY_POLL_INTERVAL_MS", 1200);
   let workerConcurrency = parsedConcurrency;
   let maxAttemptsDefault = parseEnvNumber("SYMPHIFONY_MAX_ATTEMPTS", 3);
-  let commandTimeoutMs = parseEnvNumber("SYMPHIFONY_AGENT_TIMEOUT_MS", 120000);
+  let commandTimeoutMs = parseEnvNumber("SYMPHIFONY_AGENT_TIMEOUT_MS", 600000);
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -222,12 +223,17 @@ export function deriveConfig(args: string[]): RuntimeConfig {
       if (!/^\d+$/.test(value)) fail(`Invalid value for --attempts: ${value}`);
       maxAttemptsDefault = parseIntArg(value, maxAttemptsDefault);
     }
+    if (arg === "--timeout") {
+      const value = args[i + 1] ?? "";
+      if (!/^\d+$/.test(value)) fail(`Invalid value for --timeout: ${value}`);
+      commandTimeoutMs = parseIntArg(value, commandTimeoutMs);
+    }
   }
 
   return {
     pollIntervalMs: clamp(pollIntervalMs, 200, 10_000),
     workerConcurrency: clamp(workerConcurrency, 1, 16),
-    commandTimeoutMs: clamp(commandTimeoutMs, 1_000, 600_000),
+    commandTimeoutMs: clamp(commandTimeoutMs, 1_000, 1_800_000),
     maxAttemptsDefault: clamp(maxAttemptsDefault, 1, 10),
     maxTurns: clamp(parseEnvNumber("SYMPHIFONY_AGENT_MAX_TURNS", 4), 1, 16),
     retryDelayMs: parseEnvNumber("SYMPHIFONY_RETRY_DELAY_MS", 3_000),
@@ -326,28 +332,30 @@ export function mergeStateWithSeed(
 ): RuntimeState {
   const previousMap = new Map((previous?.issues ?? []).map((issue) => [issue.id, issue]));
 
+  const seedIds = new Set(seedIssues.map((s) => s.id));
+
   const mergedIssues = seedIssues.map((seed) => {
     const saved = previousMap.get(seed.id);
     if (!saved) return seed;
 
+    // Persisted state takes precedence; seed only provides defaults for new fields
     return {
       ...seed,
+      ...saved,
+      // Re-normalize state to ensure it's valid
       state: normalizeState(saved.state),
-      history: saved.history,
+      // Clamp attempts within config bounds
       attempts: clamp(saved.attempts, 0, config.maxAttemptsDefault),
       maxAttempts: clamp(saved.maxAttempts, 1, config.maxAttemptsDefault),
-      nextRetryAt: toStringValue(saved.nextRetryAt),
-      startedAt: saved.startedAt,
-      completedAt: saved.completedAt,
-      updatedAt: saved.updatedAt,
-      workspacePath: saved.workspacePath,
-      workspacePreparedAt: saved.workspacePreparedAt,
-      lastError: saved.lastError,
-      durationMs: typeof saved.durationMs === "number" ? saved.durationMs : undefined,
-      commandExitCode: typeof saved.commandExitCode === "number" ? saved.commandExitCode : saved.commandExitCode,
-      commandOutputTail: toStringValue(saved.commandOutputTail),
     };
   });
+
+  // Preserve issues created via API that are not in the seed file
+  for (const saved of previous?.issues ?? []) {
+    if (!seedIds.has(saved.id)) {
+      mergedIssues.push(saved);
+    }
+  }
 
   dedupHistoryEntries(mergedIssues);
 

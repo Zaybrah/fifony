@@ -79,11 +79,49 @@ function extractOutputMarker(output: string, name: string): string {
   return match?.[1]?.trim() ?? "";
 }
 
+function tryParseJsonOutput(output: string): JsonRecord | null {
+  const trimmed = output.trim();
+  // --output-format json wraps the result in a JSON object with a "result" field
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const obj = parsed as JsonRecord;
+      // Claude --output-format json returns { result: "..." } — the result may itself be JSON
+      if (typeof obj.result === "string") {
+        try {
+          const inner = JSON.parse(obj.result) as unknown;
+          if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+            return inner as JsonRecord;
+          }
+        } catch {
+          // result is plain text, not JSON
+        }
+      }
+      // Direct JSON with status field (from --json-schema)
+      if (obj.status) return obj;
+    }
+  } catch {
+    // Not JSON output — fall through to legacy parsing
+  }
+  return null;
+}
+
 function readAgentDirective(workspacePath: string, output: string, success: boolean): AgentDirective {
   const fallbackStatus: AgentDirectiveStatus = success ? "done" : "failed";
   const resultFile = join(workspacePath, "symphifony-result.json");
   let resultPayload: JsonRecord = {};
 
+  // 1. Try structured JSON from stdout (claude --output-format json --json-schema)
+  const jsonOutput = tryParseJsonOutput(output);
+  if (jsonOutput?.status) {
+    return {
+      status: normalizeAgentDirectiveStatus(jsonOutput.status, fallbackStatus),
+      summary: toStringValue(jsonOutput.summary) || toStringValue(jsonOutput.message) || "",
+      nextPrompt: toStringValue(jsonOutput.nextPrompt) || toStringValue(jsonOutput.next_prompt) || "",
+    };
+  }
+
+  // 2. Try symphifony-result.json file
   if (existsSync(resultFile)) {
     try {
       const parsed = JSON.parse(readFileSync(resultFile, "utf8")) as unknown;
@@ -95,6 +133,7 @@ function readAgentDirective(workspacePath: string, output: string, success: bool
     }
   }
 
+  // 3. Fall back to file + output marker parsing
   const status = normalizeAgentDirectiveStatus(
     resultPayload.status ?? extractOutputMarker(output, "SYMPHIFONY_STATUS"),
     fallbackStatus,
@@ -127,6 +166,7 @@ export function canRunIssue(issue: IssueEntry, running: Set<string>, state: Runt
 
   if (issue.state === "Todo" || issue.state === "Blocked") return true;
   if (issue.state === "In Progress" && issueHasResumableSession(issue)) return true;
+  if (issue.state === "In Review") return true;
 
   return false;
 }
@@ -150,10 +190,14 @@ function shouldSkipRoutingPath(relativePath: string): boolean {
     || base === "symphifony-prompt.md"
     || base === "symphifony-result.json"
     || base === "WORKFLOW.local.md"
+    || base === ".symphifony-env.sh"
     || base.startsWith("symphifony-result-")
     || base.startsWith("symphifony-turn-")
     || base.startsWith("symphifony-session")
-    || base.startsWith("symphifony-pipeline");
+    || base.startsWith("symphifony-pipeline")
+    || base.startsWith("symphifony-skills")
+    || base.startsWith("symphifony-review-")
+    || base.startsWith("symphifony_");
 }
 
 function inferChangedWorkspacePaths(workspacePath: string, limit = 32): string[] {
@@ -1013,12 +1057,17 @@ export async function runIssueOnce(
   workflowDefinition: WorkflowDefinition | null,
 ): Promise<void> {
   const startTs = Date.now();
+  const isReview = issue.state === "In Review";
   const resuming = issue.state === "In Progress";
   running.add(issue.id);
   state.metrics.activeWorkers += 1;
   issue.startedAt = issue.startedAt ?? now();
 
-  if (resuming) {
+  if (isReview) {
+    issue.updatedAt = now();
+    issue.history.push(`[${issue.updatedAt}] Review stage started for ${issue.identifier}.`);
+    addEvent(state, issue.id, "progress", `Review started for ${issue.identifier}.`);
+  } else if (resuming) {
     issue.updatedAt = now();
     issue.history.push(`[${issue.updatedAt}] Resuming persisted runner for ${issue.identifier}.`);
     addEvent(state, issue.id, "progress", `Runner resumed for ${issue.identifier}.`);
@@ -1046,6 +1095,73 @@ export async function runIssueOnce(
     addEvent(state, issue.id, "info", `Workspace ready at ${workspacePath}.`);
 
     const routedProviders = getEffectiveAgentProviders(state, issue, workflowDefinition);
+
+    if (isReview) {
+      // ── Review stage: run only the reviewer provider ──────────────────
+      const reviewer = routedProviders.find((p) => p.role === "reviewer");
+      if (!reviewer) {
+        // No reviewer configured → auto-approve
+        await transitionIssueState(issue, "Done", `No reviewer configured; auto-approved for ${issue.identifier}.`);
+        addEvent(state, issue.id, "runner", `Issue ${issue.identifier} auto-approved (no reviewer provider).`);
+        issue.completedAt = now();
+        issue.lastError = undefined;
+        return;
+      }
+
+      addEvent(state, issue.id, "info", `Review provider: ${reviewer.role}:${reviewer.provider}${reviewer.profile ? `:${reviewer.profile}` : ""}.`);
+
+      const reviewPrompt = [
+        `Review the work done for ${issue.identifier}.`,
+        "",
+        "Title: " + issue.title,
+        "Description: " + (issue.description || "(none)"),
+        "",
+        `Workspace: ${workspacePath}`,
+        "",
+        "Inspect all changes in the workspace and determine if the issue is properly resolved.",
+        "If the work is acceptable, emit SYMPHIFONY_STATUS=done.",
+        "If rework is needed, emit SYMPHIFONY_STATUS=continue and provide actionable feedback in nextPrompt.",
+        "If the work is fundamentally broken, emit SYMPHIFONY_STATUS=blocked.",
+      ].join("\n");
+
+      const reviewPromptFile = join(workspacePath, "symphifony-review-prompt.md");
+      writeFileSync(reviewPromptFile, `${reviewPrompt}\n`, "utf8");
+
+      (state as any)._workflowDefinition = workflowDefinition;
+      const reviewResult = await runAgentSession(state, issue, reviewer, 1, workspacePath, reviewPrompt, reviewPromptFile);
+
+      issue.durationMs = (issue.durationMs ?? 0) + (Date.now() - startTs);
+      issue.commandExitCode = reviewResult.code;
+      issue.commandOutputTail = reviewResult.output;
+
+      if (reviewResult.success) {
+        await transitionIssueState(issue, "Done", `Reviewer approved ${issue.identifier} in ${reviewResult.turns} turn(s).`);
+        addEvent(state, issue.id, "runner", `Issue ${issue.identifier} approved by reviewer → Done.`);
+        issue.completedAt = now();
+        issue.lastError = undefined;
+      } else if (reviewResult.continueRequested) {
+        // Reviewer wants rework → back to In Progress
+        await transitionIssueState(issue, "In Progress", `Reviewer requested rework for ${issue.identifier}.`);
+        issue.nextRetryAt = new Date(Date.now() + 1000).toISOString();
+        issue.lastError = undefined;
+        addEvent(state, issue.id, "runner", `Issue ${issue.identifier} sent back for rework by reviewer.`);
+      } else {
+        // Reviewer blocked or failed
+        issue.lastError = reviewResult.output;
+        issue.attempts += 1;
+        if (issue.attempts >= issue.maxAttempts) {
+          await transitionIssueState(issue, "Cancelled", `Review failed, max attempts reached for ${issue.identifier}.`);
+          addEvent(state, issue.id, "error", `Issue ${issue.identifier} cancelled after review failure.`);
+        } else {
+          issue.nextRetryAt = getNextRetryAt(issue, state.config.retryDelayMs);
+          await transitionIssueState(issue, "Blocked", `Review failed for ${issue.identifier}. Retry at ${issue.nextRetryAt}.`);
+          addEvent(state, issue.id, "error", `Issue ${issue.identifier} blocked after review failure.`);
+        }
+      }
+      return;
+    }
+
+    // ── Normal execution (Todo / In Progress / Blocked) ───────────────
     addEvent(state, issue.id, "info",
       `Capability routing selected ${routedProviders.map((p) => `${p.role}:${p.provider}${p.profile ? `:${p.profile}` : ""}`).join(", ")}.`);
 
@@ -1061,12 +1177,10 @@ export async function runIssueOnce(
     issue.commandOutputTail = runResult.output;
 
     if (runResult.success) {
-      await transitionIssueState(issue, "In Review", `Agent session finished successfully in ${runResult.turns} turn(s) for ${issue.identifier}.`);
+      // Move to In Review — the reviewer will run as a separate scheduler pick
+      await transitionIssueState(issue, "In Review", `Agent execution finished in ${runResult.turns} turn(s) for ${issue.identifier}. Awaiting review.`);
       issue.lastError = undefined;
-      await sleep(250);
-      await transitionIssueState(issue, "Done", `Issue accepted by local review stage.`);
-      addEvent(state, issue.id, "runner", `Issue ${issue.identifier} moved to Done.`);
-      issue.completedAt = now();
+      addEvent(state, issue.id, "runner", `Issue ${issue.identifier} moved to In Review.`);
     } else if (runResult.continueRequested) {
       issue.updatedAt = now();
       issue.commandExitCode = runResult.code;

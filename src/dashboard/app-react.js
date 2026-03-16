@@ -14,7 +14,9 @@ const h = React.createElement;
 const STATES = ["Todo", "In Progress", "In Review", "Blocked", "Done", "Cancelled"];
 const ISSUE_VIEWS = ["kanban", "list"];
 const EVENT_KINDS = ["all", "info", "state", "progress", "error", "manual", "runner"];
-const THEME_OPTIONS = ["auto", "cupcake", "night", "sunset", "black"];
+const PINNED_THEMES = ["auto", "light", "dark"];
+const OTHER_THEMES = ["black", "cupcake", "night", "sunset"].sort((a, b) => a.localeCompare(b));
+const THEME_OPTIONS = [...PINNED_THEMES, ...OTHER_THEMES];
 const VIEW_ITEMS = [
   { id: "issues", label: "Issues", icon: "inbox" },
   { id: "events", label: "Events", icon: "settings" },
@@ -65,7 +67,7 @@ function writeIssueLayoutToLocation(mode) {
   window.history.replaceState({}, "", url.toString());
 }
 
-function resolveTheme(v) { return v === "auto" ? (SYSTEM_THEME_QUERY.matches ? "night" : "cupcake") : v; }
+function resolveTheme(v) { return v === "auto" ? (SYSTEM_THEME_QUERY.matches ? "dark" : "light") : v; }
 function normalizeTheme(v) { return THEME_OPTIONS.includes(v) ? v : "auto"; }
 function safeJson(v) { try { return JSON.parse(v); } catch { return null; } }
 function normalizeCsv(v) { return typeof v === "string" ? v.split(",").map((s) => s.trim()).filter(Boolean) : []; }

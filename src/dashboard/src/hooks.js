@@ -95,17 +95,17 @@ export function useRuntimeWebSocket(onMessage) {
   return status;
 }
 
-/** Fetch full runtime state with polling fallback. */
-export function useRuntimeState({ enabledPoll = true } = {}) {
+/** Fetch full runtime state with polling. */
+export function useRuntimeState({ pollInterval = 3000 } = {}) {
   return useQuery({
     queryKey: ["runtime-state"],
     queryFn: () => api.get("/state"),
-    refetchInterval: enabledPoll ? 3000 : false,
+    refetchInterval: pollInterval,
   });
 }
 
 /** Fetch filtered event feed. */
-export function useRuntimeEvents(kind, issueId, enabledPoll = true) {
+export function useRuntimeEvents(kind, issueId, pollInterval = 2500) {
   const params = new URLSearchParams();
   if (kind && kind !== "all") params.set("kind", kind);
   if (issueId && issueId !== "all") params.set("issueId", issueId);
@@ -113,7 +113,7 @@ export function useRuntimeEvents(kind, issueId, enabledPoll = true) {
   return useQuery({
     queryKey: ["runtime-events", kind, issueId],
     queryFn: () => api.get(`/events/feed${params.size ? `?${params}` : ""}`),
-    refetchInterval: enabledPoll ? 2500 : false,
+    refetchInterval: pollInterval,
   });
 }
 
@@ -137,13 +137,15 @@ export function useParallelism() {
 
 // ── Theme ───────────────────────────────────────────────────────────────────
 
-const THEME_OPTIONS = ["auto", "cupcake", "night", "sunset", "black"];
+const PINNED_THEMES = ["auto", "light", "dark"];
+const OTHER_THEMES = ["black", "cupcake", "night", "sunset"].sort((a, b) => a.localeCompare(b));
+const THEME_OPTIONS = [...PINNED_THEMES, ...OTHER_THEMES];
 const THEME_STORAGE_KEY = "symphifony-theme";
 const SYSTEM_DARK_QUERY = window.matchMedia("(prefers-color-scheme: dark)");
 
 function resolveTheme(value) {
   return value === "auto"
-    ? SYSTEM_DARK_QUERY.matches ? "night" : "cupcake"
+    ? SYSTEM_DARK_QUERY.matches ? "dark" : "light"
     : value;
 }
 

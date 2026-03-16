@@ -1,4 +1,5 @@
 import { appendFileTail, getNestedRecord, getNestedString } from "./helpers.ts";
+import { logger } from "./logger.ts";
 import { detectAvailableProviders, normalizeAgentProvider, resolveAgentCommand } from "./providers.ts";
 import type { RuntimeConfig, WorkflowDefinition } from "./types.ts";
 import { env } from "node:process";
@@ -117,7 +118,8 @@ function parseCandidate(raw: string, expectedField: EnhancementField): string {
       typeof parsed.text === "string" ? parsed.text.trim() :
       "";
     const field = parsed.field;
-    if (value && (!field || field === expectedField)) {
+    const isPlaceholder = /^\.{2,}$/.test(value);
+    if (value && !isPlaceholder && (!field || field === expectedField)) {
       return value;
     }
     if (typeof parsed.result === "string") {
@@ -198,6 +200,7 @@ async function runProviderCommand(
   prompt: string,
   title: string,
   description: string,
+  field: EnhancementField,
   timeoutMs: number,
 ): Promise<string> {
   const tempDir = mkdtempSync(join(tmpdir(), "symphifony-enhance-"));
@@ -330,9 +333,12 @@ export async function enhanceIssueField(
         prompt,
         title,
         description,
+        field,
         config.commandTimeoutMs,
       );
+      logger.info({ provider: selectedProvider, field, rawOutput: output.slice(0, 2000) }, "Enhance raw output");
       const value = parseEnhancerOutput(output, field);
+      logger.info({ provider: selectedProvider, field, parsedValue: value }, "Enhance parsed value");
       return { field, value, provider: selectedProvider };
     } catch (error) {
       errors.push(

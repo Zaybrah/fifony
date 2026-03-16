@@ -5,9 +5,12 @@ import type {
   IssueEntry,
   WorkflowDefinition,
 } from "./types.ts";
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   FRONTEND_DIR,
   FRONTEND_INDEX,
+  SOURCE_ROOT,
 } from "./constants.ts";
 import { NATIVE_RESOURCE_CONFIGS } from "./resources/index.ts";
 import { now, readTextOrNull, clamp, toStringValue } from "./helpers.ts";
@@ -28,6 +31,7 @@ import {
   transitionIssueState,
 } from "./issues.ts";
 import { detectAvailableProviders } from "./providers.ts";
+import { collectProvidersUsage } from "./providers-usage.ts";
 import { analyzeParallelizability } from "./scheduler.ts";
 import { setApiRuntimeContext } from "./api-runtime-context.ts";
 import { TERMINAL_STATES } from "./constants.ts";
@@ -289,6 +293,15 @@ export async function startApiServer(
       "GET /parallelism": async (c: any) => {
         return c.json(analyzeParallelizability(state.issues));
       },
+      "GET /providers/usage": async (c: any) => {
+        try {
+          const usage = collectProvidersUsage();
+          return c.json(usage);
+        } catch (error) {
+          logger.error({ err: error }, "Failed to collect providers usage");
+          return c.json({ providers: [] }, 500);
+        }
+      },
       "POST /config/concurrency": async (c: any) => {
         const payload = await c.req.json() as JsonRecord;
         const value = typeof payload.concurrency === "number" ? payload.concurrency : undefined;
@@ -333,6 +346,7 @@ export async function startApiServer(
 
           return c.json({ ok: true, field: result.field, value: result.value, provider: result.provider });
         } catch (error) {
+          logger.error({ err: error }, `Issue enhance failed: ${String(error)}`);
           return c.json(
             { ok: false, error: error instanceof Error ? error.message : String(error) },
             500,
@@ -382,6 +396,35 @@ export async function startApiServer(
         addEvent(state, undefined, "manual", "Manual refresh requested via API.");
         await persistState(state);
         return c.json({ queued: true, requestedAt: now() }, 202);
+      },
+      "GET /issues/:id/diff": async (c: any) => {
+        const issueId = parseIssue(c);
+        if (!issueId) return c.json({ ok: false, error: "Issue id is required." }, 400);
+        const issue = findIssue(issueId);
+        if (!issue) return c.json({ ok: false, error: "Issue not found." }, 404);
+        const wp = issue.workspacePath;
+        if (!wp || !existsSync(wp)) {
+          return c.json({ ok: true, diff: "", message: "No workspace found." });
+        }
+        if (!existsSync(SOURCE_ROOT)) {
+          return c.json({ ok: true, diff: "", message: "Source root not found." });
+        }
+        try {
+          const excludes = [
+            "symphifony-*", ".symphifony-*", "symphifony_*",
+            "WORKFLOW.local.md",
+          ].map((p) => `":(exclude)${p}"`).join(" ");
+          // git diff --no-index exits 1 when there are differences, which is expected
+          const cmd = `git diff --no-index --stat -- "${SOURCE_ROOT}" "${wp}" ${excludes} 2>/dev/null; echo "---"; git diff --no-index --no-color -- "${SOURCE_ROOT}" "${wp}" ${excludes} 2>/dev/null`;
+          const diff = execSync(cmd, { encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 10_000 }).trim();
+          return c.json({ ok: true, diff: diff || "(no changes)" });
+        } catch (error: any) {
+          // git diff --no-index exits 1 when diffs exist — that's the normal case
+          if (error.stdout) {
+            return c.json({ ok: true, diff: error.stdout.trim() || "(no changes)" });
+          }
+          return c.json({ ok: true, diff: "", message: `Diff failed: ${String(error.message || error)}` });
+        }
       },
       "GET /events/feed": async (c: any) => {
         const since = c.req.query("since");

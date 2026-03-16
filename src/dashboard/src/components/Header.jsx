@@ -1,21 +1,22 @@
 import { Wifi, WifiOff, Sun, Moon, CircleDot, LayoutGrid, Activity, Settings } from "lucide-react";
 import { timeAgo } from "../utils.js";
 
-const THEME_OPTIONS = ["auto", "cupcake", "night", "sunset", "black"];
+const PINNED_THEMES = ["auto", "light", "dark"];
+const OTHER_THEMES = ["black", "cupcake", "night", "sunset"].sort((a, b) => a.localeCompare(b));
+const THEME_OPTIONS = [...PINNED_THEMES, ...OTHER_THEMES];
 
 const NAV_ITEMS = [
   { id: "issues", label: "Issues", icon: LayoutGrid },
-  { id: "events", label: "Events", icon: Activity },
   { id: "runtime", label: "Runtime", icon: Settings },
 ];
 
-export function Header({ status, wsStatus, theme, onThemeChange, issueCount, sourceRepo, updatedAt, view, setView }) {
+export function Header({ status, wsStatus, theme, onThemeChange, issueCount, sourceRepo, updatedAt, view, setView, onToggleEvents, eventsOpen }) {
   const isWsConnected = wsStatus === "connected";
   const isOk = status === "ok";
   const resolvedTheme = theme === "auto"
-    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "night" : "cupcake")
+    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : theme;
-  const isDark = ["night", "sunset", "black"].includes(resolvedTheme);
+  const isDark = ["dark", "night", "sunset", "black"].includes(resolvedTheme);
 
   return (
     <div className="navbar bg-base-100 shadow-sm px-4">
@@ -45,9 +46,18 @@ export function Header({ status, wsStatus, theme, onThemeChange, issueCount, sou
         </ul>
       </div>
 
-      {/* Right side: status + theme */}
+      {/* Right side: events toggle + status + theme */}
       <div className="flex-none">
         <ul className="menu menu-horizontal px-1 items-center gap-0">
+          <li>
+            <button
+              className={`tooltip tooltip-bottom py-1 px-2 hidden md:flex ${eventsOpen ? "active" : ""}`}
+              data-tip="Events"
+              onClick={onToggleEvents}
+            >
+              <Activity className="size-4" />
+            </button>
+          </li>
           <li>
             <span className="tooltip tooltip-bottom py-1 px-2" data-tip={`API: ${status}`}>
               <CircleDot className={`size-3.5 ${isOk ? "text-success" : "text-warning"}`} />

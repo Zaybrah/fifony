@@ -6,14 +6,14 @@ import Header from "./components/Header";
 import StatsBar from "./components/StatsBar";
 import BoardView from "./components/BoardView";
 import ListView from "./components/ListView";
-import EventsView from "./components/EventsView";
+import EventsDrawer from "./components/EventsDrawer";
 import RuntimeView from "./components/RuntimeView";
 import CreateIssueDrawer from "./components/CreateIssueForm";
 import IssueDetailDrawer from "./components/IssueDetailDrawer";
 import Filters from "./components/Filters";
 import Fab from "./components/Fab";
 import MobileDock from "./components/MobileDock";
-import { LayoutGrid, Activity, Settings } from "lucide-react";
+import { LayoutGrid, Settings } from "lucide-react";
 
 const ISSUE_VIEWS = [
   { id: "kanban", label: "Kanban" },
@@ -22,7 +22,6 @@ const ISSUE_VIEWS = [
 
 const VIEWS = [
   { id: "issues", label: "Issues", icon: LayoutGrid },
-  { id: "events", label: "Events", icon: Activity },
   { id: "runtime", label: "Runtime Monitor", icon: Settings },
 ];
 
@@ -84,6 +83,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const [isEventsOpen, setIsEventsOpen] = useState(false);
   const [eventSnapshot, setEventSnapshot] = useState([]);
 
   const qc = useQueryClient();
@@ -96,8 +96,8 @@ export default function App() {
   const wsStatus = useRuntimeWebSocket(handleRuntimeSocketMessage);
   const liveMode = wsStatus === "connected";
 
-  const runtime = useRuntimeState({ enabledPoll: !liveMode });
-  const events = useRuntimeEvents(eventKind, eventIssueId, !liveMode);
+  const runtime = useRuntimeState({ pollInterval: liveMode ? 10000 : 3000 });
+  const events = useRuntimeEvents(eventKind, eventIssueId, liveMode ? 10000 : 2500);
   const providers = useProviders();
   const parallelism = useParallelism();
 
@@ -196,6 +196,8 @@ export default function App() {
     setIssueViewState(nextMode);
   }, []);
 
+  const toggleEvents = useCallback(() => setIsEventsOpen((prev) => !prev), []);
+
   if (runtime.isLoading && !runtime.data) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -222,6 +224,8 @@ export default function App() {
         updatedAt={data.updatedAt}
         view={view}
         setView={setView}
+        onToggleEvents={toggleEvents}
+        eventsOpen={isEventsOpen}
       />
 
       <div className="container mx-auto px-4 pb-8 flex-1 flex flex-col gap-4">
@@ -262,15 +266,6 @@ export default function App() {
                 onSelect={setSelectedIssue}
               />
             )
-          ) : view === "events" ? (
-            <EventsView
-              events={eventsData}
-              kind={eventKind}
-              setKind={setEventKind}
-              issueId={eventIssueId}
-              setIssueId={setEventIssueId}
-              issueOptions={issueOptions}
-            />
           ) : (
             <RuntimeView
               state={data}
@@ -290,7 +285,17 @@ export default function App() {
       </div>
 
       <Fab onClick={() => setIsCreateOpen(true)} />
-      <MobileDock view={view} setView={setView} />
+      <MobileDock view={view} setView={setView} onToggleEvents={toggleEvents} eventsOpen={isEventsOpen} />
+      <EventsDrawer
+        open={isEventsOpen}
+        onClose={() => setIsEventsOpen(false)}
+        events={eventsData}
+        kind={eventKind}
+        setKind={setEventKind}
+        issueId={eventIssueId}
+        setIssueId={setEventIssueId}
+        issueOptions={issueOptions}
+      />
       <CreateIssueDrawer
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
@@ -298,7 +303,13 @@ export default function App() {
         isLoading={createIssue.isPending}
         onToast={showToast}
       />
-      <IssueDetailDrawer issue={selectedIssue} onClose={() => setSelectedIssue(null)} />
+      <IssueDetailDrawer
+        issue={selectedIssue}
+        onClose={() => setSelectedIssue(null)}
+        onStateChange={(id, nextState) => updateState.mutate({ id, state: nextState })}
+        onRetry={(id) => retryMut.mutate(id)}
+        onCancel={(id) => cancelMut.mutate(id)}
+      />
     </div>
   );
 }

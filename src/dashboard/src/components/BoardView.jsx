@@ -72,9 +72,6 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect }
                     <IssueCard
                       key={issue.id}
                       issue={issue}
-                      onStateChange={onStateChange}
-                      onRetry={onRetry}
-                      onCancel={onCancel}
                       onSelect={onSelect}
                     />
                   ))
