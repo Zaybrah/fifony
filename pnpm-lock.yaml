@@ -38,12 +38,12 @@ importers:
       react-dom:
         specifier: ^19.2.4
         version: 19.2.4(react@19.2.4)
+      recker:
+        specifier: ^1.0.86
+        version: 1.0.86(ws@8.19.0)
       s3db.js:
         specifier: 21.2.10
         version: 21.2.10(ajv@8.18.0)(node-cron@4.2.1)(ws@8.19.0)(zod-to-json-schema@3.25.1(zod@4.3.6))(zod@4.3.6)
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
       yaml:
         specifier: ^2.8.2
         version: 2.8.2
@@ -57,6 +57,9 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
