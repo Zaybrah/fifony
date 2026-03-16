@@ -65,7 +65,7 @@ function RootLayout() {
         </div>
       )}
       {ctx.confetti && (
-        <Confetti x={ctx.confetti.x} y={ctx.confetti.y} active onDone={() => ctx.clearConfetti?.()} />
+        <Confetti x={ctx.confetti.x} y={ctx.confetti.y} count={ctx.confetti.count} active onDone={() => ctx.clearConfetti?.()} />
       )}
 
       <Header
@@ -75,6 +75,7 @@ function RootLayout() {
         onToggleEvents={ctx.toggleEvents}
         eventsOpen={ctx.isEventsOpen}
         wsStatus={ctx.wsStatus}
+        notifications={ctx.notifications}
       />
       <PwaBanner pwa={ctx.pwa} />
 

@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { env } from "node:process";
 import { parse as parseYaml } from "yaml";
 import type { IssueState, JsonRecord } from "./types.ts";
@@ -25,26 +25,11 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function resolveEnvVar(value: string): string {
+function resolveEnvVar(value: string): string {
   if (!value.startsWith("$")) return value;
   const varName = value.slice(1);
   const resolved = env[varName];
   return resolved && resolved.trim().length > 0 ? resolved.trim() : "";
-}
-
-export function expandPath(value: string): string {
-  let result = value;
-  // ~ home expansion
-  if (result.startsWith("~")) {
-    result = result.replace(/^~/, env.HOME || env.USERPROFILE || "~");
-  }
-  // $VAR expansion for path values
-  if (result.includes("$")) {
-    result = result.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_match, varName: string) => {
-      return env[varName] || "";
-    });
-  }
-  return result;
 }
 
 export function toStringValue(value: unknown, fallback = ""): string {
@@ -161,10 +146,6 @@ export function getNestedString(source: unknown, key: string, fallback = ""): st
 export function getNestedNumber(source: unknown, key: string, fallback: number): number {
   if (!source || typeof source !== "object" || Array.isArray(source)) return fallback;
   return toNumberValue((source as JsonRecord)[key], fallback);
-}
-
-export function appendLog(logPath: string, entry: string): void {
-  appendFileSync(logPath, `${now()} [fifony-local-ts] ${entry}\n`, "utf8");
 }
 
 export function debugBoot(message: string): void {

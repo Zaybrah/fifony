@@ -274,8 +274,14 @@ export function RuntimeView({ state, providers, parallelism, onRefresh, issues: 
 
       {/* Empty state */}
       {running.length === 0 && queued.length === 0 && completed.length === 0 && (
-        <div className="text-sm opacity-40 text-center py-12">
-          No agents running. Create an issue to get started.
+        <div className="flex flex-col items-center justify-center py-16 animate-fade-in-up">
+          <div className="bg-primary/10 rounded-full p-5 mb-4">
+            <Cpu className="size-10 text-primary opacity-60" />
+          </div>
+          <h3 className="text-base font-semibold mb-1">No agents running</h3>
+          <p className="text-sm opacity-50 text-center max-w-xs">
+            Approve a plan on an issue to start an agent, or create a new issue from the Kanban board.
+          </p>
         </div>
       )}
     </div>

@@ -15,6 +15,7 @@ function ColumnBadge({ count, className }) {
       return () => clearTimeout(t);
     }
   }, [count]);
+  if (count === 0) return null;
   return (
     <span className={`badge badge-xs ${className} ${bumping ? "animate-count-bump" : ""}`}>
       {count}
@@ -35,6 +36,15 @@ const COLUMN_BADGE = {
   Cancelled: "badge-neutral",
 };
 
+const COLUMN_ACCENT = {
+  Planning: "kanban-col-planning",
+  "In Progress": "kanban-col-in-progress",
+  "In Review": "kanban-col-in-review",
+  Blocked: "kanban-col-blocked",
+  Done: "kanban-col-done",
+  Cancelled: "kanban-col-cancelled",
+};
+
 const EMPTY_CONFIG = {
   Planning: { icon: Lightbulb, desc: "Create an issue to start planning" },
   "In Progress": { icon: Play, desc: "Issues move here when agents start" },
@@ -43,6 +53,12 @@ const EMPTY_CONFIG = {
   Done: { icon: CheckCircle, desc: "Completed" },
   Cancelled: { icon: XCircle, desc: "Cancelled" },
 };
+
+function SkeletonCard({ delay = 0 }) {
+  return (
+    <div className="skeleton-card h-20 w-full rounded-lg" style={{ animationDelay: `${delay}ms` }} />
+  );
+}
 
 function DragGhost({ dragState, ghostRef }) {
   if (!dragState) return null;
@@ -61,7 +77,25 @@ function DragGhost({ dragState, ghostRef }) {
   );
 }
 
-function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColumn, getCardHandlers, onSelect }) {
+function PlanningEmptyState({ onCreateIssue }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 px-3 animate-fade-in-up">
+      <div className="bg-primary/10 rounded-full p-4 mb-3 animate-pulse-soft">
+        <Lightbulb className="size-8 text-primary" />
+      </div>
+      <h3 className="text-sm font-semibold mb-1">Start here</h3>
+      <p className="text-xs opacity-50 text-center mb-3">Create your first issue to begin</p>
+      {onCreateIssue && (
+        <button className="btn btn-primary btn-sm gap-1" onClick={onCreateIssue}>
+          <Plus className="size-3.5" />
+          New Issue
+        </button>
+      )}
+    </div>
+  );
+}
+
+function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColumn, getCardHandlers, onSelect, onCreateIssue, lastDroppedId, hasRunningAgents, totalIssues }) {
   const colRef = useRef(null);
 
   useEffect(() => {
@@ -74,8 +108,13 @@ function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColum
   const isSource = dragState?.sourceColumn === col;
   const isValid = dragState?.validColumns?.has(col) ?? false;
   const isDimmed = isDragging && !isValid && !isSource;
+  const isEmpty = issues.length === 0;
+  const isCollapsedEmpty = isEmpty && col !== "Planning" && totalIssues === 0;
 
-  let columnClass = "kanban-column bg-base-200 rounded-box p-3 flex flex-col min-h-0 overflow-hidden";
+  let columnClass = `kanban-column ${COLUMN_ACCENT[col] || ""} bg-base-200 rounded-box p-3 flex flex-col min-h-0 overflow-hidden`;
+  if (isCollapsedEmpty) {
+    columnClass += " kanban-column-collapsed";
+  }
   if (isDragging) {
     if (isOver && isValid) {
       columnClass += " kanban-column-drop-valid";
@@ -88,53 +127,62 @@ function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColum
 
   return (
     <div key={col} ref={colRef} className={columnClass}>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold uppercase tracking-wide opacity-70">
+      <div className="flex items-center justify-between mb-3 kanban-column-header">
+        <h3 className="text-xs font-semibold tracking-wide opacity-70 flex items-center gap-1.5">
           {col}
+          {col === "In Progress" && hasRunningAgents && (
+            <span className="issue-phase-dot" title="Agents working" />
+          )}
         </h3>
         <ColumnBadge count={issues.length} className={badgeClass} />
       </div>
 
-      <div className="space-y-2 flex-1 overflow-y-auto kanban-card-list">
-        {issues.length === 0 ? (
-          isOver && isValid ? (
-            <div className="kanban-drop-placeholder" />
-          ) : (
-            <EmptyState
-              icon={empty.icon}
-              title="No issues"
-              description={empty.desc}
-            />
-          )
-        ) : (
-          <div className="stagger-children space-y-2">
-            {issues.map((issue) => {
-              const beingDragged = dragState?.issueId === issue.id;
-              return (
-                <div
-                  key={issue.id}
-                  className={beingDragged ? "kanban-card-dragging-source" : ""}
-                >
-                  <IssueCard
-                    issue={issue}
-                    onSelect={onSelect}
-                    dragHandlers={getCardHandlers(issue, col)}
-                    isDragging={beingDragged}
-                  />
-                </div>
-              );
-            })}
-            {isOver && isValid && (
+      {!isCollapsedEmpty && (
+        <div className="space-y-2 flex-1 overflow-y-auto kanban-card-list">
+          {isEmpty ? (
+            isOver && isValid ? (
               <div className="kanban-drop-placeholder" />
-            )}
-          </div>
-        )}
-      </div>
+            ) : col === "Planning" && totalIssues === 0 ? (
+              <PlanningEmptyState onCreateIssue={onCreateIssue} />
+            ) : (
+              <div className="flex flex-col items-center py-6 opacity-30">
+                <empty.icon className="size-5 mb-1" />
+                <span className="text-[10px]">{empty.desc}</span>
+              </div>
+            )
+          ) : (
+            <div className="stagger-children space-y-2">
+              {issues.map((issue) => {
+                const beingDragged = dragState?.issueId === issue.id;
+                const justDropped = lastDroppedId === issue.id;
+                return (
+                  <div
+                    key={issue.id}
+                    className={`${beingDragged ? "kanban-card-dragging-source" : ""} ${justDropped ? "animate-pop" : ""}`}
+                  >
+                    <IssueCard
+                      issue={issue}
+                      onSelect={onSelect}
+                      dragHandlers={getCardHandlers(issue, col)}
+                      isDragging={beingDragged}
+                    />
+                  </div>
+                );
+              })}
+              {isOver && isValid && (
+                <div className="kanban-drop-placeholder" />
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect }) {
+export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, onCreateIssue, isLoading }) {
+  const [lastDroppedId, setLastDroppedId] = useState(null);
+
   const grouped = useMemo(() => {
     const buckets = Object.fromEntries(COLUMNS.map((c) => [c, []]));
     for (const issue of issues) {
@@ -147,6 +195,17 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect }
     return buckets;
   }, [issues]);
 
+  const hasRunningAgents = useMemo(() => {
+    return issues.some((i) => i.state === "Running");
+  }, [issues]);
+
+  const handleStateChange = useCallback((id, state) => {
+    setLastDroppedId(id);
+    const timer = setTimeout(() => setLastDroppedId(null), 400);
+    onStateChange(id, state);
+    return () => clearTimeout(timer);
+  }, [onStateChange]);
+
   const {
     dragState,
     ghostRef,
@@ -156,7 +215,7 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect }
     onBoardPointerUp,
     onBoardPointerCancel,
     shouldSuppressClick,
-  } = useDragAndDrop({ onStateChange });
+  } = useDragAndDrop({ onStateChange: handleStateChange });
 
   // Wrap onSelect to suppress clicks that follow a drag
   const guardedOnSelect = useCallback(
@@ -167,6 +226,29 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect }
     [onSelect, shouldSuppressClick]
   );
 
+  if (isLoading) {
+    return (
+      <div className="overflow-x-auto pb-2 flex-1 flex flex-col min-h-0">
+        <div
+          className="grid gap-3 flex-1 stagger-children"
+          style={{
+            gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0, 1fr))`,
+            minWidth: `${COLUMNS.length * 180}px`,
+          }}
+        >
+          {COLUMNS.map((col, i) => (
+            <div key={col} className="bg-base-200 rounded-box p-3 flex flex-col gap-2">
+              <div className="skeleton-line h-4 w-20 mb-2" />
+              <SkeletonCard delay={i * 80} />
+              <SkeletonCard delay={i * 80 + 120} />
+              {i < 2 && <SkeletonCard delay={i * 80 + 240} />}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="overflow-x-auto pb-2 flex-1 flex flex-col min-h-0"
@@ -176,7 +258,7 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect }
       style={{ touchAction: dragState ? "none" : undefined }}
     >
       <div
-        className={`grid gap-3 flex-1 ${dragState ? "kanban-dragging" : ""}`}
+        className={`grid gap-3 flex-1 stagger-children ${dragState ? "kanban-dragging" : ""}`}
         style={{
           gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0, 1fr))`,
           minWidth: `${COLUMNS.length * 180}px`,
@@ -193,6 +275,10 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect }
             registerColumn={registerColumn}
             getCardHandlers={getCardHandlers}
             onSelect={guardedOnSelect}
+            onCreateIssue={onCreateIssue}
+            lastDroppedId={lastDroppedId}
+            hasRunningAgents={hasRunningAgents}
+            totalIssues={issues.length}
           />
         ))}
       </div>

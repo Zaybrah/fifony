@@ -1,23 +1,49 @@
-import React, { useRef, useEffect, useState, useMemo } from "react";
-import { Zap, TrendingUp, Coins } from "lucide-react";
+import React, { useRef, useEffect, useState } from "react";
+import { Zap, TrendingUp, Layers } from "lucide-react";
+import { useTokenAnalytics } from "../hooks.js";
 
+/**
+ * Smooth count-up animation using requestAnimationFrame.
+ * Receives a raw number, formats at each frame with K/M suffix, animates over 600ms.
+ */
 function AnimatedCount({ value, className = "" }) {
-  const [display, setDisplay] = useState(value);
-  const [bumping, setBumping] = useState(false);
+  const [display, setDisplay] = useState(() => formatTokens(value));
   const prevRef = useRef(value);
+  const rafRef = useRef(null);
 
   useEffect(() => {
-    if (prevRef.current !== value) {
-      prevRef.current = value;
-      setBumping(true);
-      setDisplay(value);
-      const t = setTimeout(() => setBumping(false), 300);
-      return () => clearTimeout(t);
+    const from = prevRef.current || 0;
+    const to = value || 0;
+    prevRef.current = to;
+
+    if (from === to) {
+      setDisplay(formatTokens(to));
+      return;
     }
+
+    const duration = 600;
+    const start = performance.now();
+
+    const tick = (now) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = from + (to - from) * eased;
+      setDisplay(formatTokens(Math.round(current)));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(rafRef.current);
   }, [value]);
 
   return (
-    <span className={`${className} inline-block ${bumping ? "animate-count-bump" : ""}`}>
+    <span className={`${className} inline-block tabular-nums`}>
       {display}
     </span>
   );
@@ -30,123 +56,120 @@ function formatTokens(n) {
   return String(n);
 }
 
-function formatCost(n) {
-  if (!n || n === 0) return "-";
-  if (n < 0.01) return `$${n.toFixed(4)}`;
-  return `$${n.toFixed(2)}`;
+/** Stacked pill group showing planner / executor / reviewer token split. */
+function PhaseBreakdown({ byPhase, compact = false }) {
+  if (!byPhase) return null;
+
+  const phases = [
+    { key: "planner", label: "Plan", color: "bg-info", textColor: "text-info" },
+    { key: "executor", label: "Exec", color: "bg-primary", textColor: "text-primary" },
+    { key: "reviewer", label: "Review", color: "bg-secondary", textColor: "text-secondary" },
+  ];
+
+  const total = phases.reduce((sum, p) => sum + (byPhase[p.key]?.totalTokens || 0), 0);
+  if (total === 0) return null;
+
+  return (
+    <div className={compact ? "flex flex-col gap-1" : "flex flex-col gap-1.5"}>
+      {/* Stacked bar */}
+      <div className="flex h-2 rounded-full overflow-hidden bg-base-300 w-full min-w-[100px]">
+        {phases.map((p) => {
+          const tokens = byPhase[p.key]?.totalTokens || 0;
+          const pct = (tokens / total) * 100;
+          if (pct === 0) return null;
+          return (
+            <div
+              key={p.key}
+              className={`${p.color} opacity-80 transition-all duration-500`}
+              style={{ width: `${pct}%` }}
+              title={`${p.label}: ${formatTokens(tokens)} (${Math.round(pct)}%)`}
+            />
+          );
+        })}
+      </div>
+      {/* Labels */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {phases.map((p) => {
+          const tokens = byPhase[p.key]?.totalTokens || 0;
+          if (tokens === 0) return null;
+          return (
+            <span key={p.key} className="flex items-center gap-1 text-[10px]">
+              <span className={`inline-block w-2 h-2 rounded-full ${p.color} shrink-0`} />
+              <span className="opacity-60">{p.label}</span>
+              <span className="font-mono opacity-80">{formatTokens(tokens)}</span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-// Tiny inline sparkline bar chart (no dependency)
+/** Tiny inline sparkline bar chart using server-provided daily data. */
 function MiniBarChart({ data, height = 32, className = "" }) {
   if (!data || data.length === 0) return null;
-  const max = Math.max(...data.map((d) => d.total), 1);
+  const max = Math.max(...data.map((d) => d.totalTokens || 0), 1);
   const barWidth = Math.max(2, Math.floor(100 / data.length));
 
   return (
     <div className={`flex items-end gap-px ${className}`} style={{ height }}>
       {data.map((d, i) => {
-        const h = Math.max(1, Math.round((d.total / max) * height));
+        const h = Math.max(1, Math.round(((d.totalTokens || 0) / max) * height));
+        const label = d.date
+          ? new Date(d.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" })
+          : `Day ${i + 1}`;
         return (
           <div
-            key={i}
-            className="flex flex-col justify-end gap-px rounded-t-sm"
-            style={{ width: `${barWidth}%`, height: "100%" }}
-            title={`${d.label}: ${formatTokens(d.total)}`}
-          >
-            {Object.entries(d.byModel).map(([model, tokens]) => {
-              const modelH = Math.max(1, Math.round((tokens / max) * height));
-              const color = model.includes("claude") ? "bg-primary" : model.includes("gpt") || model.includes("codex") ? "bg-secondary" : "bg-accent";
-              return (
-                <div key={model} className={`${color} rounded-t-sm w-full opacity-80`} style={{ height: modelH }} />
-              );
-            })}
-          </div>
+            key={d.date || i}
+            className="bg-primary rounded-t-sm opacity-70 transition-all duration-500"
+            style={{ width: `${barWidth}%`, height: h }}
+            title={`${label}: ${formatTokens(d.totalTokens || 0)}`}
+          />
         );
       })}
     </div>
   );
 }
 
-// Build daily token data from issues
-function buildDailyTokens(issues, days = 7) {
-  const now = new Date();
-  const buckets = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setUTCDate(d.getUTCDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    buckets.push({ key, label: d.toLocaleDateString(undefined, { weekday: "short" }), total: 0, byModel: {} });
-  }
-
-  const bucketMap = Object.fromEntries(buckets.map((b) => [b.key, b]));
-
-  for (const issue of issues) {
-    if (!issue.usage?.tokens) continue;
-    // Attribute tokens to completion date or updated date
-    const dateStr = (issue.completedAt || issue.updatedAt || "").slice(0, 10);
-    const bucket = bucketMap[dateStr];
-    if (!bucket) continue;
-
-    for (const [model, tokens] of Object.entries(issue.usage.tokens)) {
-      bucket.byModel[model] = (bucket.byModel[model] || 0) + tokens;
-      bucket.total += tokens;
-    }
-  }
-
-  return buckets;
-}
-
 export function StatsBar({ metrics, total, issues = [], compact = false }) {
-  // Aggregate token usage across all issues
-  const { totalTokens, totalCost, byModel, dailyData } = useMemo(() => {
-    let totalTokens = 0;
-    let totalCost = 0;
-    const byModel = {};
+  const { data: analytics } = useTokenAnalytics();
 
-    for (const issue of issues) {
-      if (issue.tokenUsage) {
-        totalTokens += issue.tokenUsage.totalTokens || 0;
-        totalCost += issue.tokenUsage.costUsd || 0;
-      }
-      if (issue.usage?.tokens) {
-        for (const [model, tokens] of Object.entries(issue.usage.tokens)) {
-          byModel[model] = (byModel[model] || 0) + tokens;
-        }
-      }
-    }
-
-    const dailyData = buildDailyTokens(issues, 7);
-    return { totalTokens, totalCost, byModel, dailyData };
-  }, [issues]);
-
-  const modelEntries = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
+  const totalTokens = analytics?.overall?.totalTokens || 0;
+  const byPhase = analytics?.byPhase || null;
+  const dailyData = analytics?.daily || [];
+  const byModel = analytics?.byModel || {};
   const hasTokenData = totalTokens > 0;
+
+  const modelEntries = Object.entries(byModel)
+    .map(([model, data]) => [model, data?.totalTokens || 0])
+    .sort((a, b) => b[1] - a[1]);
 
   if (compact) {
     return (
       <div className="flex items-stretch gap-3 bg-base-200 rounded-box animate-fade-in overflow-hidden">
-        {/* Tokens + Cost */}
+        {/* Tokens */}
         <div className="flex items-center gap-5 px-4 py-2.5">
           <div className="flex flex-col">
             <span className="text-[10px] uppercase tracking-wide opacity-40">Tokens</span>
             <span className="text-base font-bold font-mono leading-tight flex items-center gap-1.5">
               <Zap className="size-3.5 text-primary" />
-              <AnimatedCount value={formatTokens(totalTokens)} />
-            </span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wide opacity-40">Cost</span>
-            <span className="text-base font-bold font-mono leading-tight flex items-center gap-1.5">
-              <Coins className="size-3.5 text-secondary" />
-              <AnimatedCount value={formatCost(totalCost)} />
+              <AnimatedCount value={totalTokens} />
             </span>
           </div>
         </div>
 
+        {/* Phase breakdown */}
+        {byPhase && (
+          <div className="flex flex-col justify-center py-2 px-3 border-l border-base-300 min-w-[140px]">
+            <span className="text-[10px] uppercase tracking-wide opacity-40 mb-1">Phases</span>
+            <PhaseBreakdown byPhase={byPhase} compact />
+          </div>
+        )}
+
         {/* Sparkline */}
         <div className="flex flex-col justify-center py-2 px-3 border-l border-base-300 min-w-[180px]">
           <span className="text-[10px] uppercase tracking-wide opacity-40 mb-1">Last 7 days</span>
-          {hasTokenData ? (
+          {hasTokenData && dailyData.length > 0 ? (
             <MiniBarChart data={dailyData} height={32} />
           ) : (
             <div className="text-xs opacity-20 h-8 flex items-center">No data yet</div>
@@ -174,9 +197,11 @@ export function StatsBar({ metrics, total, issues = [], compact = false }) {
         )}
 
         {/* Issue count */}
-        <div className="flex items-center px-4 ml-auto">
-          <span className="text-xs opacity-40">{issues.length} issues</span>
-        </div>
+        {issues.length > 0 && (
+          <div className="flex items-center px-4 ml-auto">
+            <span className="text-xs opacity-40">{issues.length} issues</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -190,25 +215,29 @@ export function StatsBar({ metrics, total, issues = [], compact = false }) {
         </div>
         <div className="stat-title">Tokens Used</div>
         <div className="stat-value text-lg">
-          <AnimatedCount value={formatTokens(totalTokens)} />
+          <AnimatedCount value={totalTokens} />
         </div>
         <div className="stat-desc">
           {hasTokenData ? `${issues.length} issues` : "No token data yet"}
         </div>
       </div>
 
-      {/* Cost */}
+      {/* Phase breakdown */}
       <div className="stat">
-        <div className="stat-figure text-secondary hidden sm:inline">
-          <Coins className="size-7" />
+        <div className="stat-figure text-info hidden sm:inline">
+          <Layers className="size-7" />
         </div>
-        <div className="stat-title">Estimated Cost</div>
-        <div className="stat-value text-lg">
-          <AnimatedCount value={formatCost(totalCost)} />
+        <div className="stat-title">Phase Split</div>
+        <div className="stat-value p-0">
+          {byPhase ? (
+            <PhaseBreakdown byPhase={byPhase} />
+          ) : (
+            <div className="text-sm opacity-30 py-1">--</div>
+          )}
         </div>
         <div className="stat-desc">
           {modelEntries.length > 0
-            ? modelEntries.map(([m, t]) => `${m.split("-").pop()}: ${formatTokens(t)}`).join(" · ")
+            ? modelEntries.map(([m, t]) => `${m.split("-").pop()}: ${formatTokens(t)}`).join(" \u00b7 ")
             : "Across all models"
           }
         </div>
@@ -221,10 +250,10 @@ export function StatsBar({ metrics, total, issues = [], compact = false }) {
         </div>
         <div className="stat-title">Last 7 days</div>
         <div className="stat-value p-0">
-          {hasTokenData ? (
+          {hasTokenData && dailyData.length > 0 ? (
             <MiniBarChart data={dailyData} height={36} />
           ) : (
-            <div className="text-sm opacity-30 py-1">—</div>
+            <div className="text-sm opacity-30 py-1">--</div>
           )}
         </div>
         <div className="stat-desc">

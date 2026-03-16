@@ -31,6 +31,17 @@ html.theme-transitioning * {
   transition-timing-function: ease !important;
 }
 
+/* ── Typography — Fifony identity ─────────────────────────────────────── */
+
+h1, h2, h3, .stat-value, .fifony-wordmark {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+.fifony-wordmark {
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+
 /* ── Keyframe animations ───────────────────────────────────────────────── */
 
 @keyframes fade-in {
@@ -72,7 +83,7 @@ html.theme-transitioning * {
 
 @keyframes pop {
   0%   { transform: scale(1); }
-  50%  { transform: scale(1.15); }
+  40%  { transform: scale(1.06); }
   100% { transform: scale(1); }
 }
 
@@ -133,8 +144,8 @@ html.theme-transitioning * {
 }
 
 @keyframes fab-breathe {
-  0%, 100% { box-shadow: 0 4px 14px -3px oklch(var(--p) / 0.35); }
-  50%      { box-shadow: 0 4px 24px -2px oklch(var(--p) / 0.55); }
+  0%, 100% { box-shadow: 0 4px 16px -2px oklch(var(--p) / 0.4); }
+  50%      { box-shadow: 0 4px 28px 0px oklch(var(--p) / 0.6); }
 }
 
 @keyframes border-dash {
@@ -177,7 +188,7 @@ html.theme-transitioning * {
 .animate-view-enter    { animation: view-enter 0.3s ease-out both; }
 .animate-slide-out-right { animation: slide-out-right 0.25s ease-in both; }
 
-/* Stagger children — use with data-stagger on parent */
+/* Stagger children — use on parent container */
 .stagger-children > * {
   animation: fade-in-up 0.3s ease-out both;
 }
@@ -313,7 +324,7 @@ html.theme-transitioning * {
     ) 100% 0 / 1px 100% no-repeat;
 }
 
-/* ── Nav sliding indicator ─────────────────────────────────────────────── */
+/* ── Nav styling ──────────────────────────────────────────────────────── */
 
 .nav-indicator {
   position: absolute;
@@ -322,6 +333,22 @@ html.theme-transitioning * {
   background: oklch(var(--p));
   border-radius: 1px;
   transition: left 0.3s cubic-bezier(0.34, 1.3, 0.64, 1), width 0.3s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+.nav-link {
+  transition: background-color 0.15s ease, color 0.15s ease !important;
+  border-radius: var(--rounded-btn, 0.5rem);
+}
+
+.nav-link:hover:not(.nav-link-active) {
+  background-color: oklch(var(--b2) / 0.6) !important;
+}
+
+.nav-link-active,
+.menu li > .nav-link-active {
+  color: oklch(var(--p)) !important;
+  font-weight: 600;
+  background-color: oklch(var(--p) / 0.08) !important;
 }
 
 /* ── Reconnecting dots ─────────────────────────────────────────────────── */
@@ -402,9 +429,67 @@ html.theme-transitioning * {
   position: relative;
 }
 
-/* Column styles during drag */
+/* Column styles */
 .kanban-column {
   transition: box-shadow 0.2s ease, opacity 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+  border-top: 3px solid transparent;
+  min-height: 0;
+}
+
+.kanban-column:hover {
+  border-color: oklch(var(--bc) / 0.12);
+}
+
+/* ── Kanban column semantic accents ──────────────────────────────────── */
+
+.kanban-col-planning {
+  border-top-color: oklch(var(--in) / 0.4);
+}
+.kanban-col-planning .kanban-column-header {
+  color: oklch(var(--in));
+}
+
+.kanban-col-in-progress {
+  border-top-color: oklch(var(--p) / 0.5);
+}
+.kanban-col-in-progress .kanban-column-header {
+  color: oklch(var(--p));
+}
+
+.kanban-col-in-review {
+  border-top-color: oklch(var(--s) / 0.4);
+}
+.kanban-col-in-review .kanban-column-header {
+  color: oklch(var(--s));
+}
+
+.kanban-col-blocked {
+  border-top-color: oklch(var(--er) / 0.4);
+}
+.kanban-col-blocked .kanban-column-header {
+  color: oklch(var(--er));
+}
+
+.kanban-col-done {
+  border-top-color: oklch(var(--su) / 0.4);
+}
+.kanban-col-done .kanban-column-header {
+  color: oklch(var(--su));
+}
+
+.kanban-col-cancelled {
+  border-top-color: oklch(var(--bc) / 0.15);
+}
+
+/* Collapsed empty column — shrinks to header-only height in grid */
+.kanban-column-collapsed {
+  align-self: start !important;
+  flex: none !important;
+  opacity: 0.5;
+}
+
+.kanban-column-collapsed:hover {
+  opacity: 0.7;
 }
 
 .kanban-column-drop-valid {
@@ -439,6 +524,34 @@ html.theme-transitioning * {
 .kanban-dragging {
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* ── Issue card live indicators ────────────────────────────────────────── */
+
+.issue-heartbeat-bar {
+  height: 3px;
+  background: oklch(var(--p));
+  border-radius: 0 0 var(--rounded-box, 1rem) var(--rounded-box, 1rem);
+}
+
+.issue-phase-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: oklch(var(--p));
+  animation: pulse-soft 1.5s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes done-flash {
+  0%   { border-color: oklch(var(--su)); box-shadow: 0 0 0 0 oklch(var(--su) / 0.4); }
+  40%  { border-color: oklch(var(--su)); box-shadow: 0 0 12px 3px oklch(var(--su) / 0.25); }
+  100% { border-color: oklch(var(--b3)); box-shadow: 0 0 0 0 oklch(var(--su) / 0); }
+}
+
+.issue-card-done-flash {
+  animation: done-flash 0.8s ease-out both !important;
 }
 
 /* ── Reduced motion ────────────────────────────────────────────────────── */

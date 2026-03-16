@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { Zap, Circle, Activity } from "lucide-react";
 import { timeAgo } from "../utils.js";
 
 const STATE_BADGE = {
@@ -25,12 +26,64 @@ const STATE_BORDER_LEFT = {
   Cancelled: "border-l-neutral",
 };
 
+function formatTokens(count) {
+  if (count == null || count === 0) return null;
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return String(count);
+}
+
+function derivePhase(tokensByPhase) {
+  if (!tokensByPhase) return null;
+  if (tokensByPhase.reviewer?.totalTokens > 0) return "Reviewing";
+  if (tokensByPhase.executor?.totalTokens > 0) return "Executing";
+  if (tokensByPhase.planner?.totalTokens > 0) return "Planning";
+  return null;
+}
+
 export function IssueCard({ issue, onSelect, dragHandlers, isDragging }) {
   const isRunning = issue.state === "Running";
+  const isInReview = issue.state === "In Review";
+  const showTokens = isRunning || isInReview;
+
+  // Track previous token count for bump animation
+  const prevTokensRef = useRef(issue.tokenUsage?.totalTokens);
+  const [tokenBump, setTokenBump] = useState(false);
+
+  // Track completion flash
+  const prevStateRef = useRef(issue.state);
+  const [completionFlash, setCompletionFlash] = useState(false);
+
+  useEffect(() => {
+    const currentTokens = issue.tokenUsage?.totalTokens;
+    if (currentTokens != null && currentTokens !== prevTokensRef.current) {
+      setTokenBump(true);
+      const timer = setTimeout(() => setTokenBump(false), 300);
+      prevTokensRef.current = currentTokens;
+      return () => clearTimeout(timer);
+    }
+  }, [issue.tokenUsage?.totalTokens]);
+
+  useEffect(() => {
+    if (prevStateRef.current !== "Done" && issue.state === "Done") {
+      setCompletionFlash(true);
+      const timer = setTimeout(() => setCompletionFlash(false), 800);
+      prevStateRef.current = issue.state;
+      return () => clearTimeout(timer);
+    }
+    prevStateRef.current = issue.state;
+  }, [issue.state]);
+
+  const formattedTokens = showTokens ? formatTokens(issue.tokenUsage?.totalTokens) : null;
+  const phase = isRunning ? derivePhase(issue.tokensByPhase) : null;
+  const outputTail = isRunning && issue.commandOutputTail
+    ? issue.commandOutputTail.trim().split("\n").pop()?.slice(-60) || null
+    : null;
 
   return (
     <div
-      className={`card card-compact bg-base-100 border border-base-300 border-l-[3px] ${STATE_BORDER_LEFT[issue.state] || ""} card-interactive cursor-pointer ${isRunning ? "animate-pulse-border" : ""} ${isDragging ? "kanban-card-source-opacity" : ""}`}
+      className={`card card-compact bg-base-100 border border-base-300 border-l-[3px] ${STATE_BORDER_LEFT[issue.state] || ""} card-interactive cursor-pointer ${isRunning ? "animate-pulse-border" : ""} ${isDragging ? "kanban-card-source-opacity" : ""} ${completionFlash ? "issue-card-done-flash" : ""}`}
+      style={{ overflow: "hidden" }}
       role="button"
       tabIndex={0}
       onClick={() => onSelect?.(issue)}
@@ -64,8 +117,45 @@ export function IssueCard({ issue, onSelect, dragHandlers, isDragging }) {
               <span>{issue.capabilityCategory}</span>
             </>
           )}
+
+          {/* Live token counter */}
+          {formattedTokens && (
+            <>
+              <span>·</span>
+              <span className={`inline-flex items-center gap-0.5 ${tokenBump ? "animate-count-bump" : ""}`}>
+                <Zap size={10} />
+                {formattedTokens} tokens
+              </span>
+            </>
+          )}
+
+          {/* Phase indicator */}
+          {phase && (
+            <>
+              <span>·</span>
+              <span className="inline-flex items-center gap-1 text-primary font-medium">
+                <span className="issue-phase-dot" />
+                {phase}
+              </span>
+            </>
+          )}
         </div>
+
+        {/* Recent command output preview */}
+        {outputTail && (
+          <div
+            className="font-mono text-[10px] leading-tight opacity-40 truncate mt-0.5"
+            title={issue.commandOutputTail}
+          >
+            {outputTail}
+          </div>
+        )}
       </div>
+
+      {/* Progress heartbeat bar for Running issues */}
+      {isRunning && (
+        <div className="issue-heartbeat-bar animate-pulse-soft" />
+      )}
     </div>
   );
 }

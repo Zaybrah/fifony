@@ -324,22 +324,3 @@ function SetupWizardSection() {
 // Export individual sections for use in tabbed layout
 export { ThemeSection, ConcurrencySection, ConnectionSection, PwaSection, NotificationsSection, SetupWizardSection };
 
-export function SettingsView({ theme, onThemeChange, concurrency, setConcurrency, saveConcurrency, savePending, status, wsStatus, pwa, notifications }) {
-  return (
-    <div className="space-y-5 stagger-children">
-      <ConnectionSection status={status} wsStatus={wsStatus} />
-      <NotificationsSection notifications={notifications} />
-      <PwaSection pwa={pwa} />
-      <ThemeSection theme={theme} onThemeChange={onThemeChange} />
-      <ConcurrencySection
-        concurrency={concurrency}
-        setConcurrency={setConcurrency}
-        saveConcurrency={saveConcurrency}
-        savePending={savePending}
-      />
-      <SetupWizardSection />
-    </div>
-  );
-}
-
-export default SettingsView;

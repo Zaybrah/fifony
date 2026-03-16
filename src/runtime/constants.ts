@@ -81,7 +81,6 @@ export const FRONTEND_DIR = `${PACKAGE_ROOT}/app/dist`;
 export const FRONTEND_INDEX = `${FRONTEND_DIR}/index.html`;
 export const FRONTEND_MANIFEST_JSON = `${FRONTEND_DIR}/manifest.webmanifest`;
 export const FRONTEND_SERVICE_WORKER_JS = `${FRONTEND_DIR}/service-worker.js`;
-export const FRONTEND_STYLES_CSS = `${FRONTEND_DIR}/styles.css`;
 export const FRONTEND_ICON_SVG = `${FRONTEND_DIR}/icon.svg`;
 export const FRONTEND_MASKABLE_ICON_SVG = `${FRONTEND_DIR}/icon-maskable.svg`;
 export const FRONTEND_OFFLINE_HTML = `${FRONTEND_DIR}/offline.html`;

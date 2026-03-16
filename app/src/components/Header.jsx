@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useLayoutEffect, useCallback } from "react
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Kanban, ListTodo, Activity, Bot, Sliders } from "lucide-react";
 import { timeAgo } from "../utils.js";
+import NotificationCenter from "./NotificationCenter.jsx";
 
 const NAV_ITEMS = [
   { to: "/kanban", label: "Kanban", icon: Kanban },
@@ -71,16 +72,25 @@ function NavIndicator({ navRef, currentPath }) {
   return <div className="nav-indicator" style={style} />;
 }
 
-export function Header({ issueCount, sourceRepo, updatedAt, onToggleEvents, eventsOpen, wsStatus }) {
+function displayRepoName(sourceRepo) {
+  if (!sourceRepo) return null;
+  // Extract basename from filesystem path or URL
+  const name = sourceRepo.replace(/\/+$/, "").split("/").pop();
+  if (!name || name === sourceRepo) return sourceRepo;
+  return name;
+}
+
+export function Header({ issueCount, sourceRepo, updatedAt, onToggleEvents, eventsOpen, wsStatus, notifications }) {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const navRef = useRef(null);
+  const repoDisplay = displayRepoName(sourceRepo);
 
   return (
     <div className="navbar bg-base-100 shadow-sm px-4">
       <div className="flex-1 gap-2">
-        <Link to="/" className="btn btn-ghost text-xl font-bold tracking-tight">Fifony</Link>
-        <span className="text-xs opacity-40 hidden lg:inline">{sourceRepo || "local workspace"}</span>
+        <Link to="/" className="btn btn-ghost text-xl font-bold tracking-tight fifony-wordmark">Fifony</Link>
+        {repoDisplay && <span className="text-xs opacity-40 hidden lg:inline">{repoDisplay}</span>}
       </div>
 
       <div className="flex-none hidden md:flex">
@@ -90,7 +100,7 @@ export function Header({ issueCount, sourceRepo, updatedAt, onToggleEvents, even
               <li key={to}>
                 <Link
                   to={to}
-                  className={currentPath.startsWith(to) ? "active" : ""}
+                  className={`nav-link ${currentPath.startsWith(to) ? "active nav-link-active" : ""}`}
                 >
                   <Icon className="size-4" />
                   {label}
@@ -107,6 +117,18 @@ export function Header({ issueCount, sourceRepo, updatedAt, onToggleEvents, even
 
       <div className="flex-none">
         <ul className="menu menu-horizontal px-1 items-center gap-0">
+          {notifications && (
+            <li>
+              <span className="py-1 px-2">
+                <NotificationCenter
+                  notifications={notifications.notifications}
+                  unreadCount={notifications.unreadCount}
+                  onDismiss={notifications.dismissNotification}
+                  onMarkAllRead={notifications.markAllRead}
+                />
+              </span>
+            </li>
+          )}
           <li>
             <button
               className={`tooltip tooltip-bottom py-1 px-2 hidden md:flex ${eventsOpen ? "active" : ""}`}

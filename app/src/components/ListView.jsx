@@ -129,8 +129,8 @@ export function ListView({ issues, onStateChange, onRetry, onCancel, onSelect, e
     return (
       <EmptyState
         icon={ListChecks}
-        title="No issues match filters"
-        description="Try adjusting your search or filter criteria."
+        title="No issues found"
+        description="Try adjusting your search or filters, or create your first issue to get started."
       />
     );
   }

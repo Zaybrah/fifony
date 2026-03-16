@@ -52,7 +52,7 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading }) {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+          <div className={`flex-1 overflow-y-auto px-6 py-6 space-y-4 ${open ? "stagger-children" : ""}`}>
             <div className="form-control">
               <label className="label"><span className="label-text font-medium">What needs to be done?</span></label>
               <input

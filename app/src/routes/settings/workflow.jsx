@@ -35,28 +35,12 @@ const STAGES = [
   },
 ];
 
-const CLAUDE_MODELS = [
-  { value: "claude-opus-4-6", label: "Opus 4.6" },
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { value: "claude-haiku-4-5", label: "Haiku 4.5" },
-];
-
-const CODEX_MODELS = [
-  { value: "codex", label: "Codex (default)" },
-];
-
 const EFFORTS = [
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "extra-high", label: "Extra High" },
 ];
-
-function getModelsForProvider(provider) {
-  if (provider === "claude") return CLAUDE_MODELS;
-  if (provider === "codex") return CODEX_MODELS;
-  return [];
-}
 
 const ACCENT_MAP = {
   info: {
@@ -82,9 +66,9 @@ const ACCENT_MAP = {
   },
 };
 
-function StageBlock({ stage, config, providers, onChange, isLast, saving }) {
+function StageBlock({ stage, config, providers, modelsByProvider, onChange, isLast, saving }) {
   const Icon = stage.icon;
-  const models = getModelsForProvider(config.provider);
+  const models = modelsByProvider[config.provider] || [];
   const availableProviders = (providers || []).filter((p) => p.available);
   const colors = ACCENT_MAP[stage.accent];
 
@@ -122,12 +106,12 @@ function StageBlock({ stage, config, providers, onChange, isLast, saving }) {
                 value={config.provider}
                 onChange={(e) => {
                   const newProvider = e.target.value;
-                  const newModels = getModelsForProvider(newProvider);
+                  const newModels = modelsByProvider[newProvider] || [];
                   const newEffort = newProvider !== "codex" && config.effort === "extra-high" ? "high" : config.effort;
                   onChange({
                     ...config,
                     provider: newProvider,
-                    model: newModels[0]?.value || newProvider,
+                    model: newModels[0]?.id || newProvider,
                     effort: newEffort,
                   });
                 }}
@@ -147,8 +131,11 @@ function StageBlock({ stage, config, providers, onChange, isLast, saving }) {
                 value={config.model}
                 onChange={(e) => onChange({ ...config, model: e.target.value })}
               >
+                {models.length === 0 && (
+                  <option value={config.model}>{config.model || "(detecting...)"}</option>
+                )}
                 {models.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
+                  <option key={m.id} value={m.id}>{m.label}{m.tier ? ` — ${m.tier}` : ""}</option>
                 ))}
               </select>
             </label>
@@ -189,6 +176,7 @@ export const Route = createFileRoute("/settings/workflow")({
 function WorkflowSettings() {
   const [workflow, setWorkflow] = useState(null);
   const [providers, setProviders] = useState([]);
+  const [modelsByProvider, setModelsByProvider] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingStage, setSavingStage] = useState(null);
   const [restoring, setRestoring] = useState(false);
@@ -197,9 +185,13 @@ function WorkflowSettings() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/config/workflow");
-      setWorkflow(res.workflow);
-      setProviders(res.providers || []);
+      const [workflowRes, modelsRes] = await Promise.all([
+        api.get("/config/workflow"),
+        api.get("/config/models").catch(() => ({ models: {} })),
+      ]);
+      setWorkflow(workflowRes.workflow);
+      setProviders(workflowRes.providers || []);
+      setModelsByProvider(modelsRes.models || {});
     } catch {}
     setLoading(false);
   }, []);
@@ -232,13 +224,17 @@ function WorkflowSettings() {
     setRestoring(true);
     try {
       const availableProviders = providers.filter((p) => p.available);
-      const firstAvailable = availableProviders[0]?.name || "claude";
-      const defaultModel = firstAvailable === "claude" ? "claude-sonnet-4-6" : "codex";
+      const hasClaude = availableProviders.some((p) => p.name === "claude");
+      const hasCodex = availableProviders.some((p) => p.name === "codex");
+      const claudeModels = modelsByProvider.claude || [];
+      const codexModels = modelsByProvider.codex || [];
+      const defaultClaudeModel = claudeModels[0]?.id || "claude-sonnet-4-6";
+      const defaultCodexModel = codexModels[0]?.id || "o4-mini";
 
       const defaults = {
-        plan: { provider: firstAvailable, model: defaultModel, effort: "medium" },
-        execute: { provider: firstAvailable, model: defaultModel, effort: "medium" },
-        review: { provider: firstAvailable, model: defaultModel, effort: "medium" },
+        plan: { provider: hasClaude ? "claude" : "codex", model: hasClaude ? defaultClaudeModel : defaultCodexModel, effort: "high" },
+        execute: { provider: hasCodex ? "codex" : "claude", model: hasCodex ? defaultCodexModel : defaultClaudeModel, effort: "medium" },
+        review: { provider: hasClaude ? "claude" : "codex", model: hasClaude ? defaultClaudeModel : defaultCodexModel, effort: "medium" },
       };
 
       setWorkflow(defaults);
@@ -247,7 +243,7 @@ function WorkflowSettings() {
       setTimeout(() => setSavingStage(null), 1500);
     } catch {}
     setRestoring(false);
-  }, [providers]);
+  }, [providers, modelsByProvider]);
 
   // Cleanup timer on unmount
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
@@ -300,6 +296,7 @@ function WorkflowSettings() {
             stage={stage}
             config={workflow[stage.key]}
             providers={providers}
+            modelsByProvider={modelsByProvider}
             onChange={(newConfig) => handleStageChange(stage.key, newConfig)}
             isLast={i === STAGES.length - 1}
             saving={savingStage === stage.key || savingStage === "all" ? stage.key : null}

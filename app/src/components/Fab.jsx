@@ -1,9 +1,16 @@
 import { Plus } from "lucide-react";
+import { useState, useEffect } from "react";
 
 export function Fab({ onClick }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 300);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <button
-      className="fixed right-6 bottom-24 sm:bottom-6 z-30 btn btn-circle btn-lg btn-primary shadow-lg animate-fab-breathe hover:scale-110 hover:rotate-90 active:scale-95 active:rotate-0 transition-all duration-300 group"
+      className={`fixed right-6 bottom-24 sm:bottom-6 z-30 btn btn-circle btn-lg btn-primary shadow-lg hover:scale-110 hover:rotate-90 active:scale-95 active:rotate-0 transition-all duration-300 group ${mounted ? "animate-fab-breathe" : "animate-bounce-in"}`}
       onClick={onClick}
       aria-label="Create new issue"
     >

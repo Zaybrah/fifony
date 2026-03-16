@@ -128,8 +128,12 @@ export function DashboardProvider({ children }) {
     }, 3000);
   }, []);
 
-  const showConfetti = useCallback(() => {
-    setConfetti({ x: window.innerWidth / 2, y: window.innerHeight / 3 });
+  const showConfetti = useCallback((x, y, count) => {
+    setConfetti({
+      x: x ?? window.innerWidth / 2,
+      y: y ?? window.innerHeight / 3,
+      count: count ?? 24,
+    });
   }, []);
   const clearConfetti = useCallback(() => setConfetti(null), []);
 

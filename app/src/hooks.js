@@ -156,8 +156,8 @@ const ALL_DAISYUI_THEMES = [
 ];
 const THEME_OPTIONS = [...PINNED_THEMES, ...ALL_DAISYUI_THEMES];
 export const SETTINGS_QUERY_KEY = ["settings"];
-export const SETTING_ID_UI_THEME = "ui.theme";
-export const SETTING_ID_UI_NOTIFICATIONS_ENABLED = "ui.notifications.enabled";
+const SETTING_ID_UI_THEME = "ui.theme";
+const SETTING_ID_UI_NOTIFICATIONS_ENABLED = "ui.notifications.enabled";
 export const SETTING_ID_UI_ISSUES_STATE_FILTER = "ui.issues.stateFilter";
 export const SETTING_ID_UI_ISSUES_CATEGORY_FILTER = "ui.issues.categoryFilter";
 export const SETTING_ID_UI_ISSUES_COMPLETION_FILTER = "ui.issues.completionFilter";
@@ -315,6 +315,15 @@ export function useUiNotificationsSetting() {
     false,
     { normalize: (value) => normalizeBoolean(value, false) },
   );
+}
+
+/** Fetch pre-aggregated token analytics from the server. Polls every 10s. */
+export function useTokenAnalytics() {
+  return useQuery({
+    queryKey: ["token-analytics"],
+    queryFn: () => api.get("/analytics/tokens"),
+    refetchInterval: 10_000,
+  });
 }
 
 export function usePwa() {
