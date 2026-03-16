@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { env } from "node:process";
 import { logger } from "./logger.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -39,6 +40,55 @@ interface ProviderUsage {
 interface ProvidersUsageResult {
   providers: ProviderUsage[];
   collectedAt: string;
+}
+
+function resolveCodexHomeCandidates(): string[] {
+  const homePaths = new Set<string>([
+    homedir(),
+    env.XDG_STATE_HOME?.trim() || "",
+    env.XDG_DATA_HOME?.trim() || "",
+  ]);
+
+  const sudoUser = env.SUDO_USER?.trim();
+  if (sudoUser && sudoUser !== "root") {
+    homePaths.add(`/home/${sudoUser}`);
+  }
+
+  const direct = new Set<string>([
+    env.CODEX_HOME?.trim() || "",
+  ]);
+
+  const candidates = [...homePaths, ...direct]
+    .filter(Boolean)
+    .flatMap((candidate) => {
+      if (candidate.endsWith("/.codex") || candidate.endsWith("/codex")) return [candidate];
+      return [join(candidate, ".codex"), join(candidate, "codex")];
+    });
+
+  return [...new Set(candidates)];
+}
+
+function resolveCodexDir(): string | null {
+  for (const candidate of resolveCodexHomeCandidates()) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function findLatestCodexDb(codexDir: string): string | null {
+  const explicit = join(codexDir, "state_5.sqlite");
+  if (existsSync(explicit)) return explicit;
+
+  const candidates = readdirSync(codexDir)
+    .filter((name) => name.startsWith("state_") && name.endsWith(".sqlite"))
+    .sort()
+    .reverse();
+
+  if (candidates.length === 0) return null;
+  return join(codexDir, candidates[0]);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -231,9 +281,8 @@ function collectClaudeUsage(): ProviderUsage | null {
 // ── Codex usage (from SQLite state DB) ───────────────────────────────────────
 
 function collectCodexUsage(): ProviderUsage | null {
-  const home = homedir();
-  const codexDir = join(home, ".codex");
-  if (!existsSync(codexDir)) return null;
+  const codexDir = resolveCodexDir();
+  if (!codexDir) return null;
 
   let available = false;
   try {
@@ -274,30 +323,23 @@ function collectCodexUsage(): ProviderUsage | null {
   const nextResetAt = computeNextMonday().toISOString();
 
   // Find the right SQLite file
-  let dbPath = join(codexDir, "state_5.sqlite");
-  if (!existsSync(dbPath)) {
-    const files = readdirSync(codexDir)
-      .filter((f) => f.startsWith("state_") && f.endsWith(".sqlite"))
-      .sort()
-      .reverse();
-    if (files.length === 0) {
-      return {
-        name: "codex",
-        available,
-        models,
-        currentModel,
-        usage: {
-          today: makePeriod(0, 0, 0, todayStart.toISOString()),
-          thisWeek: makePeriod(0, 0, 0, weekStart.toISOString()),
-          allTime: makePeriod(0, 0, 0, ""),
-        },
-        resetInfo: "Weekly rate limit resets every Monday",
-        nextResetAt,
-        weeklyLimitEstimate: null,
-        percentUsed: null,
-      };
-    }
-    dbPath = join(codexDir, files[0]);
+  const dbPath = findLatestCodexDb(codexDir);
+  if (!dbPath) {
+    return {
+      name: "codex",
+      available,
+      models,
+      currentModel,
+      usage: {
+        today: makePeriod(0, 0, 0, todayStart.toISOString()),
+        thisWeek: makePeriod(0, 0, 0, weekStart.toISOString()),
+        allTime: makePeriod(0, 0, 0, ""),
+      },
+      resetInfo: "Weekly rate limit resets every Monday",
+      nextResetAt,
+      weeklyLimitEstimate: null,
+      percentUsed: null,
+    };
   }
 
   let allTimeTokens = 0;
