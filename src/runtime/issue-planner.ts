@@ -136,7 +136,6 @@ async function buildPlanPrompt(title: string, description: string): Promise<stri
 
 function getPlanCommand(provider: string, model?: string, effort?: string): string {
   if (provider === "claude") {
-    const claudeEffort = effort === "extra-high" ? "high" : effort;
     const parts = [
       "claude",
       "--print",
@@ -145,7 +144,6 @@ function getPlanCommand(provider: string, model?: string, effort?: string): stri
       "--output-format json",
       `--json-schema '${PLAN_JSON_SCHEMA}'`,
     ];
-    if (claudeEffort) parts.splice(2, 0, `--reasoning-effort ${claudeEffort}`);
     if (model) parts.splice(2, 0, `--model ${model}`);
     parts.push("< \"$FIFONY_PROMPT_FILE\"");
     return parts.join(" ");

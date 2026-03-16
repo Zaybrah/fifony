@@ -54,7 +54,7 @@ export async function compileForClaude(
     `--json-schema '${CLAUDE_RESULT_SCHEMA}'`,
   ];
 
-  if (claudeEffort) cmdParts.splice(2, 0, `--reasoning-effort ${claudeEffort}`);
+  // Note: --reasoning-effort is not a valid Claude CLI flag; effort is metadata only
   // Inject --model from provider definition (set by WorkflowConfig)
   if (provider.model) cmdParts.splice(2, 0, `--model ${provider.model}`);
   cmdParts.push("< \"$FIFONY_PROMPT_FILE\"");

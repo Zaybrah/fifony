@@ -141,7 +141,6 @@ export async function compileReview(
         "--output-format json",
         `--json-schema '${REVIEW_RESULT_SCHEMA}'`,
       ];
-      if (effort) parts.splice(2, 0, `--reasoning-effort ${effort}`);
       if (reviewer.model) parts.splice(2, 0, `--model ${reviewer.model}`);
       parts.push("< \"$FIFONY_PROMPT_FILE\"");
       command = parts.join(" ");

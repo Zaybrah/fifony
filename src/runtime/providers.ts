@@ -111,9 +111,11 @@ const CLAUDE_RESULT_SCHEMA = JSON.stringify({
   required: ["status"],
 });
 
-export function getProviderDefaultCommand(provider: string, reasoningEffort?: string, model?: string): string {
+export function getProviderDefaultCommand(provider: string, _reasoningEffort?: string, model?: string): string {
   // Prompt is piped via stdin and also written to FIFONY_PROMPT_FILE.
   // Use stdin redirection as primary for large prompts (avoids E2BIG).
+  // Note: reasoning effort is tracked as pipeline metadata but NOT passed as a CLI flag
+  // (Claude CLI does not support --reasoning-effort; Codex controls effort via model choice).
 
   if (provider === "codex") {
     const parts = ["codex", "exec", "--skip-git-repo-check"];
@@ -122,8 +124,6 @@ export function getProviderDefaultCommand(provider: string, reasoningEffort?: st
     return parts.join(" ");
   }
   if (provider === "claude") {
-    // Claude supports: low, medium, high (extra-high maps to high)
-    const claudeEffort = reasoningEffort === "extra-high" ? "high" : reasoningEffort;
     const parts = [
       "claude",
       "--print",
@@ -132,7 +132,6 @@ export function getProviderDefaultCommand(provider: string, reasoningEffort?: st
       "--output-format json",
       `--json-schema '${CLAUDE_RESULT_SCHEMA}'`,
     ];
-    if (claudeEffort) parts.splice(2, 0, `--reasoning-effort ${claudeEffort}`);
     if (model) parts.splice(2, 0, `--model ${model}`);
     parts.push("< \"$FIFONY_PROMPT_FILE\"");
     return parts.join(" ");
@@ -668,11 +667,8 @@ export function getEffectiveAgentProviders(
 
     const effort = resolveEffort(provider.role, issue.effort, state.config.defaultEffort);
 
-    // Rebuild command with reasoning effort if using default command
-    let command = provider.command;
-    if (!command.includes("--reasoning-effort") && effort) {
-      command = getProviderDefaultCommand(provider.provider, effort);
-    }
+    // Keep existing command (effort is metadata, not a CLI flag)
+    const command = provider.command;
 
     return {
       ...provider,

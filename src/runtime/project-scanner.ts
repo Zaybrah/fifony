@@ -362,13 +362,11 @@ export async function analyzeProjectWithCli(
         command = "claude";
         args = [
           "--print",
-          "--reasoning-effort", "low",
           "--no-session-persistence",
           "--output-format", "json",
           "-p", analysisPrompt,
         ];
       } else if (normalizedProvider === "codex") {
-        // Codex: wrap in shell for stdin redirection, no --reasoning-effort flag
         command = "sh";
         args = ["-c", `codex exec --skip-git-repo-check < "${promptFile}"`];
       } else {
