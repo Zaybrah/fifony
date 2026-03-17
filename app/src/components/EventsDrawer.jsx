@@ -160,7 +160,7 @@ function EventGroup({ group }) {
 
 /* ── Main drawer ──────────────────────────────────────────────────────── */
 
-export function EventsDrawer({ open, onClose, events, kind, setKind, issueId, setIssueId, issueOptions }) {
+export function EventsDrawer({ open, onClose, events, kind, setKind, issueId, setIssueId, issueOptions, wsStatus }) {
   const listRef = useRef(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [hasNewEvents, setHasNewEvents] = useState(false);
@@ -251,6 +251,15 @@ export function EventsDrawer({ open, onClose, events, kind, setKind, issueId, se
             <h2 className="text-lg font-bold">Events</h2>
             {rows.length > 0 && (
               <span className="badge badge-sm badge-neutral">{rows.length}</span>
+            )}
+            {wsStatus === "connected" && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-success font-medium ml-1">
+                <span className="relative flex size-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-50" />
+                  <span className="relative inline-flex rounded-full size-2 bg-success" />
+                </span>
+                LIVE
+              </span>
             )}
           </div>
           <button type="button" className="btn btn-sm btn-ghost btn-circle" onClick={onClose} aria-label="Close">

@@ -10,6 +10,7 @@ import {
 import { STATES, ISSUE_STATE_MACHINE, getIssueTransitions, timeAgo, formatDate, formatDuration } from "../utils.js";
 import { api } from "../api.js";
 import { useSwipeToDismiss } from "../hooks/useSwipeToDismiss.js";
+import { StatusBadgeExpanded } from "./StatusIndicator.jsx";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -1461,17 +1462,18 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
               <FileText className="size-5 opacity-60 shrink-0" />
               <span className="font-mono text-sm opacity-60">{issue.identifier}</span>
               <span className={`badge badge-sm ${STATE_BADGE[issue.state] || "badge-ghost"}`}>{issue.state}</span>
-              {(issue.planningStatus === "planning" || issue.planningStatus === "refining") && (
-                <span className="badge badge-sm badge-info gap-1 animate-pulse-soft">
-                  <Loader className="size-3 animate-spin" />
-                  {issue.planningStatus === "refining" ? "Refining…" : "Planning…"}
-                </span>
-              )}
             </div>
             <button type="button" className="btn btn-sm btn-ghost btn-circle shrink-0" onClick={handleClose} aria-label="Close">
               <X className="size-4" />
             </button>
           </div>
+
+          {/* Live status indicator — contextual sub-status for active states */}
+          {["Planning", "Queued", "Running", "In Review", "Blocked"].includes(issue.state) && (
+            <div className="mb-2">
+              <StatusBadgeExpanded issue={issue} />
+            </div>
+          )}
 
           <h2 className="text-lg font-bold leading-tight mb-2">{issue.title || "-"}</h2>
 

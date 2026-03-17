@@ -108,6 +108,7 @@ function RootLayout() {
         eventsOpen={ctx.isEventsOpen}
         wsStatus={ctx.wsStatus}
         notifications={ctx.notifications}
+        issues={ctx.issues}
       />
       <PwaBanner pwa={ctx.pwa} />
 
@@ -134,6 +135,7 @@ function RootLayout() {
         issueId={ctx.eventIssueId}
         setIssueId={ctx.setEventIssueId}
         issueOptions={ctx.issueOptions}
+        wsStatus={ctx.wsStatus}
       />
       <CreateIssueDrawer
         open={ctx.isCreateOpen}

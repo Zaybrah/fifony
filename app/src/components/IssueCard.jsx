@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Zap, Circle, Activity, Lightbulb, Loader, CheckSquare, GitMerge } from "lucide-react";
 import { timeAgo } from "../utils.js";
+import { StatusIndicator } from "./StatusIndicator.jsx";
 
 const STATE_BADGE = {
   Planning: "badge-info",
@@ -45,6 +46,7 @@ export function IssueCard({ issue, onSelect, dragHandlers, isDragging, isSelecte
   const isRunning = issue.state === "Running";
   const isInReview = issue.state === "In Review";
   const isPlanning = issue.state === "Planning";
+  const isQueued = issue.state === "Queued";
   const isDone = issue.state === "Done";
   const isCancelled = issue.state === "Cancelled";
   const isBlocked = issue.state === "Blocked";
@@ -179,25 +181,14 @@ export function IssueCard({ issue, onSelect, dragHandlers, isDragging, isSelecte
           )}
         </div>
 
-        {/* Secondary info line — tokens + phase (only when active) */}
-        {(formattedTokens || phase || isPlanBusy) && (
+        {/* Sub-status line — contextual indicator for active states */}
+        {(isRunning || isInReview || isPlanning || isQueued || isPlanBusy) && (
           <div className="flex items-center gap-1.5 text-xs truncate">
+            <StatusIndicator issue={issue} compact showElapsed={isRunning || isInReview} />
             {formattedTokens && (
-              <span className={`inline-flex items-center gap-0.5 opacity-50 shrink-0 ${tokenBump ? "animate-count-bump" : ""}`}>
+              <span className={`inline-flex items-center gap-0.5 opacity-50 shrink-0 ml-auto ${tokenBump ? "animate-count-bump" : ""}`}>
                 <Zap size={10} />
                 {formattedTokens}
-              </span>
-            )}
-            {phase && (
-              <span className="inline-flex items-center gap-1 text-primary font-medium shrink-0">
-                <span className="issue-phase-dot" />
-                {phase}
-              </span>
-            )}
-            {isPlanBusy && (
-              <span className="inline-flex items-center gap-1 text-info font-medium shrink-0">
-                <Loader size={10} className="animate-spin" />
-                {issue.planningStatus === "refining" ? "Refining" : "Planning"}
               </span>
             )}
           </div>

@@ -1,6 +1,7 @@
 import React from "react";
 import { IssueCard } from "./IssueCard.jsx";
 import { EmptyState } from "./EmptyState.jsx";
+import { StatusIndicator } from "./StatusIndicator.jsx";
 import {
   ListChecks, Zap, Clock, RotateCcw, Layers, Timer, Hourglass,
   FileDiff, FileCode, ArrowRight, Coins,
@@ -104,6 +105,13 @@ function GridIssueCard({ issue, onSelect }) {
               <span key={label} className="badge badge-xs badge-ghost">{label}</span>
             ))}
             {labels.length > 3 && <span className="badge badge-xs badge-ghost opacity-40">+{labels.length - 3}</span>}
+          </div>
+        )}
+
+        {/* Live status indicator for active states */}
+        {["Planning", "Queued", "Running", "In Review", "Blocked"].includes(issue.state) && (
+          <div className="pt-1">
+            <StatusIndicator issue={issue} showElapsed />
           </div>
         )}
 

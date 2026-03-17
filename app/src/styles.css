@@ -664,6 +664,39 @@ h1, h2, h3, .stat-value {
   transform: scale(1.4);
 }
 
+/* ── Status indicator pulse ────────────────────────────────────────────── */
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+.status-indicator-pulse {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/* ── Global activity dot ──────────────────────────────────────────────── */
+
+.global-activity-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: oklch(var(--su));
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+.global-activity-pill {
+  position: relative;
+}
+
+/* ── Queued position shimmer ──────────────────────────────────────────── */
+
+@keyframes queue-shimmer {
+  0%   { background-position: -100% 0; }
+  100% { background-position: 200% 0; }
+}
+
 /* ── Reduced motion ────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
