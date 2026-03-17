@@ -692,8 +692,12 @@ function PlanningTab({ issue, onStateChange }) {
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState(null);
   const [localGenerating, setLocalGenerating] = useState(false);
+  const [showAllRefinements, setShowAllRefinements] = useState(false);
+  const refineRef = useRef(null);
   const plan = issue.plan;
   const isPlanning = issue.state === "Planning";
+  const refinementCount = plan?.refinements?.length || 0;
+  const FEEDBACK_MAX = 2000;
 
   // Server-driven status via WS, with local fallback for when WS isn't connected
   const isGenerating = issue.planningStatus === "planning" || (localGenerating && !plan);
@@ -724,6 +728,15 @@ function PlanningTab({ issue, onStateChange }) {
     }, 5 * 60 * 1000);
     return () => clearTimeout(timer);
   }, [localGenerating]);
+
+  // Auto-focus refine textarea when plan loads
+  useEffect(() => {
+    if (plan && isPlanning && refineRef.current) {
+      // Slight delay so the DOM settles after render
+      const t = setTimeout(() => refineRef.current?.focus(), 300);
+      return () => clearTimeout(t);
+    }
+  }, [plan, isPlanning]);
 
   const handleGenerate = async (fast = false) => {
     setError(null);
@@ -809,7 +822,7 @@ function PlanningTab({ issue, onStateChange }) {
         <div className="rounded-box border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
           <Loader className="size-4 animate-spin text-primary shrink-0" />
           <span className="text-sm text-primary font-medium">
-            {isGenerating ? "Re-generating plan..." : "Refining plan..."}
+            {isGenerating ? "Re-generating plan..." : `Generating v${refinementCount + 2}...`}
           </span>
         </div>
       )}
@@ -821,36 +834,56 @@ function PlanningTab({ issue, onStateChange }) {
         </span>
         {plan.provider && <span className="badge badge-sm badge-ghost">via {plan.provider}</span>}
         {plan.suggestedEffort?.default && <span className="badge badge-sm badge-outline">effort: {plan.suggestedEffort.default}</span>}
+        {refinementCount > 0 && (
+          <span className="badge badge-sm badge-secondary gap-1">
+            <RotateCcw className="size-2.5" /> Refined &times;{refinementCount}
+          </span>
+        )}
       </div>
 
-      {/* Summary */}
-      <Section title="Summary" icon={Info}>
-        <p className="text-sm leading-relaxed">{plan.summary}</p>
-      </Section>
-
-      {/* Steps */}
-      <Section title={`Steps (${plan.steps.length})`} icon={ListOrdered}>
-        <div className="space-y-2">
-          {plan.steps.map((s, i) => (
-            <div key={i} className="flex gap-3 p-3 bg-base-200 rounded-box">
-              <div className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0">
-                {s.step}
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-medium">{s.action}</div>
-                {s.details && <div className="text-xs opacity-50 mt-0.5">{s.details}</div>}
-                {s.files?.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {s.files.map((f) => (
-                      <span key={f} className="badge badge-xs badge-ghost font-mono">{f}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+      {/* Last refinement feedback */}
+      {refinementCount > 0 && (
+        <div className="rounded-box border-l-4 border-secondary bg-secondary/5 px-4 py-3 animate-fade-in">
+          <div className="text-[10px] font-semibold uppercase tracking-wider opacity-40 mb-1">Last refinement feedback</div>
+          <p className="text-sm leading-relaxed italic opacity-80">
+            &ldquo;{plan.refinements[refinementCount - 1].feedback}&rdquo;
+          </p>
+          <span className="text-[10px] opacity-30 mt-1 block">
+            v{plan.refinements[refinementCount - 1].version || refinementCount + 1} &middot; {timeAgo(plan.refinements[refinementCount - 1].at)}
+          </span>
         </div>
-      </Section>
+      )}
+
+      {/* Summary — re-keyed to animate on refinement */}
+      <div key={`plan-content-${refinementCount}`} className="space-y-5 animate-fade-in">
+        <Section title="Summary" icon={Info}>
+          <p className="text-sm leading-relaxed">{plan.summary}</p>
+        </Section>
+
+        {/* Steps */}
+        <Section title={`Steps (${plan.steps.length})`} icon={ListOrdered}>
+          <div className="space-y-2">
+            {plan.steps.map((s, i) => (
+              <div key={i} className="flex gap-3 p-3 bg-base-200 rounded-box">
+                <div className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0">
+                  {s.step}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{s.action}</div>
+                  {s.details && <div className="text-xs opacity-50 mt-0.5">{s.details}</div>}
+                  {s.files?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {s.files.map((f) => (
+                        <span key={f} className="badge badge-xs badge-ghost font-mono">{f}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      </div>
 
       {/* Suggested paths */}
       {plan.suggestedPaths?.length > 0 && (
@@ -870,21 +903,49 @@ function PlanningTab({ issue, onStateChange }) {
         </Section>
       )}
 
-      {/* Refinement history */}
-      {plan.refinements?.length > 0 && (
-        <Section title={`Refinements (${plan.refinements.length})`} icon={MessageSquare}>
+      {/* Refinement timeline */}
+      {refinementCount > 0 && (
+        <Section title={`Refinements (${refinementCount})`} icon={MessageSquare}>
           <div className="space-y-2">
-            {plan.refinements.map((r, i) => (
-              <div key={i} className="flex gap-3 p-2.5 bg-base-200 rounded-box text-sm">
-                <div className="flex items-center justify-center size-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold shrink-0">
-                  {r.version || i + 1}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm leading-relaxed">{r.feedback}</p>
-                  <span className="text-[10px] opacity-40 mt-1 block">{timeAgo(r.at)}</span>
-                </div>
-              </div>
-            ))}
+            {(() => {
+              const items = plan.refinements;
+              const collapsed = !showAllRefinements && items.length > 2;
+              const visible = collapsed ? items.slice(-2) : items;
+              return (
+                <>
+                  {collapsed && (
+                    <button
+                      className="btn btn-ghost btn-xs w-full gap-1 opacity-50"
+                      onClick={() => setShowAllRefinements(true)}
+                    >
+                      <ChevronDown className="size-3" /> Show {items.length - 2} earlier refinement{items.length - 2 > 1 ? "s" : ""}
+                    </button>
+                  )}
+                  {visible.map((r, i) => {
+                    const actualIndex = collapsed ? items.length - 2 + i : i;
+                    return (
+                      <div key={actualIndex} className="flex gap-3 p-2.5 bg-base-200 rounded-box text-sm animate-fade-in">
+                        <div className="flex items-center justify-center size-6 rounded-full bg-secondary/10 text-secondary text-xs font-bold shrink-0">
+                          v{r.version || actualIndex + 2}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm leading-relaxed">{r.feedback}</p>
+                          <span className="text-[10px] opacity-40 mt-1 block">{timeAgo(r.at)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {showAllRefinements && items.length > 2 && (
+                    <button
+                      className="btn btn-ghost btn-xs w-full gap-1 opacity-50"
+                      onClick={() => setShowAllRefinements(false)}
+                    >
+                      Show less
+                    </button>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </Section>
       )}
@@ -896,20 +957,27 @@ function PlanningTab({ issue, onStateChange }) {
             <MessageSquare className="size-3.5" />
             Refine Plan
           </div>
-          <textarea
-            className="textarea textarea-bordered w-full text-sm"
-            rows={2}
-            placeholder="Give feedback to refine the plan... e.g. 'Use React instead of Vue for step 3'"
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-            disabled={isBusy}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && feedback.trim()) {
-                e.preventDefault();
-                handleRefine();
-              }
-            }}
-          />
+          <div className="relative">
+            <textarea
+              ref={refineRef}
+              className="textarea textarea-bordered w-full text-sm pr-16"
+              rows={2}
+              placeholder="Give feedback to refine the plan... e.g. 'Use React instead of Vue for step 3'"
+              value={feedback}
+              maxLength={FEEDBACK_MAX}
+              onChange={(e) => setFeedback(e.target.value)}
+              disabled={isBusy}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && feedback.trim()) {
+                  e.preventDefault();
+                  handleRefine();
+                }
+              }}
+            />
+            <span className={`absolute bottom-2 right-3 text-[10px] pointer-events-none ${feedback.length > FEEDBACK_MAX * 0.9 ? "text-error" : "opacity-30"}`}>
+              {feedback.length}/{FEEDBACK_MAX}
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <button
               className="btn btn-secondary btn-sm gap-1.5"
@@ -917,7 +985,7 @@ function PlanningTab({ issue, onStateChange }) {
               disabled={isBusy || !feedback.trim()}
             >
               {isRefining ? (
-                <><Loader className="size-3.5 animate-spin" /> Refining...</>
+                <><Loader className="size-3.5 animate-spin" /> Generating v{refinementCount + 2}...</>
               ) : (
                 <><RotateCcw className="size-3.5" /> Refine Plan</>
               )}
