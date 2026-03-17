@@ -12,6 +12,7 @@ import { buildClaudeCommand, buildCodexCommand } from "./adapters/commands.ts";
 import { record as recordTokens } from "./token-ledger.ts";
 import type { AgentTokenUsage } from "./types.ts";
 import { renderPrompt } from "../prompting.ts";
+import { callOpenAI } from "./openai-adapter.ts";
 
 // ── Planning session persistence ────────────────────────────────────────────
 
@@ -140,6 +141,39 @@ const PLAN_JSON_SCHEMA = JSON.stringify({
     suggestedEffort: { type: "object", properties: { default: { type: "string" }, planner: { type: "string" }, executor: { type: "string" }, reviewer: { type: "string" } } },
   },
 });
+
+/** Parsed schema object for OpenAI API json_schema response_format. */
+const PLAN_SCHEMA_OBJECT = JSON.parse(PLAN_JSON_SCHEMA) as Record<string, unknown>;
+
+// ── OpenAI API path (for Codex provider reasoning-only operations) ───────────
+
+async function generatePlanViaOpenAI(
+  prompt: string,
+  model?: string,
+  effort?: string,
+): Promise<{ content: string; usage: PlanningSessionUsage; model: string }> {
+  const result = await callOpenAI({
+    prompt,
+    model,
+    jsonSchema: { name: "issue_plan", schema: PLAN_SCHEMA_OBJECT },
+    reasoningEffort: effort,
+    timeoutMs: 1_800_000, // 30 minutes
+  });
+
+  return {
+    content: result.content,
+    usage: {
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      totalTokens: result.usage.totalTokens,
+      model: result.model,
+      promptChars: prompt.length,
+      outputChars: result.content.length,
+      durationMs: 0, // Will be set by caller
+    },
+    model: result.model,
+  };
+}
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
@@ -398,11 +432,6 @@ export async function generatePlan(
   // Fast mode: same model, effort low (embedded in prompt since CLIs don't support effort flags)
   const effectiveEffort = fast ? "low" : (planStageEffort || "medium");
 
-  const command = getPlanCommand(preferred, planStageModel);
-  if (!command) throw new Error(`No command configured for provider ${preferred}.`);
-
-  logger.debug({ provider: preferred, model: planStageModel, effort: effectiveEffort, command: command.slice(0, 120) }, "[Planner] Provider selected for plan generation");
-
   // Persist: planning started
   const planStartMs = Date.now();
   const session: PlanningSession = {
@@ -414,135 +443,176 @@ export async function generatePlan(
   await persistSession(session);
 
   const prompt = await buildPlanPrompt(title, description, fast);
-  const tempDir = mkdtempSync(join(tmpdir(), "fifony-plan-"));
-  const promptFile = join(tempDir, "fifony-plan-prompt.md");
 
-  writeFileSync(promptFile, `${prompt}\n`, "utf8");
+  let plan: IssuePlan | null = null;
+  let planUsage: PlanningSessionUsage;
 
-  // Track output bytes live — persist progress periodically so the UI can show it
-  let lastProgressPersist = 0;
-  const PROGRESS_INTERVAL_MS = 2000;
+  // ── Codex provider: call OpenAI API directly (structured output support) ──
+  if (preferred === "codex") {
+    logger.debug({ provider: preferred, model: planStageModel, effort: effectiveEffort }, "[Planner] Using OpenAI API path for Codex provider");
 
-  const output = await new Promise<string>((resolve, reject) => {
-    let stdout = "";
-    const child = spawn(command, {
-      shell: true,
-      cwd: tempDir,
-      detached: true,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        FIFONY_PROMPT_FILE: promptFile,
-        FIFONY_AGENT_PROVIDER: preferred,
-      },
-    });
-    child.unref();
-    child.stdin?.end();
+    try {
+      const apiResult = await generatePlanViaOpenAI(prompt, planStageModel, effectiveEffort);
+      const durationMs = Date.now() - planStartMs;
+      apiResult.usage.durationMs = durationMs;
 
-    // Persist PID
-    if (child.pid) {
-      session.pid = child.pid;
-      persistSession(session).catch(() => {});
-    }
+      logger.info({ rawOutput: apiResult.content.slice(0, 2000) }, `Plan raw output from ${preferred} (API)`);
 
-    child.stdout?.on("data", (chunk) => {
-      stdout = appendFileTail(stdout, String(chunk), 32_000);
-      session.outputBytes += String(chunk).length;
-      // Persist progress periodically so the UI can show live output size
-      const elapsed = Date.now() - planStartMs;
-      if (elapsed - lastProgressPersist > PROGRESS_INTERVAL_MS) {
-        lastProgressPersist = elapsed;
-        persistSession(session).catch(() => {});
-      }
-    });
-    child.stderr?.on("data", (chunk) => {
-      stdout = appendFileTail(stdout, String(chunk), 32_000);
-      session.outputBytes += String(chunk).length;
-    });
-
-    const PLAN_TIMEOUT_MS = 1_800_000; // 30 minutes
-    const STALE_OUTPUT_MS = 300_000;   // 5 minutes without output growth → stuck
-
-    const timer = setTimeout(() => {
-      if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
-      else { child.kill("SIGTERM"); }
-      reject(new Error("Plan generation timed out after 30 minutes."));
-    }, PLAN_TIMEOUT_MS);
-
-    // Progress watchdog: check PID alive + output growing every 30s
-    let lastWatchdogBytes = 0;
-    let lastOutputGrowthAt = Date.now();
-    const watchdog = setInterval(() => {
-      // Check if PID is still alive
-      if (child.pid) {
-        try { process.kill(child.pid, 0); } catch {
-          clearInterval(watchdog);
-          clearTimeout(timer);
-          reject(new Error(`Planning process died unexpectedly (PID ${child.pid}).`));
-          return;
+      plan = parsePlanOutput(apiResult.content);
+      if (!plan) {
+        // The API enforces JSON schema, so content should be clean JSON — try direct parse
+        try {
+          const directParsed = JSON.parse(apiResult.content);
+          plan = tryBuildPlan(directParsed);
+        } catch {
+          // Fall through to error handling below
         }
       }
-      // Check if output is still growing
-      if (session.outputBytes > lastWatchdogBytes) {
-        lastWatchdogBytes = session.outputBytes;
-        lastOutputGrowthAt = Date.now();
-      } else if (Date.now() - lastOutputGrowthAt > STALE_OUTPUT_MS) {
-        clearInterval(watchdog);
-        clearTimeout(timer);
+
+      planUsage = apiResult.usage;
+      planUsage.model = apiResult.model;
+    } catch (err) {
+      const durationMs = Date.now() - planStartMs;
+      session.status = "error";
+      session.error = `OpenAI API call failed: ${err instanceof Error ? err.message : String(err)}`;
+      session.pid = null;
+      await persistSession(session);
+      logger.error({ err, durationMs }, "[Planner] OpenAI API call failed for plan generation");
+      throw new Error(session.error);
+    }
+  }
+  // ── Claude/other providers: spawn CLI process ──
+  else {
+    const command = getPlanCommand(preferred, planStageModel);
+    if (!command) throw new Error(`No command configured for provider ${preferred}.`);
+
+    logger.debug({ provider: preferred, model: planStageModel, effort: effectiveEffort, command: command.slice(0, 120) }, "[Planner] Provider selected for plan generation");
+
+    const tempDir = mkdtempSync(join(tmpdir(), "fifony-plan-"));
+    const promptFile = join(tempDir, "fifony-plan-prompt.md");
+
+    writeFileSync(promptFile, `${prompt}\n`, "utf8");
+
+    // Track output bytes live — persist progress periodically so the UI can show it
+    let lastProgressPersist = 0;
+    const PROGRESS_INTERVAL_MS = 2000;
+
+    const output = await new Promise<string>((resolve, reject) => {
+      let stdout = "";
+      const child = spawn(command, {
+        shell: true,
+        cwd: tempDir,
+        detached: true,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          FIFONY_PROMPT_FILE: promptFile,
+          FIFONY_AGENT_PROVIDER: preferred,
+        },
+      });
+      child.unref();
+      child.stdin?.end();
+
+      // Persist PID
+      if (child.pid) {
+        session.pid = child.pid;
+        persistSession(session).catch(() => {});
+      }
+
+      child.stdout?.on("data", (chunk) => {
+        stdout = appendFileTail(stdout, String(chunk), 32_000);
+        session.outputBytes += String(chunk).length;
+        // Persist progress periodically so the UI can show live output size
+        const elapsed = Date.now() - planStartMs;
+        if (elapsed - lastProgressPersist > PROGRESS_INTERVAL_MS) {
+          lastProgressPersist = elapsed;
+          persistSession(session).catch(() => {});
+        }
+      });
+      child.stderr?.on("data", (chunk) => {
+        stdout = appendFileTail(stdout, String(chunk), 32_000);
+        session.outputBytes += String(chunk).length;
+      });
+
+      const PLAN_TIMEOUT_MS = 1_800_000; // 30 minutes
+      const STALE_OUTPUT_MS = 300_000;   // 5 minutes without output growth → stuck
+
+      const timer = setTimeout(() => {
         if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
         else { child.kill("SIGTERM"); }
-        reject(new Error(`Planning process stuck — no output for ${Math.round(STALE_OUTPUT_MS / 60_000)} minutes.`));
-      }
-    }, 30_000);
+        reject(new Error("Plan generation timed out after 30 minutes."));
+      }, PLAN_TIMEOUT_MS);
 
-    child.on("error", () => { clearInterval(watchdog); clearTimeout(timer); reject(new Error("Failed to execute planning command.")); });
-    child.on("close", (code) => {
-      clearInterval(watchdog);
-      clearTimeout(timer);
-      rmSync(tempDir, { recursive: true, force: true });
-      if (code !== 0) {
-        reject(new Error(`Planning failed (exit ${code}): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      resolve(stdout);
+      // Progress watchdog: check PID alive + output growing every 30s
+      let lastWatchdogBytes = 0;
+      let lastOutputGrowthAt = Date.now();
+      const watchdog = setInterval(() => {
+        // Check if PID is still alive
+        if (child.pid) {
+          try { process.kill(child.pid, 0); } catch {
+            clearInterval(watchdog);
+            clearTimeout(timer);
+            reject(new Error(`Planning process died unexpectedly (PID ${child.pid}).`));
+            return;
+          }
+        }
+        // Check if output is still growing
+        if (session.outputBytes > lastWatchdogBytes) {
+          lastWatchdogBytes = session.outputBytes;
+          lastOutputGrowthAt = Date.now();
+        } else if (Date.now() - lastOutputGrowthAt > STALE_OUTPUT_MS) {
+          clearInterval(watchdog);
+          clearTimeout(timer);
+          if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
+          else { child.kill("SIGTERM"); }
+          reject(new Error(`Planning process stuck — no output for ${Math.round(STALE_OUTPUT_MS / 60_000)} minutes.`));
+        }
+      }, 30_000);
+
+      child.on("error", () => { clearInterval(watchdog); clearTimeout(timer); reject(new Error("Failed to execute planning command.")); });
+      child.on("close", (code) => {
+        clearInterval(watchdog);
+        clearTimeout(timer);
+        rmSync(tempDir, { recursive: true, force: true });
+        if (code !== 0) {
+          reject(new Error(`Planning failed (exit ${code}): ${stdout.slice(0, 500)}`));
+          return;
+        }
+        resolve(stdout);
+      });
     });
-  });
 
-  logger.info({ rawOutput: output.slice(0, 2000) }, `Plan raw output from ${preferred}`);
+    logger.info({ rawOutput: output.slice(0, 2000) }, `Plan raw output from ${preferred}`);
 
-  logger.debug({ outputLength: output.length }, "[Planner] Plan command completed, parsing output");
-  const plan = parsePlanOutput(output);
+    logger.debug({ outputLength: output.length }, "[Planner] Plan command completed, parsing output");
+    plan = parsePlanOutput(output);
+
+    // Extract token usage from the CLI output
+    const durationMs = Date.now() - planStartMs;
+    const tokenInfo = extractPlanTokenUsage(output);
+    planUsage = {
+      inputTokens: tokenInfo?.inputTokens ?? 0,
+      outputTokens: tokenInfo?.outputTokens ?? 0,
+      totalTokens: tokenInfo?.totalTokens ?? 0,
+      model: tokenInfo?.model || planStageModel || preferred,
+      promptChars: prompt.length,
+      outputChars: output.length,
+      durationMs,
+    };
+  }
+
   if (!plan) {
-    const firstBrace = output.indexOf("{");
-    const lastBrace = output.lastIndexOf("}");
-    const truncationHint = firstBrace >= 0 && lastBrace < firstBrace
-      ? " (JSON appears truncated — opening brace found but no matching close)"
-      : firstBrace < 0
-        ? " (no JSON object found in output)"
-        : "";
+    const durationMs = Date.now() - planStartMs;
     // Persist: error
     session.status = "error";
-    session.error = `Could not parse plan${truncationHint}. Output length: ${output.length} chars. Tail: ${output.slice(-200)}`;
+    session.error = `Could not parse plan from AI output. Duration: ${durationMs}ms`;
     session.pid = null;
     await persistSession(session);
-    logger.error({ rawOutput: output.slice(0, 2000), outputLength: output.length, firstBrace, lastBrace }, "[Planner] Could not parse plan from AI output");
+    logger.error({ durationMs }, "[Planner] Could not parse plan from AI output");
     throw new Error(session.error);
   }
 
   plan.provider = planStageModel ? `${preferred}/${planStageModel}` : preferred;
-
-  // Extract token usage from the CLI output
-  const durationMs = Date.now() - planStartMs;
-  const tokenInfo = extractPlanTokenUsage(output);
-  const planUsage: PlanningSessionUsage = {
-    inputTokens: tokenInfo?.inputTokens ?? 0,
-    outputTokens: tokenInfo?.outputTokens ?? 0,
-    totalTokens: tokenInfo?.totalTokens ?? 0,
-    model: tokenInfo?.model || planStageModel || preferred,
-    promptChars: prompt.length,
-    outputChars: output.length,
-    durationMs,
-  };
 
   // Record planning tokens in the ledger (counted as "planner" phase)
   if (planUsage.totalTokens > 0) {
@@ -568,7 +638,7 @@ export async function generatePlan(
   const tokenSummary = planUsage.totalTokens > 0
     ? `, ${planUsage.totalTokens.toLocaleString()} tokens (in: ${planUsage.inputTokens.toLocaleString()}, out: ${planUsage.outputTokens.toLocaleString()})`
     : `, ${planUsage.outputChars.toLocaleString()} output chars`;
-  logger.info(`Plan generated for "${title}" via ${planUsage.model}: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}${tokenSummary}, ${durationMs}ms`);
+  logger.info(`Plan generated for "${title}" via ${planUsage.model}: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}${tokenSummary}, ${planUsage.durationMs}ms`);
   return { plan, usage: planUsage };
 }
 
@@ -623,103 +693,144 @@ export async function refinePlan(
     : available.includes("claude") ? "claude" : available[0];
   if (!preferred) throw new Error("No AI provider available for plan refinement.");
 
-  const command = getPlanCommand(preferred, planStageModel);
-  if (!command) throw new Error(`No command configured for provider ${preferred}.`);
-
   const refineStartMs = Date.now();
   const prompt = await buildRefinePrompt(issue.title, issue.description, issue.plan, feedback);
-  const tempDir = mkdtempSync(join(tmpdir(), "fifony-refine-"));
-  const promptFile = join(tempDir, "fifony-refine-prompt.md");
 
-  writeFileSync(promptFile, `${prompt}\n`, "utf8");
+  let plan: IssuePlan | null = null;
+  let refineUsage: PlanningSessionUsage;
 
-  const output = await new Promise<string>((resolve, reject) => {
-    let stdout = "";
-    const child = spawn(command, {
-      shell: true,
-      cwd: tempDir,
-      detached: true,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        FIFONY_PROMPT_FILE: promptFile,
-        FIFONY_AGENT_PROVIDER: preferred,
-      },
-    });
-    child.unref();
-    child.stdin?.end();
+  // ── Codex provider: call OpenAI API directly (structured output support) ──
+  if (preferred === "codex") {
+    logger.debug({ provider: preferred, model: planStageModel }, "[Planner] Using OpenAI API path for Codex refinement");
 
-    let refineOutputBytes = 0;
-    child.stdout?.on("data", (chunk) => {
-      stdout = appendFileTail(stdout, String(chunk), 32_000);
-      refineOutputBytes += String(chunk).length;
-    });
-    child.stderr?.on("data", (chunk) => {
-      stdout = appendFileTail(stdout, String(chunk), 32_000);
-      refineOutputBytes += String(chunk).length;
-    });
+    try {
+      const apiResult = await generatePlanViaOpenAI(prompt, planStageModel);
+      const durationMs = Date.now() - refineStartMs;
+      apiResult.usage.durationMs = durationMs;
 
-    const REFINE_TIMEOUT_MS = 1_800_000; // 30 minutes
-    const REFINE_STALE_OUTPUT_MS = 300_000; // 5 minutes without output growth
+      logger.info({ rawOutput: apiResult.content.slice(0, 2000) }, `Refine raw output from ${preferred} (API)`);
 
-    const timer = setTimeout(() => {
-      if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
-      else { child.kill("SIGTERM"); }
-      reject(new Error("Plan refinement timed out after 30 minutes."));
-    }, REFINE_TIMEOUT_MS);
-
-    // Progress watchdog: check PID alive + output growing every 30s
-    let lastRefineWatchdogBytes = 0;
-    let lastRefineOutputGrowthAt = Date.now();
-    const watchdog = setInterval(() => {
-      // Check if PID is still alive
-      if (child.pid) {
-        try { process.kill(child.pid, 0); } catch {
-          clearInterval(watchdog);
-          clearTimeout(timer);
-          reject(new Error(`Refinement process died unexpectedly (PID ${child.pid}).`));
-          return;
+      plan = parsePlanOutput(apiResult.content);
+      if (!plan) {
+        try {
+          const directParsed = JSON.parse(apiResult.content);
+          plan = tryBuildPlan(directParsed);
+        } catch {
+          // Fall through to error handling below
         }
       }
-      // Check if output is still growing
-      if (refineOutputBytes > lastRefineWatchdogBytes) {
-        lastRefineWatchdogBytes = refineOutputBytes;
-        lastRefineOutputGrowthAt = Date.now();
-      } else if (Date.now() - lastRefineOutputGrowthAt > REFINE_STALE_OUTPUT_MS) {
-        clearInterval(watchdog);
-        clearTimeout(timer);
+
+      refineUsage = apiResult.usage;
+      refineUsage.model = apiResult.model;
+    } catch (err) {
+      logger.error({ err }, "[Planner] OpenAI API call failed for plan refinement");
+      throw new Error(`OpenAI API call failed for plan refinement: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  // ── Claude/other providers: spawn CLI process ──
+  else {
+    const command = getPlanCommand(preferred, planStageModel);
+    if (!command) throw new Error(`No command configured for provider ${preferred}.`);
+
+    const tempDir = mkdtempSync(join(tmpdir(), "fifony-refine-"));
+    const promptFile = join(tempDir, "fifony-refine-prompt.md");
+
+    writeFileSync(promptFile, `${prompt}\n`, "utf8");
+
+    const output = await new Promise<string>((resolve, reject) => {
+      let stdout = "";
+      const child = spawn(command, {
+        shell: true,
+        cwd: tempDir,
+        detached: true,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          FIFONY_PROMPT_FILE: promptFile,
+          FIFONY_AGENT_PROVIDER: preferred,
+        },
+      });
+      child.unref();
+      child.stdin?.end();
+
+      let refineOutputBytes = 0;
+      child.stdout?.on("data", (chunk) => {
+        stdout = appendFileTail(stdout, String(chunk), 32_000);
+        refineOutputBytes += String(chunk).length;
+      });
+      child.stderr?.on("data", (chunk) => {
+        stdout = appendFileTail(stdout, String(chunk), 32_000);
+        refineOutputBytes += String(chunk).length;
+      });
+
+      const REFINE_TIMEOUT_MS = 1_800_000; // 30 minutes
+      const REFINE_STALE_OUTPUT_MS = 300_000; // 5 minutes without output growth
+
+      const timer = setTimeout(() => {
         if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
         else { child.kill("SIGTERM"); }
-        reject(new Error(`Refinement process stuck — no output for ${Math.round(REFINE_STALE_OUTPUT_MS / 60_000)} minutes.`));
-      }
-    }, 30_000);
+        reject(new Error("Plan refinement timed out after 30 minutes."));
+      }, REFINE_TIMEOUT_MS);
 
-    child.on("error", () => { clearInterval(watchdog); clearTimeout(timer); reject(new Error("Failed to execute refinement command.")); });
-    child.on("close", (code) => {
-      clearInterval(watchdog);
-      clearTimeout(timer);
-      rmSync(tempDir, { recursive: true, force: true });
-      if (code !== 0) {
-        reject(new Error(`Plan refinement failed (exit ${code}): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      resolve(stdout);
+      // Progress watchdog: check PID alive + output growing every 30s
+      let lastRefineWatchdogBytes = 0;
+      let lastRefineOutputGrowthAt = Date.now();
+      const watchdog = setInterval(() => {
+        // Check if PID is still alive
+        if (child.pid) {
+          try { process.kill(child.pid, 0); } catch {
+            clearInterval(watchdog);
+            clearTimeout(timer);
+            reject(new Error(`Refinement process died unexpectedly (PID ${child.pid}).`));
+            return;
+          }
+        }
+        // Check if output is still growing
+        if (refineOutputBytes > lastRefineWatchdogBytes) {
+          lastRefineWatchdogBytes = refineOutputBytes;
+          lastRefineOutputGrowthAt = Date.now();
+        } else if (Date.now() - lastRefineOutputGrowthAt > REFINE_STALE_OUTPUT_MS) {
+          clearInterval(watchdog);
+          clearTimeout(timer);
+          if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
+          else { child.kill("SIGTERM"); }
+          reject(new Error(`Refinement process stuck — no output for ${Math.round(REFINE_STALE_OUTPUT_MS / 60_000)} minutes.`));
+        }
+      }, 30_000);
+
+      child.on("error", () => { clearInterval(watchdog); clearTimeout(timer); reject(new Error("Failed to execute refinement command.")); });
+      child.on("close", (code) => {
+        clearInterval(watchdog);
+        clearTimeout(timer);
+        rmSync(tempDir, { recursive: true, force: true });
+        if (code !== 0) {
+          reject(new Error(`Plan refinement failed (exit ${code}): ${stdout.slice(0, 500)}`));
+          return;
+        }
+        resolve(stdout);
+      });
     });
-  });
 
-  logger.info({ rawOutput: output.slice(0, 2000) }, `Refine raw output from ${preferred}`);
+    logger.info({ rawOutput: output.slice(0, 2000) }, `Refine raw output from ${preferred}`);
 
-  const plan = parsePlanOutput(output);
+    plan = parsePlanOutput(output);
+
+    const durationMs = Date.now() - refineStartMs;
+    const tokenInfo = extractPlanTokenUsage(output);
+    refineUsage = {
+      inputTokens: tokenInfo?.inputTokens ?? 0,
+      outputTokens: tokenInfo?.outputTokens ?? 0,
+      totalTokens: tokenInfo?.totalTokens ?? 0,
+      model: tokenInfo?.model || planStageModel || preferred,
+      promptChars: prompt.length,
+      outputChars: output.length,
+      durationMs,
+    };
+  }
+
   if (!plan) {
-    const firstBrace = output.indexOf("{");
-    const lastBrace = output.lastIndexOf("}");
-    const truncationHint = firstBrace >= 0 && lastBrace < firstBrace
-      ? " (JSON appears truncated — opening brace found but no matching close)"
-      : firstBrace < 0
-        ? " (no JSON object found in output)"
-        : "";
-    logger.error({ rawOutput: output.slice(0, 2000), outputLength: output.length, firstBrace, lastBrace }, "Could not parse refined plan from AI output");
-    throw new Error(`Could not parse refined plan${truncationHint}. Output length: ${output.length} chars. Tail: ${output.slice(-200)}`);
+    logger.error("[Planner] Could not parse refined plan from AI output");
+    throw new Error("Could not parse refined plan from AI output.");
   }
 
   plan.provider = planStageModel ? `${preferred}/${planStageModel}` : preferred;
@@ -733,16 +844,7 @@ export async function refinePlan(
   ];
 
   const durationMs = Date.now() - refineStartMs;
-  const tokenInfo = extractPlanTokenUsage(output);
-  const refineUsage: PlanningSessionUsage = {
-    inputTokens: tokenInfo?.inputTokens ?? 0,
-    outputTokens: tokenInfo?.outputTokens ?? 0,
-    totalTokens: tokenInfo?.totalTokens ?? 0,
-    model: tokenInfo?.model || planStageModel || preferred,
-    promptChars: prompt.length,
-    outputChars: output.length,
-    durationMs,
-  };
+  refineUsage.durationMs = durationMs;
 
   // Record refinement tokens in the ledger
   if (refineUsage.totalTokens > 0) {

@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { callOpenAI } from "./openai-adapter.ts";
 
 export type EnhancementField = "title" | "description";
 
@@ -243,7 +244,56 @@ export async function enhanceIssueField(
   const prompt = await buildPrompt(field, title, description);
   const errors: string[] = [];
 
+  // JSON schema for structured enhance output via OpenAI API
+  const enhanceSchema = {
+    type: "object" as const,
+    properties: {
+      field: { type: "string" as const },
+      value: { type: "string" as const },
+    },
+    required: ["field", "value"] as const,
+    additionalProperties: false as const,
+  };
+
   for (const selectedProvider of orderedProviders) {
+    // ── Codex provider: call OpenAI API directly (structured output support) ──
+    if (selectedProvider === "codex") {
+      try {
+        logger.debug({ provider: selectedProvider, field }, "[Enhancer] Using OpenAI API path for Codex provider");
+        const result = await callOpenAI({
+          prompt,
+          jsonSchema: { name: "issue_enhancement", schema: enhanceSchema },
+          timeoutMs: config.commandTimeoutMs || 120_000,
+        });
+
+        logger.info({ provider: selectedProvider, field, rawOutput: result.content.slice(0, 2000) }, "Enhance raw output (API)");
+
+        // Parse the structured response — should be clean JSON with { field, value }
+        let value: string | undefined;
+        try {
+          const parsed = JSON.parse(result.content) as { field?: string; value?: string };
+          if (parsed.value && typeof parsed.value === "string") {
+            value = parsed.value.trim();
+          }
+        } catch {
+          // If JSON parse fails, fall through to the standard parser
+        }
+
+        if (!value) {
+          value = parseEnhancerOutput(result.content, field);
+        }
+
+        logger.info({ provider: selectedProvider, field, parsedValue: value }, "Enhance parsed value (API)");
+        return { field, value, provider: selectedProvider };
+      } catch (error) {
+        errors.push(
+          `Provider "${selectedProvider}" (API) failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        continue;
+      }
+    }
+
+    // ── Claude/other providers: spawn CLI process ──
     const command = getProviderCommand(selectedProvider, config, workflowDefinition);
     if (!command) {
       errors.push(`Provider "${selectedProvider}" has no command.`);
