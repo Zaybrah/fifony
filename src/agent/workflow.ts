@@ -2,52 +2,39 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { copyFile, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { env, argv, exit } from "node:process";
-import { stringify as stringifyYaml } from "yaml";
-import type { JsonRecord, WorkflowDefinition } from "./types.ts";
+import type { WorkflowDefinition } from "./types.ts";
 import {
-  PACKAGE_ROOT,
   SOURCE_ROOT,
   SOURCE_MARKER,
   TARGET_ROOT,
-  WORKFLOW_TEMPLATE,
-  WORKFLOW_RENDERED,
-  WORKSPACE_ROOT,
 } from "./constants.ts";
 import {
   now,
-  parseFrontMatter,
-  getNestedRecord,
-  getNestedString,
   fail,
   parseIntArg,
 } from "./helpers.ts";
 import { logger } from "./logger.ts";
 import { PROMPT_TEMPLATES } from "../generated/prompts.ts";
-import {
-  normalizeAgentProvider,
-  resolveAgentProfile,
-  resolveWorkflowAgentProviders,
-} from "./providers.ts";
+
+const SKIP_DIRS = new Set([
+  ".git", ".fifony", "node_modules", ".venv", "data",
+  "dist", "build", ".turbo", ".next", ".nuxt", ".tanstack",
+  "coverage", "artifacts", "captures", "tmp", "temp",
+]);
+
+function shouldSkipPath(relativePath: string): boolean {
+  const parts = relativePath.split("/");
+  if (parts.some((segment) => SKIP_DIRS.has(segment))) return true;
+  const base = parts.at(-1) ?? "";
+  if (base.startsWith("map_scan_") && extname(base) === ".json") return true;
+  if (extname(base) === ".xlsx") return true;
+  return false;
+}
 
 export function bootstrapSource(): void {
   if (existsSync(SOURCE_MARKER)) return;
 
   logger.info("Creating local source snapshot for Fifony (local-only runtime)...");
-
-  const skipDirs = new Set([
-    ".git", ".fifony", "node_modules", ".venv", "data",
-    "dist", "build", ".turbo", ".next", ".nuxt", ".tanstack",
-    "coverage", "artifacts", "captures", "tmp", "temp",
-  ]);
-
-  const shouldSkip = (relativePath: string): boolean => {
-    const parts = relativePath.split("/");
-    if (parts.some((segment) => skipDirs.has(segment))) return true;
-    const base = relativePath.split("/").at(-1) ?? "";
-    if (base.startsWith("map_scan_") && extname(base) === ".json") return true;
-    if (extname(base) === ".xlsx") return true;
-    return false;
-  };
 
   const copyRecursive = (source: string, target: string, rel = "") => {
     mkdirSync(target, { recursive: true });
@@ -55,7 +42,7 @@ export function bootstrapSource(): void {
 
     for (const item of items) {
       const nextRel = rel ? `${rel}/${item.name}` : item.name;
-      if (shouldSkip(nextRel)) continue;
+      if (shouldSkipPath(nextRel)) continue;
 
       const sourcePath = `${source}/${item.name}`;
       const targetPath = `${target}/${item.name}`;
@@ -119,28 +106,13 @@ export async function ensureSourceReady(
     onProgress?.("copying");
     logger.info("Creating local source snapshot (async) for Fifony...");
 
-    const skipDirs = new Set([
-      ".git", ".fifony", "node_modules", ".venv", "data",
-      "dist", "build", ".turbo", ".next", ".nuxt", ".tanstack",
-      "coverage", "artifacts", "captures", "tmp", "temp",
-    ]);
-
-    const shouldSkip = (relativePath: string): boolean => {
-      const parts = relativePath.split("/");
-      if (parts.some((segment) => skipDirs.has(segment))) return true;
-      const base = relativePath.split("/").at(-1) ?? "";
-      if (base.startsWith("map_scan_") && extname(base) === ".json") return true;
-      if (extname(base) === ".xlsx") return true;
-      return false;
-    };
-
     const copyRecursiveAsync = async (source: string, target: string, rel = "") => {
       await mkdir(target, { recursive: true });
       const items = await readdir(source, { withFileTypes: true });
 
       for (const item of items) {
         const nextRel = rel ? `${rel}/${item.name}` : item.name;
-        if (shouldSkip(nextRel)) continue;
+        if (shouldSkipPath(nextRel)) continue;
 
         const sourcePath = `${source}/${item.name}`;
         const targetPath = `${target}/${item.name}`;

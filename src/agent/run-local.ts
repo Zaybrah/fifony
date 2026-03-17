@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync } from "node:fs";
 import { env, exit, argv } from "node:process";
-import { CLI_ARGS, STATE_ROOT, TRACKER_KIND, WORKFLOW_RENDERED } from "./constants.ts";
+import { CLI_ARGS, STATE_ROOT, WORKFLOW_RENDERED } from "./constants.ts";
 import { debugBoot, fail, now } from "./helpers.ts";
 import { initLogger, logger } from "./logger.ts";
 import { initStateStore, loadPersistedState, persistState, persistStateFull, closeStateStore } from "./store.ts";
@@ -47,9 +47,6 @@ function usage() {
 
 async function main() {
   debugBoot("main:start");
-  if (TRACKER_KIND !== "filesystem") {
-    logger.warn(`Detected FIFONY_TRACKER_KIND=${TRACKER_KIND}; forcing local filesystem tracker mode for this fork.`);
-  }
 
   const args = CLI_ARGS;
   if (args.includes("--help") || args.includes("-h")) {
@@ -82,7 +79,7 @@ async function main() {
   debugBoot("main:workflow-loaded");
 
   const port = parsePort(args);
-  let config = applyWorkflowConfig(deriveConfig(args), workflowDefinition, port);
+  let config = applyWorkflowConfig(deriveConfig(args), port);
 
   // Auto-resolve provider command if not configured
   if (!config.agentCommand.trim()) {
@@ -115,7 +112,7 @@ async function main() {
     sourceRepoUrl: "",
     sourceRef: "workspace",
     workflowPath: "",
-    config: config as any,
+    config,
     issues: [],
     events: [],
     metrics: { total: 0, queued: 0, inProgress: 0, blocked: 0, done: 0, cancelled: 0, activeWorkers: 0 },
@@ -154,7 +151,7 @@ async function main() {
   state.config.dashboardPort = dashboardPort ? String(dashboardPort) : undefined;
   state.workflowPath = WORKFLOW_RENDERED;
   state.updatedAt = now();
-  (state as any).booting = false;
+  state.booting = false;
 
   if (state.config.agentCommand) {
     state.notes.push(`Using agent command: ${state.config.agentCommand}`);
@@ -198,13 +195,13 @@ async function main() {
         const { alive, pid } = isAgentStillRunning(issue);
         if (alive && pid) {
           logger.info(`Agent for ${issue.identifier} still alive (PID ${pid.pid}), keeping state as Running.`);
-          issue.state = "Running" as any;
+          issue.state = "Running";
           addEvent(state, issue.id, "info", `Orphaned agent detected (PID ${pid.pid}), still alive — tracking resumed.`);
         } else {
           // Agent died — clean PID file, mark as Interrupted for resumption
           if (issue.workspacePath) cleanStalePidFile(issue.workspacePath);
           if (issue.state === "Running") {
-            issue.state = "Interrupted" as any;
+            issue.state = "Interrupted";
             issue.history.push(`[${now()}] Agent process not found on boot — marked Interrupted.`);
             addEvent(state, issue.id, "info", `Agent for ${issue.identifier} not found, marked Interrupted.`);
           }

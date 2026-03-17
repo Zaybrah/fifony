@@ -258,9 +258,6 @@ async function fetchAnthropicModels(): Promise<DiscoveredModel[]> {
   //    The compiled binary embeds model IDs as string literals.
   //    `strings <binary> | grep claude-` extracts them.
   try {
-    const claudePath = existsSync("/home/cyber/.local/share/claude")
-      ? readFileSync(join(homedir(), ".local", "bin", "claude"), "utf8").trim()
-      : "";
     // Resolve the real binary path (symlink → actual file)
     const binaryPath = execFileSync("readlink", ["-f", execFileSync("which", ["claude"], { encoding: "utf8", timeout: 3000 }).trim()], {
       encoding: "utf8",

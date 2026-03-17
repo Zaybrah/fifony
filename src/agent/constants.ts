@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { env, argv, cwd as getCwd } from "node:process";
@@ -43,8 +42,6 @@ export const TARGET_ROOT = resolveInputPath(
   env.FIFONY_WORKSPACE_ROOT ?? CLI_WORKSPACE_ROOT ?? getCwd(),
 );
 
-export const TRACKER_KIND = env.FIFONY_TRACKER_KIND ?? "filesystem";
-
 export const STATE_ROOT = resolvePersistenceRoot(
   env.FIFONY_PERSISTENCE
     ?? CLI_PERSISTENCE
@@ -55,12 +52,6 @@ export const STATE_ROOT = resolvePersistenceRoot(
 export const SOURCE_ROOT = `${STATE_ROOT}/source`;
 export const WORKSPACE_ROOT = `${STATE_ROOT}/workspaces`;
 export const SOURCE_MARKER = `${SOURCE_ROOT}/.fifony-local-source-ready`;
-
-export const WORKFLOW_TEMPLATE = existsSync(join(TARGET_ROOT, "WORKFLOW.md"))
-  ? join(TARGET_ROOT, "WORKFLOW.md")
-  : existsSync(join(PACKAGE_ROOT, "WORKFLOW.md"))
-    ? join(PACKAGE_ROOT, "WORKFLOW.md")
-    : "";
 
 export const WORKFLOW_RENDERED = `${STATE_ROOT}/WORKFLOW.local.md`;
 

@@ -62,14 +62,11 @@ export function normalizeIssue(
   raw: JsonRecord,
   workflowDefinition: WorkflowDefinition | null,
 ): IssueEntry | null {
-  const id = toStringValue(raw.id, "") || toStringValue(raw.identifier, "");
+  const id = toStringValue(raw.id, "");
   if (!id) return null;
 
   const createdAt = toStringValue(raw.created_at, now());
   const updatedAt = toStringValue(raw.updated_at, createdAt);
-  const paths = toStringArray(raw.paths);
-  const legacyFiles = toStringArray(raw.files);
-
   const issue: IssueEntry = {
     id,
     identifier: toStringValue(raw.identifier, id),
@@ -77,16 +74,16 @@ export function normalizeIssue(
     description: toStringValue(raw.description, ""),
     priority: toNumberValue(raw.priority, 1),
     state: normalizeState(raw.state),
-    branchName: toStringValue(raw.branch_name) || toStringValue(raw.branchName),
+    branchName: toStringValue(raw.branchName) || toStringValue(raw.branch_name),
     url: toStringValue(raw.url),
     assigneeId: toStringValue(raw.assignee_id),
     labels: toStringArray(raw.labels),
-    paths: paths.length > 0 ? paths : legacyFiles,
+    paths: toStringArray(raw.paths),
     inferredPaths: toStringArray(raw.inferredPaths),
     capabilityCategory: toStringValue(raw.capabilityCategory),
     capabilityOverlays: toStringArray(raw.capabilityOverlays),
     capabilityRationale: toStringArray(raw.capabilityRationale),
-    blockedBy: toStringArray(raw.blocked_by),
+    blockedBy: toStringArray(raw.blockedBy),
     assignedToWorker: toBooleanValue(raw.assigned_to_worker, true),
     createdAt,
     updatedAt,
@@ -138,8 +135,7 @@ function parseEffortConfig(value: unknown): EffortConfig | undefined {
 
 export function nextLocalIssueId(issues: IssueEntry[]): string {
   const maxId = issues.reduce((current, issue) => {
-    // Support both old LOCAL-N and new #N formats
-    const match = issue.identifier.match(/^(?:LOCAL-|#)(\d+)$/);
+    const match = issue.identifier.match(/^#(\d+)$/);
     if (!match) return current;
     const parsed = Number.parseInt(match[1], 10);
     return Number.isFinite(parsed) ? Math.max(current, parsed) : current;
@@ -158,9 +154,7 @@ export function createIssueFromPayload(
   logger.info({ id, identifier, title: toStringValue(payload.title, "").slice(0, 80) }, "[Issues] Creating new issue");
   const createdAt = now();
   const blockedBy = toStringArray(payload.blockedBy);
-  const legacyBlockedBy = toStringArray(payload.blocked_by);
   const paths = toStringArray(payload.paths);
-  const legacyFiles = toStringArray(payload.files);
 
   const issue: IssueEntry = {
     id,
@@ -169,22 +163,22 @@ export function createIssueFromPayload(
     description: toStringValue(payload.description, ""),
     priority: clamp(toNumberValue(payload.priority, 1), 1, 10),
     state: payload.plan ? "Todo" : "Planning",
-    branchName: toStringValue(payload.branchName) || toStringValue(payload.branch_name),
+    branchName: toStringValue(payload.branchName),
     url: toStringValue(payload.url),
-    assigneeId: toStringValue(payload.assigneeId) || toStringValue(payload.assignee_id),
+    assigneeId: toStringValue(payload.assigneeId),
     labels: toStringArray(payload.labels),
-    paths: paths.length > 0 ? paths : legacyFiles,
+    paths,
     inferredPaths: [],
     capabilityCategory: "",
     capabilityOverlays: [],
     capabilityRationale: [],
-    blockedBy: blockedBy.length > 0 ? blockedBy : legacyBlockedBy,
+    blockedBy,
     assignedToWorker: true,
     createdAt,
     updatedAt: createdAt,
     history: [`[${createdAt}] Issue created via API.`],
     attempts: 0,
-    maxAttempts: clamp(toNumberValue(payload.maxAttempts ?? payload.max_attempts, 3), 1, 10),
+    maxAttempts: clamp(toNumberValue(payload.maxAttempts, 3), 1, 10),
     terminalWeek: "",
     effort: parseEffortConfig(payload.effort),
     plan: payload.plan && typeof payload.plan === "object" ? payload.plan as IssueEntry["plan"] : undefined,
@@ -258,36 +252,18 @@ export function deriveConfig(args: string[]): RuntimeConfig {
     agentProvider: normalizeAgentProvider(env.FIFONY_AGENT_PROVIDER ?? "codex"),
     agentCommand: toStringValue(env.FIFONY_AGENT_COMMAND, ""),
     defaultEffort: {
-      default: (env.FIFONY_REASONING_EFFORT as any) || undefined,
-      planner: (env.FIFONY_PLANNER_EFFORT as any) || undefined,
-      executor: (env.FIFONY_EXECUTOR_EFFORT as any) || undefined,
-      reviewer: (env.FIFONY_REVIEWER_EFFORT as any) || undefined,
+      default: parseEffortValue(env.FIFONY_REASONING_EFFORT),
+      planner: parseEffortValue(env.FIFONY_PLANNER_EFFORT),
+      executor: parseEffortValue(env.FIFONY_EXECUTOR_EFFORT),
+      reviewer: parseEffortValue(env.FIFONY_REVIEWER_EFFORT),
     },
     maxConcurrentByState: {},
     runMode: "filesystem",
   };
 }
 
-function parseMaxConcurrentByState(agentConfig: JsonRecord): Record<string, number> {
-  const raw = agentConfig?.max_concurrent_agents_by_state;
-  if (!raw || typeof raw !== "object") return {};
-  const result: Record<string, number> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const num = typeof value === "number" ? value : Number.parseInt(String(value), 10);
-    if (Number.isFinite(num) && num > 0) {
-      result[key.toLowerCase()] = num;
-    }
-  }
-  return result;
-}
-
-/**
- * Apply workflow definition config to runtime config.
- * WORKFLOW.md is deprecated — this is now a passthrough that only applies the port.
- */
 export function applyWorkflowConfig(
   config: RuntimeConfig,
-  _definition: WorkflowDefinition,
   port: number | undefined,
 ): RuntimeConfig {
   return {
@@ -331,7 +307,7 @@ export function buildRuntimeState(
     .map((rawIssue) => {
       if (!rawIssue || typeof rawIssue !== "object") return null;
 
-      const existing = rawIssue as IssueEntry & { blocked_by?: unknown };
+      const existing = rawIssue as IssueEntry;
       return {
         ...existing,
         id: toStringValue(existing.id, ""),
@@ -684,7 +660,7 @@ export async function transitionIssueState(
 
 export async function handleStatePatch(state: RuntimeState, issue: IssueEntry, payload: JsonRecord): Promise<void> {
   const nextState = normalizeState(payload.state);
-  const allowed = new Set([...ALLOWED_STATES]);
+  const allowed = new Set(ALLOWED_STATES);
 
   if (!allowed.has(nextState)) {
     throw new Error(`Unsupported state: ${String(payload.state)}`);

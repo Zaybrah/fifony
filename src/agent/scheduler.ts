@@ -115,7 +115,6 @@ export function analyzeParallelizability(issues: IssueEntry[]): ParallelismAnaly
   };
 
   // Build dependency graph among todo issues
-  const todoIds = new Set(todo.map((i) => i.id));
   const hasDep = (a: IssueEntry, b: IssueEntry): boolean =>
     a.blockedBy.includes(b.id) || b.blockedBy.includes(a.id);
 
@@ -170,7 +169,6 @@ export async function ensureNotStale(state: RuntimeState, staleTimeoutMs: number
     if (
       EXECUTING_STATES.has(issue.state)
       && Date.parse(issue.updatedAt) < limit
-      && !TERMINAL_STATES.has(issue.state)
       && !issueHasResumableSession(issue)
     ) {
       const staleMinutes = Math.round((Date.now() - Date.parse(issue.updatedAt)) / 60_000);

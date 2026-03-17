@@ -189,6 +189,7 @@ export type RuntimeState = {
   sourceRef: string;
   workflowPath: string;
   dashboardPort?: string;
+  booting?: boolean;
   config: RuntimeConfig;
   issues: IssueEntry[];
   events: RuntimeEvent[];
@@ -335,8 +336,6 @@ export type AgentPipelineRecord = {
   pipeline: AgentPipelineState;
 };
 
-export type IssueRecord = IssueEntry;
-export type EventRecord = RuntimeEvent;
 export type RuntimeSettingScope = "runtime" | "providers" | "ui" | "system";
 export type RuntimeSettingSource = "user" | "detected" | "workflow" | "system";
 export type RuntimeSettingRecord = {

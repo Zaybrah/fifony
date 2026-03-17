@@ -2,8 +2,8 @@ import { mkdirSync } from "node:fs";
 import type {
   RuntimeState,
   RuntimeStateRecord,
-  IssueRecord,
-  EventRecord,
+  IssueEntry,
+  RuntimeEvent,
   RuntimeSettingRecord,
   S3dbModule,
   S3dbDatabase,
@@ -57,20 +57,12 @@ import {
 export { markIssueDirty, markEventDirty, hasDirtyState };
 
 export function getStateDb(): S3dbDatabase | null { return stateDb; }
-function getRuntimeStateResource(): S3dbResource | null { return runtimeStateResource; }
-function getIssueStateResource(): S3dbResource | null { return issueStateResource; }
 export function getEventStateResource(): S3dbResource | null { return eventStateResource; }
 export function getSettingStateResource(): S3dbResource | null { return settingStateResource; }
 export function getAgentSessionResource(): S3dbResource | null { return agentSessionResource; }
 export function getAgentPipelineResource(): S3dbResource | null { return agentPipelineResource; }
-function getActiveApiPlugin(): { stop?: () => Promise<void> } | null { return activeApiPlugin; }
 export function setActiveApiPlugin(plugin: { stop?: () => Promise<void> } | null): void { activeApiPlugin = plugin; }
 let activeWebSocketPlugin: { stop?: () => Promise<void> } | null = null;
-function getActiveWebSocketPlugin(): { stop?: () => Promise<void> } | null { return activeWebSocketPlugin; }
-function setActiveWebSocketPlugin(plugin: { stop?: () => Promise<void> } | null): void { activeWebSocketPlugin = plugin; }
-function getActiveStateMachinePlugin(): { stop?: () => Promise<void> } | null { return activeStateMachinePlugin; }
-function getActiveEcPlugin() { return activeEcPlugin; }
-function setActiveStateMachinePlugin(plugin: { stop?: () => Promise<void> } | null): void { activeStateMachinePlugin = plugin; }
 
 export async function loadS3dbModule(): Promise<S3dbModule> {
   if (loadedS3dbModule) return loadedS3dbModule;
@@ -332,7 +324,7 @@ export async function persistState(state: RuntimeState): Promise<void> {
         commandExitCode: typeof issue.commandExitCode === "number" ? issue.commandExitCode : undefined,
       };
       try {
-        await issueStateResource.replace(issue.id, clean satisfies IssueRecord);
+        await issueStateResource.replace(issue.id, clean satisfies IssueEntry);
       } catch (error) {
         logger.warn(`Failed to persist issue ${issue.id}: ${String(error)}`);
       }
@@ -344,7 +336,7 @@ export async function persistState(state: RuntimeState): Promise<void> {
   if (eventStateResource && dirtyEvents.size > 0) {
     for (const event of state.events) {
       if (!dirtyEvents.has(event.id)) continue;
-      await eventStateResource.replace(event.id, event satisfies EventRecord);
+      await eventStateResource.replace(event.id, event satisfies RuntimeEvent);
     }
     clearDirtyEventIds();
   }

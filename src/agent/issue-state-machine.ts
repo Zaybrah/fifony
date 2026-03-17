@@ -4,14 +4,6 @@ export const ISSUE_STATE_MACHINE_ID = "issue-lifecycle";
 
 type IssueStateTransitionMap = Record<string, string[]>;
 
-type IssueStateMachineSnapshot = {
-  machineId: string;
-  states: string[];
-  transitionsByState: IssueStateTransitionMap;
-};
-
-type IssueStateMachinePathResult = string[];
-
 type IssueStateMachineDefinition = {
   initialState: string;
   states?: Record<string, { on?: Record<string, string> } | undefined>;
@@ -146,17 +138,6 @@ export function getIssueStateMachineInitialState(machineDefinition: unknown = ge
   return normalizeMachineDefinition(machineDefinition).initialState;
 }
 
-function getIssueStateMachineSnapshot(
-  machineDefinition: unknown = getIssueStateMachineDefinition(),
-): IssueStateMachineSnapshot {
-  const definition = normalizeMachineDefinition(machineDefinition);
-  return {
-    machineId: ISSUE_STATE_MACHINE_ID,
-    states: Object.keys(definition.states || {}),
-    transitionsByState: getIssueTransitionsByState(definition),
-  };
-}
-
 function getIssueTransitionsFromStateDefinition(
   machineDefinition: unknown,
   state: string,
@@ -198,7 +179,7 @@ export function findIssueStateMachineTransitionPath(
   machineDefinition: unknown,
   from: string,
   to: string,
-): IssueStateMachinePathResult | null {
+): string[] | null {
   if (from === to) return [];
 
   const definition = normalizeMachineDefinition(machineDefinition);
@@ -243,14 +224,3 @@ export function findIssueStateMachineTransitionPath(
   return null;
 }
 
-function getIssueStateMachineEventFromPath(machineDefinition: unknown, from: string, to: string): string | null {
-  const transitions = getIssueTransitionsFromStateDefinition(machineDefinition, from);
-  const direct = findIssueStateMachineTransitionPath(machineDefinition, from, to);
-  if (direct && direct.length === 1) {
-    const event = direct[0];
-    const target = normalizeMachineDefinition(machineDefinition).states?.[from]?.on?.[event];
-    if (target === to) return event;
-  }
-  if (transitions.includes(to)) return to;
-  return null;
-}

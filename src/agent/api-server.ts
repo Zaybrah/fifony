@@ -416,7 +416,7 @@ export async function startApiServer(
       "GET /settings/workflow": () => serveAppShell(),
       "GET /settings/providers": () => serveAppShell(),
       "GET /api/health": (c: any) =>
-        c.json({ status: (state as any).booting ? "booting" : "ready" }),
+        c.json({ status: state.booting ? "booting" : "ready" }),
       "GET /api/state": async (c: any) => {
         const showAll = c.req.query("all") === "1";
         let issues = state.issues;
