@@ -10,6 +10,7 @@ import {
 import { STATES, ISSUE_STATE_MACHINE, getIssueTransitions, timeAgo, formatDate, formatDuration } from "../utils.js";
 import { api } from "../api.js";
 import { useSwipeToDismiss } from "../hooks/useSwipeToDismiss.js";
+import { useWorkflowConfig } from "../hooks/useWorkflowConfig.js";
 import { StatusBadgeExpanded } from "./StatusIndicator.jsx";
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -101,6 +102,72 @@ function CopyButton({ text }) {
 }
 
 // formatDuration imported from utils.js
+
+function ConfigStrip({ config }) {
+  if (!config) return null;
+  const { provider, model, effort } = config;
+  if (!provider && !model && !effort) return null;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {provider && (
+        <span className="badge badge-xs badge-ghost font-mono gap-1">
+          <Terminal className="size-2.5" />{provider}
+        </span>
+      )}
+      {model && <span className="badge badge-xs badge-ghost font-mono">{model}</span>}
+      {effort && <span className="badge badge-xs badge-outline">{effort}</span>}
+    </div>
+  );
+}
+
+const PHASE_LABELS = { planner: "Plan", executor: "Execute", reviewer: "Review" };
+const PHASE_COLORS = { planner: "text-info", executor: "text-primary", reviewer: "text-secondary" };
+
+function TokenPhaseBreakdown({ tokensByPhase, tokensByModel }) {
+  const phases = tokensByPhase ? Object.entries(tokensByPhase).filter(([, v]) => v?.totalTokens > 0) : [];
+  const models = tokensByModel ? Object.entries(tokensByModel).filter(([, v]) => v?.totalTokens > 0) : [];
+  if (phases.length === 0 && models.length === 0) return null;
+
+  const fmt = (n) => (n ?? 0).toLocaleString();
+
+  return (
+    <div className="space-y-3">
+      {phases.length > 0 && (
+        <div className="space-y-1">
+          {phases.map(([phase, usage]) => (
+            <div key={phase} className="flex items-center gap-2 text-xs">
+              <span className={`w-14 shrink-0 font-medium ${PHASE_COLORS[phase] || "text-base-content"}`}>
+                {PHASE_LABELS[phase] || phase}
+              </span>
+              <span className="opacity-50">{fmt(usage.totalTokens)} total</span>
+              <span className="opacity-30 text-[10px]">{fmt(usage.inputTokens)}↑ {fmt(usage.outputTokens)}↓</span>
+              {usage.model && <span className="badge badge-xs badge-ghost font-mono ml-auto">{usage.model}</span>}
+            </div>
+          ))}
+          {phases.length > 1 && (
+            <div className="flex items-center gap-2 text-xs border-t border-base-300 pt-1 mt-1">
+              <span className="w-14 shrink-0 font-semibold opacity-60">Total</span>
+              <span className="font-semibold">
+                {fmt(phases.reduce((s, [, v]) => s + (v.totalTokens ?? 0), 0))}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+      {models.length > 0 && (
+        <div className="space-y-0.5">
+          <div className="text-[10px] uppercase tracking-wider opacity-40 mb-1">by model</div>
+          {models.map(([model, usage]) => (
+            <div key={model} className="flex items-center gap-2 text-xs">
+              <span className="font-mono opacity-70 truncate flex-1">{model}</span>
+              <span className="opacity-50 shrink-0">{fmt(usage.totalTokens)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function getStateMachineOrder(state) {
   return { Todo: 0, Queued: 1, Running: 2, Interrupted: 2, "In Review": 3, Blocked: 3, Done: 4, Cancelled: 4 }[state] ?? 0;
@@ -317,13 +384,20 @@ function LiveMonitor({ issueId, running, startedAt }) {
 
 // ── Tab: Execution ──────────────────────────────────────────────────────────
 
-function ExecutionTab({ issue }) {
+function ExecutionTab({ issue, workflowConfig }) {
   const isRunning = issue.state === "Running" || issue.state === "In Review";
+  const executeConfig = workflowConfig?.workflow?.execute;
 
   return (
     <div className="space-y-5">
       {/* Live monitor */}
       <LiveMonitor issueId={issue.id} running={isRunning} startedAt={issue.startedAt} />
+
+      {executeConfig && (
+        <Section title="Execution Config" icon={SlidersHorizontal}>
+          <ConfigStrip config={executeConfig} />
+        </Section>
+      )}
 
       <Section title="Run Info" icon={Terminal}>
         <div className="space-y-0.5">
@@ -356,7 +430,13 @@ function ExecutionTab({ issue }) {
         </div>
       )}
 
-      {!issue.lastError && !issue.commandOutputTail && (
+      {(issue.tokensByPhase || issue.tokensByModel) && (
+        <Section title="Token Usage" icon={Zap}>
+          <TokenPhaseBreakdown tokensByPhase={issue.tokensByPhase} tokensByModel={issue.tokensByModel} />
+        </Section>
+      )}
+
+      {!issue.lastError && !issue.commandOutputTail && !issue.tokensByPhase && !issue.tokensByModel && (
         <div className="text-sm opacity-40 text-center py-8">No execution data yet.</div>
       )}
     </div>
@@ -753,7 +833,7 @@ function EventsTab({ issueId, events }) {
 
 const COMPLEXITY_COLOR = { trivial: "badge-ghost", low: "badge-success", medium: "badge-warning", high: "badge-error" };
 
-function PlanningTab({ issue, onStateChange }) {
+function PlanningTab({ issue, onStateChange, workflowConfig }) {
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState(null);
   const [localGenerating, setLocalGenerating] = useState(false);
@@ -873,6 +953,11 @@ function PlanningTab({ issue, onStateChange }) {
               </button>
             </div>
           )}
+          {workflowConfig?.workflow?.plan && (
+            <div className="flex items-center justify-center gap-1.5 opacity-40">
+              <ConfigStrip config={workflowConfig.workflow.plan} />
+            </div>
+          )}
         </div>
         {displayError && <div className="alert alert-error text-sm">{displayError}</div>}
       </div>
@@ -915,12 +1000,26 @@ function PlanningTab({ issue, onStateChange }) {
         <span className={`badge badge-sm ${COMPLEXITY_COLOR[plan.estimatedComplexity] || "badge-ghost"}`}>
           {plan.estimatedComplexity} complexity
         </span>
-        {plan.provider && <span className="badge badge-sm badge-ghost">via {plan.provider}</span>}
-        {plan.suggestedEffort?.default && <span className="badge badge-sm badge-outline">effort: {plan.suggestedEffort.default}</span>}
         {refinementCount > 0 && (
           <span className="badge badge-sm badge-secondary gap-1">
             <RotateCcw className="size-2.5" /> Refined &times;{refinementCount}
           </span>
+        )}
+      </div>
+
+      {/* Plan config + planner tokens */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        {workflowConfig?.workflow?.plan && (
+          <div className="flex items-center gap-2 text-xs opacity-60">
+            <SlidersHorizontal className="size-3 shrink-0" />
+            <ConfigStrip config={workflowConfig.workflow.plan} />
+          </div>
+        )}
+        {issue.tokensByPhase?.planner?.totalTokens > 0 && (
+          <div className="flex items-center gap-1.5 text-xs opacity-50">
+            <Zap className="size-3" />
+            <span>{issue.tokensByPhase.planner.totalTokens.toLocaleString()} tokens</span>
+          </div>
         )}
       </div>
 
@@ -942,6 +1041,50 @@ function PlanningTab({ issue, onStateChange }) {
         <Section title="Summary" icon={Info}>
           <p className="text-sm leading-relaxed">{plan.summary}</p>
         </Section>
+
+        {/* Phases (when planner generated structured phases) */}
+        {plan.phases?.length > 0 && (
+          <Section title={`Phases (${plan.phases.length})`} icon={Layers}>
+            <div className="space-y-3">
+              {plan.phases.map((phase, pi) => (
+                <div key={pi} className="border border-base-300 rounded-box overflow-hidden">
+                  <div className="bg-base-200 px-3 py-2 flex items-center gap-2">
+                    <div className="flex items-center justify-center size-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold shrink-0">
+                      {pi + 1}
+                    </div>
+                    <span className="text-sm font-semibold">{phase.phaseName}</span>
+                    {phase.tasks?.length > 0 && (
+                      <span className="badge badge-xs badge-ghost ml-auto">{phase.tasks.length} tasks</span>
+                    )}
+                  </div>
+                  {phase.goal && (
+                    <div className="px-3 pt-2 text-xs opacity-60">{phase.goal}</div>
+                  )}
+                  {phase.tasks?.length > 0 && (
+                    <div className="px-3 pb-2 pt-1.5 space-y-1.5">
+                      {phase.tasks.map((t, ti) => (
+                        <div key={ti} className="flex gap-2 text-xs">
+                          <span className="opacity-30 shrink-0 font-mono w-4">{t.step}.</span>
+                          <div className="min-w-0">
+                            <span className="font-medium">{t.action}</span>
+                            {t.details && <span className="opacity-50 ml-1">— {t.details}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {phase.outputs?.length > 0 && (
+                    <div className="px-3 pb-2 flex flex-wrap gap-1">
+                      {phase.outputs.map((o) => (
+                        <span key={o} className="badge badge-xs badge-outline opacity-60">{o}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* Steps */}
         <Section title={`Steps (${plan.steps.length})`} icon={ListOrdered}>
@@ -1448,6 +1591,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);
   const tabsContainerRef = useRef(null);
+  const { data: workflowConfig } = useWorkflowConfig();
 
   const handleClose = useCallback(() => {
     setClosing(true);
@@ -1554,9 +1698,9 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
         <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 drawer-safe-bottom">
           <div key={tab} className="animate-fade-in">
             {tab === "overview" && <OverviewTab issue={issue} onStateChange={onStateChange} onRetry={onRetry} onCancel={onCancel} />}
-            {tab === "planning" && <PlanningTab issue={issue} onStateChange={onStateChange} />}
+            {tab === "planning" && <PlanningTab issue={issue} onStateChange={onStateChange} workflowConfig={workflowConfig} />}
             {tab === "review" && <ReviewTab issue={issue} issueId={issue.id} onStateChange={onStateChange} />}
-            {tab === "execution" && <ExecutionTab issue={issue} />}
+            {tab === "execution" && <ExecutionTab issue={issue} workflowConfig={workflowConfig} />}
             {tab === "diff" && <DiffTab issueId={issue.id} />}
             {tab === "routing" && <RoutingTab issue={issue} />}
             {tab === "history" && <HistoryTab issue={issue} />}

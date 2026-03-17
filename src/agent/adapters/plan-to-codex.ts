@@ -28,7 +28,7 @@ export async function compileForCodex(
   workspacePath: string,
   skillContext: string,
 ): Promise<CompiledExecution> {
-  const effort = resolveEffortForProvider(plan, provider.role, config.defaultEffort);
+  const effort = resolveEffortForProvider(plan, provider.role, config.defaultEffort) || provider.reasoningEffort;
 
   const prompt = await renderPrompt("compile-execution-codex", {
     isPlanner: provider.role === "planner",

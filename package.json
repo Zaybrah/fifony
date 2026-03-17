@@ -18,7 +18,8 @@
     "build:ui": "vite build --config app/vite.config.js",
     "prepack": "pnpm build",
     "prepublishOnly": "pnpm build",
-    "mcp": "pnpm prompts:generate && node ./bin/fifony.js mcp"
+    "mcp": "pnpm prompts:generate && node ./bin/fifony.js mcp",
+    "test": "node --import tsx/esm --test 'tests/**/*.test.ts'"
   },
   "files": [
     "bin/",
