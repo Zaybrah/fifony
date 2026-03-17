@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Zap, Circle, Activity } from "lucide-react";
+import { Zap, Circle, Activity, Lightbulb, Loader } from "lucide-react";
 import { timeAgo } from "../utils.js";
 
 const STATE_BADGE = {
@@ -44,6 +44,7 @@ function derivePhase(tokensByPhase) {
 export function IssueCard({ issue, onSelect, dragHandlers, isDragging }) {
   const isRunning = issue.state === "Running";
   const isInReview = issue.state === "In Review";
+  const isPlanBusy = issue.planningStatus === "planning" || issue.planningStatus === "refining";
   const showTokens = isRunning || isInReview;
 
   // Track previous token count for bump animation
@@ -140,6 +141,17 @@ export function IssueCard({ issue, onSelect, dragHandlers, isDragging }) {
               </span>
             </>
           )}
+
+          {/* Planning in progress indicator */}
+          {isPlanBusy && (
+            <>
+              <span>·</span>
+              <span className="inline-flex items-center gap-1 text-info font-medium">
+                <Loader size={10} className="animate-spin" />
+                {issue.planningStatus === "refining" ? "Refining" : "Planning"}
+              </span>
+            </>
+          )}
         </div>
 
         {/* Recent command output preview */}
@@ -156,6 +168,11 @@ export function IssueCard({ issue, onSelect, dragHandlers, isDragging }) {
       {/* Progress heartbeat bar for Running issues */}
       {isRunning && (
         <div className="issue-heartbeat-bar animate-pulse-soft" />
+      )}
+
+      {/* Planning progress bar */}
+      {isPlanBusy && (
+        <div className="h-[3px] rounded-b-[var(--rounded-box,1rem)] bg-info animate-pulse-soft" />
       )}
     </div>
   );

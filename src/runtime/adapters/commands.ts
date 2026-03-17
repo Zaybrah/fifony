@@ -42,21 +42,26 @@ export const REVIEW_RESULT_SCHEMA = JSON.stringify({
 export function buildClaudeCommand(options: {
   model?: string;
   jsonSchema?: string;
+  /** Skip --dangerously-skip-permissions (e.g. for planning where tool access breaks --json-schema) */
+  noToolAccess?: boolean;
 }): string {
   const parts = [
     "claude",
     "--print",
-    "--dangerously-skip-permissions",
-    "--no-session-persistence",
-    "--output-format json",
   ];
+
+  if (!options.noToolAccess) {
+    parts.push("--dangerously-skip-permissions");
+  }
+
+  parts.push("--no-session-persistence", "--output-format json");
 
   if (options.jsonSchema) {
     parts.push(`--json-schema '${options.jsonSchema}'`);
   }
 
   if (options.model) {
-    parts.splice(2, 0, `--model ${options.model}`);
+    parts.splice(1, 0, `--model ${options.model}`);
   }
 
   parts.push("< \"$FIFONY_PROMPT_FILE\"");

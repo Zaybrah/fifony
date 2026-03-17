@@ -40,7 +40,7 @@ const BASE_TABS = [
   { id: "execution", label: "Execution", icon: Terminal },
   { id: "diff", label: "Diff", icon: Code },
   { id: "routing", label: "Routing", icon: Route },
-  { id: "events", label: "Events", icon: Activity },
+  { id: "history", label: "Events", icon: Activity },
 ];
 
 const PLANNING_TAB = { id: "planning", label: "Plan", icon: Lightbulb };
@@ -689,26 +689,32 @@ function EventsTab({ issueId, events }) {
 const COMPLEXITY_COLOR = { trivial: "badge-ghost", low: "badge-success", medium: "badge-warning", high: "badge-error" };
 
 function PlanningTab({ issue, onStateChange }) {
-  const [generating, setGenerating] = useState(false);
-  const [fastMode, setFastMode] = useState(false);
-  const [refining, setRefining] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState(null);
   const plan = issue.plan;
   const isPlanning = issue.state === "Planning";
 
+  // Server-driven status via WS — no local generating state needed
+  const isGenerating = issue.planningStatus === "planning";
+  const isRefining = issue.planningStatus === "refining";
+  const isBusy = isGenerating || isRefining;
+
+  // Show server-side planning errors
+  const displayError = error || issue.planningError;
+
+  // Clear local error when server error changes
+  useEffect(() => {
+    if (issue.planningError) setError(null);
+  }, [issue.planningError]);
+
   const handleGenerate = async (fast = false) => {
-    setGenerating(true);
-    setFastMode(fast);
     setError(null);
     try {
       const res = await api.post(`/issues/${encodeURIComponent(issue.id)}/plan`, { fast });
       if (!res.ok) throw new Error(res.error || "Plan generation failed.");
+      // Server will set planningStatus="planning" → WS broadcasts → UI updates
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGenerating(false);
-      setFastMode(false);
     }
   };
 
@@ -722,21 +728,19 @@ function PlanningTab({ issue, onStateChange }) {
 
   const handleRefine = async () => {
     if (!feedback.trim()) return;
-    setRefining(true);
     setError(null);
     try {
       const res = await api.post(`/issues/${encodeURIComponent(issue.id)}/plan/refine`, { feedback: feedback.trim() });
       if (!res.ok) throw new Error(res.error || "Refinement failed.");
       setFeedback("");
+      // Server will set planningStatus="refining" → WS broadcasts → UI updates
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefining(false);
     }
   };
 
-  // No plan yet — show generate button
-  if (!plan && !generating) {
+  // No plan yet and not generating — show generate button
+  if (!plan && !isGenerating) {
     return (
       <div className="space-y-4">
         <div className="text-center py-8 space-y-3">
@@ -760,22 +764,18 @@ function PlanningTab({ issue, onStateChange }) {
             </div>
           )}
         </div>
-        {error && <div className="alert alert-error text-sm">{error}</div>}
+        {displayError && <div className="alert alert-error text-sm">{displayError}</div>}
       </div>
     );
   }
 
-  // Generating
-  if (generating) {
+  // Generating (server-driven via WS)
+  if (isGenerating && !plan) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-12">
-        <Loader className={`size-8 animate-spin ${fastMode ? "text-warning" : "text-primary"}`} />
-        <div className="text-sm opacity-60">
-          {fastMode ? "Fast planning..." : "Generating execution plan..."}
-        </div>
-        <div className="text-xs opacity-30">
-          {fastMode ? "Brief plan, same model, minimal reasoning" : "This may take a few minutes"}
-        </div>
+        <Loader className="size-8 animate-spin text-primary" />
+        <div className="text-sm opacity-60">Generating execution plan...</div>
+        <div className="text-xs opacity-30">This may take a few minutes</div>
       </div>
     );
   }
@@ -783,6 +783,16 @@ function PlanningTab({ issue, onStateChange }) {
   // Plan exists — show it
   return (
     <div className="space-y-5">
+      {/* Generating/Refining indicator banner */}
+      {isBusy && (
+        <div className="rounded-box border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
+          <Loader className="size-4 animate-spin text-primary shrink-0" />
+          <span className="text-sm text-primary font-medium">
+            {isGenerating ? "Re-generating plan..." : "Refining plan..."}
+          </span>
+        </div>
+      )}
+
       {/* Badges */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`badge badge-sm ${COMPLEXITY_COLOR[plan.estimatedComplexity] || "badge-ghost"}`}>
@@ -871,7 +881,7 @@ function PlanningTab({ issue, onStateChange }) {
             placeholder="Give feedback to refine the plan... e.g. 'Use React instead of Vue for step 3'"
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
-            disabled={refining}
+            disabled={isBusy}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && feedback.trim()) {
                 e.preventDefault();
@@ -883,9 +893,9 @@ function PlanningTab({ issue, onStateChange }) {
             <button
               className="btn btn-secondary btn-sm gap-1.5"
               onClick={handleRefine}
-              disabled={refining || !feedback.trim()}
+              disabled={isBusy || !feedback.trim()}
             >
-              {refining ? (
+              {isRefining ? (
                 <><Loader className="size-3.5 animate-spin" /> Refining...</>
               ) : (
                 <><RotateCcw className="size-3.5" /> Refine Plan</>
@@ -896,10 +906,10 @@ function PlanningTab({ issue, onStateChange }) {
         </div>
       )}
 
-      {error && <div className="alert alert-error text-sm">{error}</div>}
+      {displayError && <div className="alert alert-error text-sm">{displayError}</div>}
 
       {/* Actions */}
-      {isPlanning && (
+      {isPlanning && !isBusy && (
         <div className="flex items-center gap-2 pt-3 border-t border-base-300 max-sm:flex-col">
           <button className="btn btn-primary gap-1.5 max-sm:w-full" onClick={handleApprove}>
             <CheckCircle2 className="size-4" /> Approve & Start
@@ -1193,6 +1203,12 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
               <FileText className="size-5 opacity-60 shrink-0" />
               <span className="font-mono text-sm opacity-60">{issue.identifier}</span>
               <span className={`badge badge-sm ${STATE_BADGE[issue.state] || "badge-ghost"}`}>{issue.state}</span>
+              {(issue.planningStatus === "planning" || issue.planningStatus === "refining") && (
+                <span className="badge badge-sm badge-info gap-1 animate-pulse-soft">
+                  <Loader className="size-3 animate-spin" />
+                  {issue.planningStatus === "refining" ? "Refining…" : "Planning…"}
+                </span>
+              )}
             </div>
             <button type="button" className="btn btn-sm btn-ghost btn-circle shrink-0" onClick={handleClose} aria-label="Close">
               <X className="size-4" />
@@ -1220,6 +1236,9 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
                   {label}
                   {id === "review" && issue.state === "In Review" && (
                     <span className="badge badge-xs badge-secondary">!</span>
+                  )}
+                  {id === "planning" && (issue.planningStatus === "planning" || issue.planningStatus === "refining") && (
+                    <span className="loading loading-spinner loading-xs text-info" />
                   )}
                 </a>
               ))}

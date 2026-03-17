@@ -69,6 +69,10 @@ export type IssueEntry = {
   linesRemoved?: number;
   filesChanged?: number;
   plan?: IssuePlan;
+  /** Planning process status — driven by background plan generation */
+  planningStatus?: "idle" | "planning" | "refining";
+  /** Error message from last plan generation attempt */
+  planningError?: string;
 };
 
 export type IssuePlanStep = {

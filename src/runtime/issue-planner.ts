@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { IssuePlan, RuntimeConfig, WorkflowConfig, WorkflowDefinition } from "./types.ts";
+import type { IssuePlan, RuntimeConfig, WorkflowConfig, WorkflowDefinition, RuntimeState, IssueEntry } from "./types.ts";
 import { appendFileTail, now, toStringArray, extractJsonObjects } from "./helpers.ts";
 import { detectAvailableProviders } from "./providers.ts";
 import { replacePersistedSetting, getSettingStateResource } from "./store.ts";
@@ -10,7 +10,7 @@ import { getWorkflowConfig, loadRuntimeSettings } from "./settings.ts";
 import { logger } from "./logger.ts";
 import { buildClaudeCommand, buildCodexCommand } from "./adapters/commands.ts";
 import { record as recordTokens } from "./token-ledger.ts";
-import type { AgentTokenUsage, IssueEntry } from "./types.ts";
+import type { AgentTokenUsage } from "./types.ts";
 import { renderPrompt } from "../prompting.ts";
 
 // ── Planning session persistence ────────────────────────────────────────────
@@ -154,7 +154,7 @@ async function buildPlanPrompt(title: string, description: string, fast = false)
 // ── Provider command ─────────────────────────────────────────────────────────
 
 function getPlanCommand(provider: string, model?: string): string {
-  if (provider === "claude") return buildClaudeCommand({ model, jsonSchema: PLAN_JSON_SCHEMA });
+  if (provider === "claude") return buildClaudeCommand({ model, jsonSchema: PLAN_JSON_SCHEMA, noToolAccess: true });
   if (provider === "codex") return buildCodexCommand({ model });
   return "";
 }
@@ -215,15 +215,27 @@ function parsePlanOutput(raw: string): IssuePlan | null {
 
   const candidates: string[] = [];
 
+  // 1. Try to unwrap --output-format json envelope
   try {
     const outer = JSON.parse(text);
-    if (outer?.result && typeof outer.result === "string") candidates.push(outer.result);
+    if (outer?.result && typeof outer.result === "string") {
+      const result = outer.result;
+      candidates.push(result);
+      // Also extract any JSON objects embedded in the result string
+      candidates.push(...extractJsonObjects(result));
+      // Try code blocks inside .result
+      const resultCodeBlocks = result.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
+      for (const match of resultCodeBlocks) candidates.push(match[1]);
+    }
+    // If the outer object itself looks like a plan (no .type envelope)
     if (outer?.summary) candidates.push(text);
   } catch {}
 
+  // 2. Try code blocks in full output
   const codeBlocks = text.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
   for (const match of codeBlocks) candidates.push(match[1]);
 
+  // 3. Extract top-level JSON objects from full text
   candidates.push(...extractJsonObjects(text));
 
   for (const candidate of candidates) {
@@ -255,6 +267,27 @@ function extractPlanTokenUsage(raw: string): { inputTokens: number; outputTokens
   // 1. Claude --output-format json: parse the outer JSON envelope
   try {
     const parsed = JSON.parse(raw.trim());
+
+    // Try modelUsage field first (richer data, per-model breakdown)
+    if (parsed?.modelUsage && typeof parsed.modelUsage === "object") {
+      let totalInput = 0, totalOutput = 0, primaryModel = "";
+      let maxTokens = 0;
+      for (const [model, data] of Object.entries<any>(parsed.modelUsage)) {
+        const inp = Number(data?.inputTokens || 0) + Number(data?.cacheReadInputTokens || 0) + Number(data?.cacheCreationInputTokens || 0);
+        const out = Number(data?.outputTokens || 0);
+        totalInput += inp;
+        totalOutput += out;
+        if (inp + out > maxTokens) {
+          maxTokens = inp + out;
+          primaryModel = model;
+        }
+      }
+      if (totalInput > 0 || totalOutput > 0) {
+        return { inputTokens: totalInput, outputTokens: totalOutput, totalTokens: totalInput + totalOutput, model: primaryModel };
+      }
+    }
+
+    // Fallback: usage field
     const usage = parsed?.usage;
     if (usage && typeof usage === "object") {
       const input = Number(usage.input_tokens) || 0;
@@ -268,6 +301,8 @@ function extractPlanTokenUsage(raw: string): { inputTokens: number; outputTokens
         };
       }
     }
+
+    // Fallback: total_cost_usd present means we can at least log the cost
   } catch { /* not JSON — try Codex format */ }
 
   // 2. Codex: "tokens used\n1,681\n"
@@ -612,4 +647,102 @@ export async function refinePlan(
     : `, ${refineUsage.outputChars.toLocaleString()} output chars`;
   logger.info(`Plan refined for "${issue.title}" via ${refineUsage.model}: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}${tokenSummary}, ${durationMs}ms`);
   return { plan, usage: refineUsage };
+}
+
+// ── Fire-and-forget wrappers ────────────────────────────────────────────────
+
+export type PlanCallbacks = {
+  addEvent: (issueId: string, kind: string, message: string) => void;
+  persistState: () => Promise<void>;
+  applyUsage: (issue: IssueEntry, usage: PlanningSessionUsage) => void;
+  applySuggestions: (issue: IssueEntry, plan: IssuePlan) => void;
+};
+
+/**
+ * Start plan generation in the background. Returns immediately.
+ * Updates issue.plan and broadcasts via WS when done.
+ */
+export function generatePlanInBackground(
+  issue: IssueEntry,
+  config: RuntimeConfig,
+  workflowDefinition: WorkflowDefinition | null,
+  callbacks: PlanCallbacks,
+  options?: { fast?: boolean },
+): void {
+  const { addEvent, persistState, applyUsage, applySuggestions } = callbacks;
+  const fast = options?.fast ?? false;
+
+  issue.planningStatus = "planning";
+  issue.planningError = undefined;
+  issue.updatedAt = now();
+
+  // Fire-and-forget — errors are caught and stored on the issue
+  generatePlan(issue.title, issue.description, config, workflowDefinition, { fast })
+    .then(async ({ plan, usage }) => {
+      issue.plan = plan;
+      issue.planningStatus = "idle";
+      issue.planningError = undefined;
+      issue.updatedAt = now();
+
+      applyUsage(issue, usage);
+      applySuggestions(issue, plan);
+
+      const tokenInfo = usage.totalTokens > 0
+        ? ` ${usage.totalTokens.toLocaleString()} tokens (in: ${usage.inputTokens.toLocaleString()}, out: ${usage.outputTokens.toLocaleString()}) [${usage.model}]`
+        : "";
+      addEvent(issue.id, "info", `${fast ? "Fast plan" : "Plan"} generated: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.${tokenInfo}`);
+      await persistState();
+    })
+    .catch(async (err) => {
+      issue.planningStatus = "idle";
+      issue.planningError = err instanceof Error ? err.message : String(err);
+      issue.updatedAt = now();
+      addEvent(issue.id, "error", `Plan generation failed: ${issue.planningError}`);
+      await persistState();
+      logger.error({ err }, `Background plan generation failed for ${issue.identifier}`);
+    });
+}
+
+/**
+ * Start plan refinement in the background. Returns immediately.
+ * Updates issue.plan and broadcasts via WS when done.
+ */
+export function refinePlanInBackground(
+  issue: IssueEntry,
+  feedback: string,
+  config: RuntimeConfig,
+  workflowDefinition: WorkflowDefinition | null,
+  callbacks: PlanCallbacks,
+): void {
+  const { addEvent, persistState, applyUsage, applySuggestions } = callbacks;
+
+  issue.planningStatus = "refining";
+  issue.planningError = undefined;
+  issue.updatedAt = now();
+
+  refinePlan(issue, feedback, config, workflowDefinition)
+    .then(async ({ plan, usage }) => {
+      issue.plan = plan;
+      issue.planningStatus = "idle";
+      issue.planningError = undefined;
+      issue.updatedAt = now();
+
+      applyUsage(issue, usage);
+      applySuggestions(issue, plan);
+
+      const feedbackPreview = feedback.length > 80 ? `${feedback.slice(0, 77)}...` : feedback;
+      const tokenInfo = usage.totalTokens > 0
+        ? ` ${usage.totalTokens.toLocaleString()} tokens [${usage.model}]`
+        : "";
+      addEvent(issue.id, "info", `Plan refined: ${feedbackPreview}.${tokenInfo}`);
+      await persistState();
+    })
+    .catch(async (err) => {
+      issue.planningStatus = "idle";
+      issue.planningError = err instanceof Error ? err.message : String(err);
+      issue.updatedAt = now();
+      addEvent(issue.id, "error", `Plan refinement failed: ${issue.planningError}`);
+      await persistState();
+      logger.error({ err }, `Background plan refinement failed for ${issue.identifier}`);
+    });
 }
