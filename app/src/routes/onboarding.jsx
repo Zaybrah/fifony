@@ -20,7 +20,7 @@ function OnboardingPage() {
       <OnboardingWizard
         onComplete={() => {
           qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
-          navigate({ to: "/kanban" });
+          navigate({ to: "/" });
         }}
       />
     </Suspense>
