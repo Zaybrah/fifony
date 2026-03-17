@@ -140,39 +140,30 @@ async function runProviderCommand(
   const promptFile = join(tempDir, "fifony-enhance-prompt.md");
   const issuePayloadFile = join(tempDir, "fifony-issue.json");
   const resultFile = join(tempDir, "fifony-result.txt");
-  const envFile = join(tempDir, "fifony-enhance-env.sh");
   writeFileSync(promptFile, `${prompt}\n`, "utf8");
   writeFileSync(issuePayloadFile, JSON.stringify({ title, description, field }, null, 2), "utf8");
 
-  const envLines = [
-    `export FIFONY_ISSUE_TITLE=${JSON.stringify(title)}`,
-    `export FIFONY_ISSUE_DESCRIPTION=${JSON.stringify(description)}`,
-    `export FIFONY_ENHANCE_FIELD=${JSON.stringify(field)}`,
-    "export FIFONY_PROMPT_FILE=" + JSON.stringify(promptFile),
-    "export FIFONY_PROMPT=" + JSON.stringify(prompt),
-    "export FIFONY_ISSUE_JSON=" + JSON.stringify(issuePayloadFile),
-    "export FIFONY_AGENT_PROVIDER=" + JSON.stringify(provider),
-    "export FIFONY_RESULT_FILE=" + JSON.stringify(resultFile),
-  ];
+  const spawnEnv = {
+    ...env,
+    FIFONY_ISSUE_TITLE: title,
+    FIFONY_ISSUE_DESCRIPTION: description,
+    FIFONY_ENHANCE_FIELD: field,
+    FIFONY_PROMPT_FILE: promptFile,
+    FIFONY_PROMPT: prompt,
+    FIFONY_ISSUE_JSON: issuePayloadFile,
+    FIFONY_AGENT_PROVIDER: provider,
+    FIFONY_RESULT_FILE: resultFile,
+  };
 
-  const processEnv = Object.entries(env)
-    .map(([key, value]) => {
-      if (typeof value !== "string") return `export ${key}=${JSON.stringify("")}`;
-      return `export ${key}=${JSON.stringify(value)}`;
-    })
-    .join("\n");
-
-  writeFileSync(envFile, `${processEnv}\n${envLines.join("\n")}\n`, "utf8");
-
-  const wrappedCommand = `. "${envFile}" && ${command}`;
   return await new Promise((resolve, reject) => {
     const startedAt = Date.now();
     let output = "";
     let timeout = false;
 
-    const child = spawn(wrappedCommand, {
+    const child = spawn(command, {
       shell: true,
       cwd: tempDir,
+      env: spawnEnv,
     });
 
     if (child.stdin) child.stdin.end();
