@@ -687,17 +687,17 @@ export function generatePlanInBackground(
       applyUsage(issue, usage);
       applySuggestions(issue, plan);
 
-      const tokenInfo = usage.totalTokens > 0
-        ? ` ${usage.totalTokens.toLocaleString()} tokens (in: ${usage.inputTokens.toLocaleString()}, out: ${usage.outputTokens.toLocaleString()}) [${usage.model}]`
-        : "";
-      addEvent(issue.id, "info", `${fast ? "Fast plan" : "Plan"} generated: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.${tokenInfo}`);
+      addEvent(issue.id, "progress", `${fast ? "Fast plan" : "Plan"} generated for ${issue.identifier}: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.`);
+      if (usage.totalTokens > 0) {
+        addEvent(issue.id, "info", `Plan tokens (${issue.identifier}): ${usage.totalTokens.toLocaleString()} (in: ${usage.inputTokens.toLocaleString()}, out: ${usage.outputTokens.toLocaleString()}) [${usage.model}]`);
+      }
       await persistState();
     })
     .catch(async (err) => {
       issue.planningStatus = "idle";
       issue.planningError = err instanceof Error ? err.message : String(err);
       issue.updatedAt = now();
-      addEvent(issue.id, "error", `Plan generation failed: ${issue.planningError}`);
+      addEvent(issue.id, "error", `Plan generation failed for ${issue.identifier}: ${issue.planningError}`);
       await persistState();
       logger.error({ err }, `Background plan generation failed for ${issue.identifier}`);
     });
@@ -731,17 +731,17 @@ export function refinePlanInBackground(
       applySuggestions(issue, plan);
 
       const feedbackPreview = feedback.length > 80 ? `${feedback.slice(0, 77)}...` : feedback;
-      const tokenInfo = usage.totalTokens > 0
-        ? ` ${usage.totalTokens.toLocaleString()} tokens [${usage.model}]`
-        : "";
-      addEvent(issue.id, "info", `Plan refined: ${feedbackPreview}.${tokenInfo}`);
+      addEvent(issue.id, "progress", `Plan refined for ${issue.identifier}: "${feedbackPreview}" → ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.`);
+      if (usage.totalTokens > 0) {
+        addEvent(issue.id, "info", `Refinement tokens (${issue.identifier}): ${usage.totalTokens.toLocaleString()} (in: ${usage.inputTokens.toLocaleString()}, out: ${usage.outputTokens.toLocaleString()}) [${usage.model}]`);
+      }
       await persistState();
     })
     .catch(async (err) => {
       issue.planningStatus = "idle";
       issue.planningError = err instanceof Error ? err.message : String(err);
       issue.updatedAt = now();
-      addEvent(issue.id, "error", `Plan refinement failed: ${issue.planningError}`);
+      addEvent(issue.id, "error", `Plan refinement failed for ${issue.identifier}: ${issue.planningError}`);
       await persistState();
       logger.error({ err }, `Background plan refinement failed for ${issue.identifier}`);
     });

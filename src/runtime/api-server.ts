@@ -682,7 +682,7 @@ export async function startApiServer(
             applySuggestions: (iss, plan) => applyPlanSuggestions(iss, plan),
           }, { fast });
 
-          addEvent(state, issue.id, "info", `${fast ? "Fast plan" : "Plan"} generation started...`);
+          addEvent(state, issue.id, "progress", `${fast ? "Fast plan" : "Plan"} generation started for ${issue.identifier}.`);
         });
       },
       "POST /api/issues/:id/approve": async (c: any) => {
@@ -691,7 +691,7 @@ export async function startApiServer(
             throw new Error(`Cannot approve issue in state ${issue.state}. Must be in Planning.`);
           }
           await transitionIssueState(issue, "Todo", `Plan approved for ${issue.identifier}. Ready for execution.`);
-          addEvent(state, issue.id, "manual", `Plan approved — issue ${issue.identifier} moved to Todo.`);
+          addEvent(state, issue.id, "state", `Plan approved — ${issue.identifier} moved to Todo.`);
         });
       },
       "POST /api/issues/:id/plan/refine": async (c: any) => {
@@ -720,7 +720,7 @@ export async function startApiServer(
             },
           });
 
-          addEvent(state, issue.id, "info", `Plan refinement started...`);
+          addEvent(state, issue.id, "progress", `Plan refinement started for ${issue.identifier}.`);
         });
       },
       "POST /api/refresh": async (c: any) => {
