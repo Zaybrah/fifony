@@ -236,7 +236,7 @@ function GitignoreBanner() {
   );
 }
 
-function WelcomeStep({ workspacePath }) {
+function WelcomeStep({ workspacePath, onGetStarted }) {
   return (
     <div className="flex flex-col items-center text-center gap-6 stagger-children py-4">
       <div className="text-6xl sm:text-7xl animate-bounce-in">
@@ -254,6 +254,12 @@ function WelcomeStep({ workspacePath }) {
           {workspacePath}
         </div>
       )}
+      <button
+        className="btn btn-primary btn-lg gap-2 mt-2"
+        onClick={onGetStarted}
+      >
+        Get Started <ChevronRight className="size-5" />
+      </button>
     </div>
   );
 }
@@ -1302,7 +1308,7 @@ export default function OnboardingWizard({ onComplete }) {
       {/* Step content area */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-start px-4 py-6 overflow-y-auto">
         <StepContent direction={direction} stepKey={step} center={stepName === "Welcome" || stepName === "Providers" || stepName === "Launch"}>
-          {stepName === "Welcome" && <WelcomeStep workspacePath={workspacePath} />}
+          {stepName === "Welcome" && <WelcomeStep workspacePath={workspacePath} onGetStarted={goNext} />}
           {stepName === "Providers" && (
             <PipelineStep
               providers={providers || []}
@@ -1380,8 +1386,8 @@ export default function OnboardingWizard({ onComplete }) {
         </StepContent>
       </div>
 
-      {/* Navigation footer */}
-      <div className={`relative z-10 p-4 pb-6 flex items-center max-w-2xl mx-auto w-full ${step === 0 ? "justify-center" : "justify-between"}`}>
+      {/* Navigation footer — hidden on welcome (button is inline) */}
+      {step > 0 && <div className="relative z-10 p-4 pb-6 flex items-center max-w-2xl mx-auto w-full justify-between">
         {step > 0 && (
           <button
             className="btn btn-ghost gap-1"
@@ -1398,7 +1404,7 @@ export default function OnboardingWizard({ onComplete }) {
             onClick={goNext}
             disabled={!canProceed}
           >
-            {stepName === "Welcome" ? "Get Started" : stepName === "Discover Issues" ? "Continue" : "Next"} <ChevronRight className="size-4" />
+            {stepName === "Discover Issues" ? "Continue" : "Next"} <ChevronRight className="size-4" />
           </button>
         ) : (
           <button
@@ -1417,7 +1423,7 @@ export default function OnboardingWizard({ onComplete }) {
             )}
           </button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
