@@ -400,6 +400,7 @@ export async function startApiServer(
         serveTextFile(FRONTEND_ICON_SVG, "image/svg+xml", "public, max-age=604800, immutable"),
       "GET /icon-maskable.svg": () =>
         serveTextFile(FRONTEND_MASKABLE_ICON_SVG, "image/svg+xml", "public, max-age=604800, immutable"),
+      "GET /onboarding": () => serveAppShell(),
       "GET /kanban": () => serveAppShell(),
       "GET /issues": () => serveAppShell(),
       "GET /discover": () => serveAppShell(),

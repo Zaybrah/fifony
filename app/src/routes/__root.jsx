@@ -1,8 +1,7 @@
 import { createRootRoute, Outlet, useRouterState, useNavigate } from "@tanstack/react-router";
 import { DashboardProvider, useDashboard } from "../context/DashboardContext";
-import { useSettings, getSettingsList, getSettingValue, SETTINGS_QUERY_KEY } from "../hooks";
-import { useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useState, useCallback, useMemo } from "react";
+import { useSettings, getSettingsList, getSettingValue } from "../hooks";
+import { lazy, Suspense, useState, useCallback, useEffect, useMemo } from "react";
 import Header from "../components/Header";
 import Fab from "../components/Fab";
 import MobileDock from "../components/MobileDock";
@@ -15,8 +14,6 @@ import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { CheckCircle, AlertTriangle, Info, Music } from "lucide-react";
 import OnboardingParticles from "../components/OnboardingParticles";
 
-// Lazy-loaded components: only needed on first run or on-demand
-const OnboardingWizard = lazy(() => import("../components/OnboardingWizard"));
 const KeyboardShortcutsHelp = lazy(() => import("../components/KeyboardShortcutsHelp"));
 
 function ViewTransition({ children }) {
@@ -187,29 +184,23 @@ function LoadingHero() {
 
 function OnboardingGate({ children }) {
   const settingsQuery = useSettings();
-  const queryClient = useQueryClient();
-  const [dismissed, setDismissed] = useState(false);
+  const navigate = useNavigate();
+  const routerState = useRouterState();
+  const isOnboardingRoute = routerState.location.pathname === "/onboarding";
+  const [redirecting, setRedirecting] = useState(false);
 
   const settingsList = getSettingsList(settingsQuery.data);
   const completed = getSettingValue(settingsList, "ui.onboarding.completed", null);
-  const done = dismissed || completed === true;
+  const needsOnboarding = !completed && !settingsQuery.isLoading && !isOnboardingRoute;
 
-  // Show wizard if onboarding not completed and settings have loaded
-  if (!done && !settingsQuery.isLoading) {
-    return (
-      <Suspense fallback={<LoadingHero />}>
-        <OnboardingWizard
-          onComplete={() => {
-            setDismissed(true);
-            queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
-          }}
-        />
-      </Suspense>
-    );
-  }
+  useEffect(() => {
+    if (needsOnboarding) {
+      setRedirecting(true);
+      navigate({ to: "/onboarding", replace: true });
+    }
+  }, [needsOnboarding, navigate]);
 
-  // Show loading while settings are being fetched
-  if (settingsQuery.isLoading) {
+  if (settingsQuery.isLoading || redirecting) {
     return <LoadingHero />;
   }
 
