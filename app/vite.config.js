@@ -54,6 +54,9 @@ export default defineConfig(({ command }) => ({
       },
     },
   },
+  resolve: {
+    dedupe: ["react", "react-dom", "@tanstack/react-query", "@tanstack/react-router"],
+  },
   server: {
     port: 5173,
     host: true,
