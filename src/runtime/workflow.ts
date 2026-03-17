@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFile, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { env, argv, exit } from "node:process";
 import { stringify as stringifyYaml } from "yaml";
@@ -85,6 +86,95 @@ export function bootstrapSource(): void {
   mkdirSync(SOURCE_ROOT, { recursive: true });
   copyRecursive(TARGET_ROOT, SOURCE_ROOT);
   writeFileSync(SOURCE_MARKER, `${now()}\n`, "utf8");
+}
+
+let sourceReadyPromise: Promise<void> | null = null;
+let skipSourceFlag = false;
+
+export function setSkipSource(skip: boolean): void {
+  skipSourceFlag = skip;
+}
+
+/**
+ * Async, lazy version of bootstrapSource().
+ * Only runs the copy once, on first call. Subsequent calls resolve immediately.
+ * Emits progress via optional callback.
+ */
+export async function ensureSourceReady(
+  onProgress?: (status: "copying" | "ready") => void,
+): Promise<void> {
+  if (skipSourceFlag) {
+    onProgress?.("ready");
+    return;
+  }
+  if (existsSync(SOURCE_MARKER)) {
+    onProgress?.("ready");
+    return;
+  }
+
+  // Deduplicate concurrent calls
+  if (sourceReadyPromise) return sourceReadyPromise;
+
+  sourceReadyPromise = (async () => {
+    onProgress?.("copying");
+    logger.info("Creating local source snapshot (async) for Fifony...");
+
+    const skipDirs = new Set([
+      ".git", ".fifony", "node_modules", ".venv", "data",
+      "dist", "build", ".turbo", ".next", ".nuxt", ".tanstack",
+      "coverage", "artifacts", "captures", "tmp", "temp",
+    ]);
+
+    const shouldSkip = (relativePath: string): boolean => {
+      const parts = relativePath.split("/");
+      if (parts.some((segment) => skipDirs.has(segment))) return true;
+      const base = relativePath.split("/").at(-1) ?? "";
+      if (base.startsWith("map_scan_") && extname(base) === ".json") return true;
+      if (extname(base) === ".xlsx") return true;
+      return false;
+    };
+
+    const copyRecursiveAsync = async (source: string, target: string, rel = "") => {
+      await mkdir(target, { recursive: true });
+      const items = await readdir(source, { withFileTypes: true });
+
+      for (const item of items) {
+        const nextRel = rel ? `${rel}/${item.name}` : item.name;
+        if (shouldSkip(nextRel)) continue;
+
+        const sourcePath = `${source}/${item.name}`;
+        const targetPath = `${target}/${item.name}`;
+        const itemStat = await stat(sourcePath);
+
+        if (item.isDirectory()) {
+          await copyRecursiveAsync(sourcePath, targetPath, nextRel);
+          continue;
+        }
+
+        if (item.isSymbolicLink() || itemStat.isSymbolicLink()) continue;
+
+        if (itemStat.isFile() || itemStat.isFIFO()) {
+          try {
+            await copyFile(sourcePath, targetPath);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+              logger.debug(`Skipped missing source file: ${sourcePath}`);
+            } else {
+              throw error;
+            }
+          }
+        }
+      }
+    };
+
+    await mkdir(SOURCE_ROOT, { recursive: true });
+    await copyRecursiveAsync(TARGET_ROOT, SOURCE_ROOT);
+    await writeFile(SOURCE_MARKER, `${now()}\n`, "utf8");
+    onProgress?.("ready");
+    logger.info("Source snapshot ready (async).");
+  })();
+
+  return sourceReadyPromise;
 }
 
 /**

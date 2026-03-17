@@ -109,7 +109,15 @@ export function getProviderDefaultCommand(provider: string, _reasoningEffort?: s
   return "";
 }
 
+let cachedProviders: DetectedProvider[] | null = null;
+let providersCachedAt = 0;
+const PROVIDER_CACHE_TTL = 60_000;
+
 export function detectAvailableProviders(): DetectedProvider[] {
+  if (cachedProviders && Date.now() - providersCachedAt < PROVIDER_CACHE_TTL) {
+    return cachedProviders;
+  }
+
   const providers: DetectedProvider[] = [];
 
   for (const name of ["claude", "codex"]) {
@@ -121,7 +129,14 @@ export function detectAvailableProviders(): DetectedProvider[] {
     }
   }
 
+  cachedProviders = providers;
+  providersCachedAt = Date.now();
   return providers;
+}
+
+export function invalidateProviderCache(): void {
+  cachedProviders = null;
+  providersCachedAt = 0;
 }
 
 // ── Model discovery ─────────────────────────────────────────────────────────

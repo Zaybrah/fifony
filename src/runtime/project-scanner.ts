@@ -321,10 +321,69 @@ function validateAnalysis(parsed: Record<string, unknown>): ProjectAnalysis | nu
   };
 }
 
+// ── Analysis cache ────────────────────────────────────────────────────────────
+
+import { createHash } from "node:crypto";
+import { getSettingStateResource } from "./store.ts";
+
+const ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+function computeProjectHash(targetRoot: string): string {
+  const buildFiles = Object.keys(BUILD_FILE_SIGNALS);
+  const found = buildFiles.filter((f) => existsSync(join(targetRoot, f))).sort();
+  return createHash("sha256").update(found.join(",")).digest("hex").slice(0, 16);
+}
+
+async function loadCachedAnalysis(targetRoot: string): Promise<ProjectAnalysis | null> {
+  const resource = getSettingStateResource();
+  if (!resource) return null;
+  const hash = computeProjectHash(targetRoot);
+  const key = `project-analysis:${hash}`;
+  try {
+    const record = await resource.get(key);
+    if (!record?.value) return null;
+    const cached = record.value as { analysis: ProjectAnalysis; updatedAt: string };
+    if (!cached.analysis || !cached.updatedAt) return null;
+    if (Date.now() - Date.parse(cached.updatedAt) > ANALYSIS_CACHE_TTL_MS) return null;
+    return cached.analysis;
+  } catch {
+    return null;
+  }
+}
+
+async function saveCachedAnalysis(targetRoot: string, analysis: ProjectAnalysis): Promise<void> {
+  const resource = getSettingStateResource();
+  if (!resource) return;
+  const hash = computeProjectHash(targetRoot);
+  const key = `project-analysis:${hash}`;
+  try {
+    await resource.replace(key, {
+      id: key,
+      scope: "system",
+      source: "detected",
+      value: { analysis, updatedAt: new Date().toISOString() },
+    });
+  } catch {
+    // non-critical
+  }
+}
+
+export { buildFallbackAnalysis };
+
 export async function analyzeProjectWithCli(
   provider: string,
   targetRoot: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<ProjectAnalysis> {
+  // Check cache first
+  if (!options?.forceRefresh) {
+    const cached = await loadCachedAnalysis(targetRoot);
+    if (cached) {
+      logger.info("Using cached project analysis.");
+      return cached;
+    }
+  }
+
   const normalizedProvider = provider.trim().toLowerCase();
   const providers = detectAvailableProviders();
   const providerInfo = providers.find((p) => p.name === normalizedProvider && p.available);
@@ -422,6 +481,8 @@ export async function analyzeProjectWithCli(
         { provider: normalizedProvider, domains: analysis.domains, stack: analysis.stack },
         "CLI project analysis completed",
       );
+      // Cache the result for future use
+      await saveCachedAnalysis(targetRoot, analysis);
       return analysis;
     }
 

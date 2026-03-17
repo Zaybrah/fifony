@@ -7,16 +7,30 @@ import OnboardingParticles from "./OnboardingParticles";
 import {
   Rocket, ChevronRight, ChevronLeft, Search, Zap, Gauge, Brain, Flame,
   Users, Palette, Check, Sparkles, CircleCheck, CircleX, Loader2, Music,
-  FolderSearch, Globe, Bot, FileText, Boxes,
+  FolderSearch, Globe, Bot, FileText, Boxes, ShieldCheck, GitBranch, Eye,
 } from "lucide-react";
+import { DiscoveredIssuesOnboarding } from "./DiscoveredIssuesView";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const STEP_COUNT = 8;
-const STEP_LABELS = [
+const BASE_STEP_LABELS = [
   "Welcome", "Providers", "Scan Project", "Domains",
   "Agents & Skills", "Effort", "Workers & Theme", "Launch",
 ];
+
+// When discovery is enabled, an extra step is inserted after "Scan Project" (index 3)
+function getStepLabels(wantsDiscovery) {
+  if (!wantsDiscovery) return BASE_STEP_LABELS;
+  return [
+    ...BASE_STEP_LABELS.slice(0, 3),
+    "Discover Issues",
+    ...BASE_STEP_LABELS.slice(3),
+  ];
+}
+
+function getStepCount(wantsDiscovery) {
+  return wantsDiscovery ? 9 : 8;
+}
 
 const EFFORT_OPTIONS = [
   { value: "low", label: "Low", icon: Zap, description: "Quick and light -- fast responses, less thorough", color: "text-info" },
@@ -108,17 +122,27 @@ function normalizeRoleEfforts(value) {
 
 // ── Step indicator ──────────────────────────────────────────────────────────
 
-const STEPPER_LABELS = [
+const BASE_STEPPER_LABELS = [
   "Pipeline", "Scan", "Domains", "Agents",
   "Effort", "Workers & Theme", "Launch",
 ];
 
-function StepIndicator({ current }) {
+function getStepperLabels(wantsDiscovery) {
+  if (!wantsDiscovery) return BASE_STEPPER_LABELS;
+  return [
+    ...BASE_STEPPER_LABELS.slice(0, 2),
+    "Discover",
+    ...BASE_STEPPER_LABELS.slice(2),
+  ];
+}
+
+function StepIndicator({ current, wantsDiscovery }) {
+  const labels = getStepperLabels(wantsDiscovery);
   // current is 1-based from the wizard (step 1 = Providers = stepper index 0)
   const stepperIndex = current - 1;
   return (
     <ul className="steps steps-horizontal w-full max-w-2xl text-xs">
-      {STEPPER_LABELS.map((label, i) => {
+      {labels.map((label, i) => {
         const done = i < stepperIndex;
         const active = i === stepperIndex;
         return (
@@ -149,6 +173,57 @@ function StepContent({ direction, stepKey, center, children }) {
 
 // ── Step 1: Welcome ─────────────────────────────────────────────────────────
 
+function GitignoreBanner() {
+  const [status, setStatus] = useState(null); // null = loading, { exists, hasFifony }
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+
+  useEffect(() => {
+    api.get("/gitignore/status").then(setStatus).catch(() => setStatus({ exists: false, hasFifony: false }));
+  }, []);
+
+  if (status === null || status.hasFifony || added) {
+    if (added) {
+      return (
+        <div className="alert alert-success text-sm max-w-md animate-fade-in">
+          <ShieldCheck className="size-4 shrink-0" />
+          <span><code>.fifony/</code> added to <code>.gitignore</code></span>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  const handleAdd = async () => {
+    setAdding(true);
+    try {
+      await api.post("/gitignore/add");
+      setAdded(true);
+    } catch {
+      // silently fail — not critical
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <div className="alert alert-warning text-sm max-w-md">
+      <GitBranch className="size-4 shrink-0" />
+      <div className="flex-1">
+        <span><code>.fifony/</code> is not in your <code>.gitignore</code>.</span>
+        <span className="text-base-content/50 block text-xs mt-0.5">Fifony stores local state there — it shouldn't be committed.</span>
+      </div>
+      <button
+        className="btn btn-xs btn-warning"
+        onClick={handleAdd}
+        disabled={adding}
+      >
+        {adding ? <Loader2 className="size-3 animate-spin" /> : "Add it"}
+      </button>
+    </div>
+  );
+}
+
 function WelcomeStep({ workspacePath }) {
   return (
     <div className="flex flex-col items-center text-center gap-6 stagger-children py-4">
@@ -167,6 +242,7 @@ function WelcomeStep({ workspacePath }) {
           {workspacePath}
         </div>
       )}
+      <GitignoreBanner />
     </div>
   );
 }
@@ -992,6 +1068,13 @@ export default function OnboardingWizard({ onComplete }) {
   const [selectedAgents, setSelectedAgents] = useState([]);
   const [selectedSkills, setSelectedSkills] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
+  const [wantsDiscovery, setWantsDiscovery] = useState(false);
+
+  const STEP_COUNT = getStepCount(wantsDiscovery);
+  const STEP_LABELS = getStepLabels(wantsDiscovery);
+
+  // Map logical step index to step name (handles the optional discovery step)
+  const stepName = STEP_LABELS[step] || "";
 
   // Provider detection
   const [providers, setProviders] = useState(null);
@@ -1077,8 +1160,8 @@ export default function OnboardingWizard({ onComplete }) {
   }, [pipeline.executor]);
 
   // Save settings progressively as user advances
-  const saveStepSettings = useCallback((currentStep) => {
-    if (currentStep === 1) {
+  const saveStepSettings = useCallback((currentStepName) => {
+    if (currentStepName === "Providers") {
       // Save pipeline as providers array + primary provider
       const pipelineProviders = [
         { provider: pipeline.planner, role: "planner" },
@@ -1087,9 +1170,9 @@ export default function OnboardingWizard({ onComplete }) {
       ];
       saveSetting("runtime.agentProvider", pipeline.executor, "runtime").catch(() => {});
       saveSetting("runtime.pipeline", pipelineProviders, "runtime").catch(() => {});
-    } else if (currentStep === 5) {
+    } else if (currentStepName === "Effort") {
       saveSetting("runtime.defaultEffort", efforts, "runtime").catch(() => {});
-    } else if (currentStep === 6) {
+    } else if (currentStepName === "Workers & Theme") {
       saveSetting("ui.theme", selectedTheme, "ui").catch(() => {});
       api.post("/config/concurrency", { concurrency }).catch(() => {});
     }
@@ -1097,11 +1180,11 @@ export default function OnboardingWizard({ onComplete }) {
 
   const goNext = useCallback(() => {
     if (step < STEP_COUNT - 1) {
-      saveStepSettings(step);
+      saveStepSettings(stepName);
       setDirection("forward");
       setStep((s) => s + 1);
     }
-  }, [step, saveStepSettings]);
+  }, [step, STEP_COUNT, stepName, saveStepSettings]);
 
   const goBack = useCallback(() => {
     if (step > 0) {
@@ -1159,14 +1242,15 @@ export default function OnboardingWizard({ onComplete }) {
 
   // Can proceed from step
   const canProceed =
-    step === 0 ||                                                // Welcome
-    (step === 1 && (pipeline.executor || providersLoading)) ||   // Pipeline
-    step === 2 ||                                                // Scan Project
-    step === 3 ||                                                // Domains
-    step === 4 ||                                                // Agents & Skills
-    step === 5 ||                                                // Effort
-    step === 6 ||                                                // Workers & Theme
-    step === 7;                                                  // Launch
+    stepName === "Welcome" ||
+    (stepName === "Providers" && (pipeline.executor || providersLoading)) ||
+    stepName === "Scan Project" ||
+    stepName === "Discover Issues" ||
+    stepName === "Domains" ||
+    stepName === "Agents & Skills" ||
+    stepName === "Effort" ||
+    stepName === "Workers & Theme" ||
+    stepName === "Launch";
 
   const existingAgents = (scanResult?.existingAgents || []).map((a) => typeof a === "string" ? { name: a } : a);
   const existingSkills = (scanResult?.existingSkills || []).map((s) => typeof s === "string" ? { name: s } : s);
@@ -1192,15 +1276,15 @@ export default function OnboardingWizard({ onComplete }) {
       {/* Header with step indicator — hidden on welcome screen */}
       {step > 0 && (
         <div className="relative z-10 pt-6 pb-2 px-4 flex justify-center">
-          <StepIndicator current={step} />
+          <StepIndicator current={step} wantsDiscovery={wantsDiscovery} />
         </div>
       )}
 
       {/* Step content area */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-start px-4 py-6 overflow-y-auto">
-        <StepContent direction={direction} stepKey={step} center={step === 0 || step === 1 || step === 7}>
-          {step === 0 && <WelcomeStep workspacePath={workspacePath} />}
-          {step === 1 && (
+        <StepContent direction={direction} stepKey={step} center={stepName === "Welcome" || stepName === "Providers" || stepName === "Launch"}>
+          {stepName === "Welcome" && <WelcomeStep workspacePath={workspacePath} />}
+          {stepName === "Providers" && (
             <PipelineStep
               providers={providers || []}
               providersLoading={providersLoading}
@@ -1208,27 +1292,52 @@ export default function OnboardingWizard({ onComplete }) {
               setPipeline={setPipeline}
             />
           )}
-          {step === 2 && (
-            <ScanProjectStep
-              scanResult={scanResult}
-              setScanResult={setScanResult}
-              projectDescription={projectDescription}
-              setProjectDescription={setProjectDescription}
-              analysisResult={analysisResult}
-              setAnalysisResult={setAnalysisResult}
-              selectedProvider={selectedProvider}
-              analyzing={analyzing}
-              setAnalyzing={setAnalyzing}
-            />
+          {stepName === "Scan Project" && (
+            <>
+              <ScanProjectStep
+                scanResult={scanResult}
+                setScanResult={setScanResult}
+                projectDescription={projectDescription}
+                setProjectDescription={setProjectDescription}
+                analysisResult={analysisResult}
+                setAnalysisResult={setAnalysisResult}
+                selectedProvider={selectedProvider}
+                analyzing={analyzing}
+                setAnalyzing={setAnalyzing}
+              />
+              {/* Discovery opt-in toggle */}
+              <div className="mt-4 w-full max-w-lg">
+                <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg bg-base-200/50 border border-base-300/50 hover:border-primary/30 transition-colors">
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-primary toggle-sm"
+                    checked={wantsDiscovery}
+                    onChange={(e) => setWantsDiscovery(e.target.checked)}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Eye className="size-4 text-primary" />
+                      <span className="text-sm font-medium">Discover existing issues</span>
+                    </div>
+                    <p className="text-xs text-base-content/50 mt-0.5">
+                      Scan for TODOs, FIXMEs, and GitHub issues to import
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </>
           )}
-          {step === 3 && (
+          {stepName === "Discover Issues" && (
+            <DiscoveredIssuesOnboarding />
+          )}
+          {stepName === "Domains" && (
             <DomainsStep
               selectedDomains={selectedDomains}
               setSelectedDomains={setSelectedDomains}
               analysisResult={analysisResult}
             />
           )}
-          {step === 4 && (
+          {stepName === "Agents & Skills" && (
             <AgentsSkillsStep
               selectedDomains={selectedDomains}
               selectedAgents={selectedAgents}
@@ -1239,8 +1348,8 @@ export default function OnboardingWizard({ onComplete }) {
               existingSkills={existingSkills}
             />
           )}
-          {step === 5 && <EffortStep efforts={efforts} setEfforts={setEfforts} pipeline={pipeline} />}
-          {step === 6 && (
+          {stepName === "Effort" && <EffortStep efforts={efforts} setEfforts={setEfforts} pipeline={pipeline} />}
+          {stepName === "Workers & Theme" && (
             <WorkersThemeStep
               concurrency={concurrency}
               setConcurrency={setConcurrency}
@@ -1248,7 +1357,7 @@ export default function OnboardingWizard({ onComplete }) {
               setSelectedTheme={setSelectedTheme}
             />
           )}
-          {step === 7 && <CompleteStep config={config} launching={launching} />}
+          {stepName === "Launch" && <CompleteStep config={config} launching={launching} />}
         </StepContent>
       </div>
 
@@ -1269,10 +1378,10 @@ export default function OnboardingWizard({ onComplete }) {
         {step < STEP_COUNT - 1 ? (
           <button
             className="btn btn-primary gap-1"
-            onClick={step === 0 ? goNext : goNext}
+            onClick={goNext}
             disabled={!canProceed}
           >
-            {step === 0 ? "Get Started" : "Next"} <ChevronRight className="size-4" />
+            {stepName === "Welcome" ? "Get Started" : stepName === "Discover Issues" ? "Continue" : "Next"} <ChevronRight className="size-4" />
           </button>
         ) : (
           <button

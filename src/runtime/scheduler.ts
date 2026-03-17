@@ -9,6 +9,7 @@ import { EXECUTING_STATES, TERMINAL_STATES } from "./constants.ts";
 import { now, sleep, normalizeState, toStringValue } from "./helpers.ts";
 import { logger } from "./logger.ts";
 import { persistState } from "./store.ts";
+import { hasDirtyState, markIssueDirty } from "./dirty-tracker.ts";
 import { detectAvailableProviders, resolveDefaultProvider, getProviderDefaultCommand } from "./providers.ts";
 import {
   addEvent,
@@ -23,6 +24,19 @@ import {
 import { canRunIssue, issueHasResumableSession, runIssueOnce } from "./agent.ts";
 
 let shuttingDown = false;
+let lastPersistAt = 0;
+const PERSIST_DEBOUNCE_MS = 5000;
+
+// ── Wake signal ─────────────────────────────────────────────────────────────
+let schedulerWakeResolve: (() => void) | null = null;
+
+export function wakeScheduler(): void {
+  schedulerWakeResolve?.();
+}
+
+// ── Adaptive polling ────────────────────────────────────────────────────────
+const IDLE_POLL_MS = 5000;
+const ACTIVE_POLL_MS = 500;
 
 export function isShuttingDown(): boolean {
   return shuttingDown;
@@ -159,6 +173,7 @@ export async function ensureNotStale(state: RuntimeState, staleTimeoutMs: number
       issue.attempts += 1;
       issue.nextRetryAt = getNextRetryAt(issue, state.config.retryDelayMs);
       issue.startedAt = undefined;
+      markIssueDirty(issue.id);
       await transitionIssueState(issue, "Blocked", `Issue state auto-recovered from stale execution.`);
     }
   }
@@ -252,9 +267,18 @@ export async function scheduler(
         }
       }
       state.updatedAt = now();
-      await persistState(state);
+      const shouldPersist = hasDirtyState() || Date.now() - lastPersistAt > PERSIST_DEBOUNCE_MS;
+      if (shouldPersist) {
+        await persistState(state);
+        lastPersistAt = Date.now();
+      }
       logger.debug("Scheduler tick completed.");
-      await sleep(state.config.pollIntervalMs);
+      const effectivePoll = running.size > 0 ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+      await Promise.race([
+        sleep(effectivePoll),
+        new Promise<void>((resolve) => { schedulerWakeResolve = resolve; }),
+      ]);
+      schedulerWakeResolve = null;
     }
     return;
   }

@@ -1,5 +1,7 @@
 import { env } from "node:process";
 import * as tokenLedger from "./token-ledger.ts";
+import { markIssueDirty, markEventDirty } from "./dirty-tracker.ts";
+import { invalidateMetrics } from "./metrics-cache.ts";
 import type {
   EffortConfig,
   IssueEntry,
@@ -491,6 +493,7 @@ export function addEvent(
   };
 
   state.events = [event, ...state.events].slice(0, PERSIST_EVENTS_MAX);
+  markEventDirty(event.id);
 
   // Track event in hourly counter for sparklines
   try { tokenLedger.recordEvent(); } catch { /* non-critical */ }
@@ -502,6 +505,8 @@ export function transition(issue: IssueEntry, target: IssueState, note: string):
   const previous = issue.state;
   issue.state = target;
   issue.updatedAt = now();
+  markIssueDirty(issue.id);
+  invalidateMetrics();
   issue.history.push(`[${issue.updatedAt}] ${note}`);
 
   if (previous === "Blocked" && target === "Todo") {

@@ -102,3 +102,9 @@ export const ALLOWED_STATES: IssueState[] = [
 export const TERMINAL_STATES = new Set<IssueState>(["Done", "Cancelled"]);
 export const EXECUTING_STATES = new Set<IssueState>(["Running", "In Review"]);
 export const PERSIST_EVENTS_MAX = 500;
+
+// ── CLI skip flags ──────────────────────────────────────────────────────────
+const FAST_BOOT = CLI_ARGS.includes("--fast-boot");
+export const SKIP_SOURCE = FAST_BOOT || CLI_ARGS.includes("--skip-source");
+export const SKIP_SCAN = FAST_BOOT || CLI_ARGS.includes("--skip-scan");
+export const SKIP_RECOVERY = FAST_BOOT || CLI_ARGS.includes("--skip-recovery");

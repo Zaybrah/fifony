@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useDashboard } from "../context/DashboardContext";
 import ListView from "../components/ListView";
-import { Search, X, Filter, SlidersHorizontal } from "lucide-react";
+import { Search, X, Filter, SlidersHorizontal, Eye } from "lucide-react";
 import { useMemo, useState } from "react";
 
 const STATES = ["Planning", "Todo", "Queued", "Running", "Interrupted", "In Review", "Blocked", "Done", "Cancelled"];
@@ -81,6 +81,11 @@ function IssuesPage() {
           {activeFilterCount > 0 && (
             <span className="badge badge-sm badge-primary">{activeFilterCount}</span>
           )}
+
+          <Link to="/discover" className="btn btn-sm btn-ghost gap-1" title="Discover issues from codebase">
+            <Eye className="size-4" />
+            <span className="hidden sm:inline">Discover</span>
+          </Link>
 
           <div className="text-xs opacity-40 shrink-0">
             {ctx.filtered.length} result{ctx.filtered.length !== 1 ? "s" : ""}

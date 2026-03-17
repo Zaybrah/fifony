@@ -9,12 +9,14 @@ import type {
 } from "./types.ts";
 import { execSync } from "node:child_process";
 import {
+  appendFileSync,
   closeSync,
   existsSync,
   openSync,
   readFileSync,
   readSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import {
   FRONTEND_DIR,
@@ -37,6 +39,7 @@ import {
   setActiveApiPlugin,
   persistState,
 } from "./store.ts";
+import { markIssueDirty } from "./dirty-tracker.ts";
 import {
   addEvent,
   computeCapabilityCounts,
@@ -47,7 +50,7 @@ import {
 } from "./issues.ts";
 import { detectAvailableProviders, discoverModels } from "./providers.ts";
 import { collectProvidersUsage } from "./providers-usage.ts";
-import { analyzeParallelizability } from "./scheduler.ts";
+import { analyzeParallelizability, wakeScheduler } from "./scheduler.ts";
 import { setApiRuntimeContext } from "./api-runtime-context.ts";
 import { TERMINAL_STATES } from "./constants.ts";
 import { getAnalytics as getTokenAnalytics, getHourlySnapshot } from "./token-ledger.ts";
@@ -66,6 +69,8 @@ import {
   RUNTIME_CONFIG_SETTING_IDS,
 } from "./settings.ts";
 import { scanProjectFiles, analyzeProjectWithCli } from "./project-scanner.ts";
+import { scanForTodos, categorizeScannedIssues } from "./issue-scanner.ts";
+import { fetchGitHubIssues } from "./github-sync.ts";
 import {
   loadAgentCatalog,
   loadSkillCatalog,
@@ -74,6 +79,7 @@ import {
   installSkills,
 } from "./catalog.ts";
 import { TARGET_ROOT } from "./constants.ts";
+import { join } from "node:path";
 
 // ── WebSocket broadcast (same port via listeners) ────────────────────────────
 // s3db.js 21.2.7 WebSocket contract: handlers receive (socketId, send, req)
@@ -261,6 +267,7 @@ export async function startApiServer(
 
     await updater(issue);
     await persistState(state);
+    wakeScheduler();
     return c.json({ ok: true, issue });
   };
 
@@ -393,12 +400,15 @@ export async function startApiServer(
         serveTextFile(FRONTEND_MASKABLE_ICON_SVG, "image/svg+xml", "public, max-age=604800, immutable"),
       "GET /kanban": () => serveAppShell(),
       "GET /issues": () => serveAppShell(),
+      "GET /discover": () => serveAppShell(),
       "GET /agents": () => serveAppShell(),
       "GET /settings": () => serveAppShell(),
       "GET /settings/general": () => serveAppShell(),
       "GET /settings/notifications": () => serveAppShell(),
       "GET /settings/workflow": () => serveAppShell(),
       "GET /settings/providers": () => serveAppShell(),
+      "GET /api/health": (c: any) =>
+        c.json({ status: (state as any).booting ? "booting" : "ready" }),
       "GET /api/state": async (c: any) => {
         const showAll = c.req.query("all") === "1";
         let issues = state.issues;
@@ -587,11 +597,13 @@ export async function startApiServer(
           const payload = await c.req.json() as JsonRecord;
           const issue = createIssueFromPayload(payload, state.issues, workflowDefinition);
           state.issues.push(issue);
+          markIssueDirty(issue.id);
           addEvent(state, issue.id, "info", `Issue ${issue.identifier} created via API.`);
           if (issue.plan) {
             addEvent(state, issue.id, "info", `Plan: ${issue.plan.steps.length} steps, complexity: ${issue.plan.estimatedComplexity}.`);
           }
           await persistState(state);
+          wakeScheduler();
           return c.json({ ok: true, issue }, 201);
         } catch (error) {
           return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
@@ -639,6 +651,7 @@ export async function startApiServer(
           const payload = await c.req.json() as JsonRecord;
           await handleStatePatch(state, issue, payload);
           await persistState(state);
+          wakeScheduler();
           return c.json({ ok: true, issue });
         } catch (error) {
           return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
@@ -900,6 +913,43 @@ export async function startApiServer(
         });
         return c.json({ events: events.slice(0, 200) });
       },
+      // ── Onboarding: gitignore check ────────────────────────────────────
+      "GET /api/gitignore/status": async (c: any) => {
+        try {
+          const gitignorePath = join(TARGET_ROOT, ".gitignore");
+          if (!existsSync(gitignorePath)) {
+            return c.json({ exists: false, hasFifony: false });
+          }
+          const content = readFileSync(gitignorePath, "utf-8");
+          const lines = content.split("\n").map((l: string) => l.trim());
+          const hasFifony = lines.some((l: string) => l === ".fifony" || l === ".fifony/" || l === "/.fifony" || l === "/.fifony/");
+          return c.json({ exists: true, hasFifony });
+        } catch (error) {
+          logger.error({ err: error }, "Failed to check .gitignore");
+          return c.json({ exists: false, hasFifony: false, error: "Failed to check .gitignore" }, 500);
+        }
+      },
+      "POST /api/gitignore/add": async (c: any) => {
+        try {
+          const gitignorePath = join(TARGET_ROOT, ".gitignore");
+          if (!existsSync(gitignorePath)) {
+            writeFileSync(gitignorePath, "# Fifony state directory\n.fifony/\n", "utf-8");
+            return c.json({ ok: true, created: true });
+          }
+          const content = readFileSync(gitignorePath, "utf-8");
+          const lines = content.split("\n").map((l: string) => l.trim());
+          const hasFifony = lines.some((l: string) => l === ".fifony" || l === ".fifony/" || l === "/.fifony" || l === "/.fifony/");
+          if (hasFifony) {
+            return c.json({ ok: true, alreadyPresent: true });
+          }
+          const suffix = content.endsWith("\n") ? "" : "\n";
+          appendFileSync(gitignorePath, `${suffix}\n# Fifony state directory\n.fifony/\n`, "utf-8");
+          return c.json({ ok: true, added: true });
+        } catch (error) {
+          logger.error({ err: error }, "Failed to update .gitignore");
+          return c.json({ ok: false, error: "Failed to update .gitignore" }, 500);
+        }
+      },
       // ── Onboarding: project scanning & catalog ─────────────────────────
       "GET /api/scan/project": async (c: any) => {
         try {
@@ -919,6 +969,30 @@ export async function startApiServer(
         } catch (error) {
           logger.error({ err: error }, "Failed to analyze project with CLI");
           return c.json({ ok: false, error: "Failed to analyze project." }, 500);
+        }
+      },
+      "GET /api/scan/issues": async (c: any) => {
+        try {
+          const todos = scanForTodos(TARGET_ROOT);
+          const categorized = categorizeScannedIssues(todos, workflowDefinition);
+          return c.json({ ok: true, issues: categorized, total: categorized.length });
+        } catch (error) {
+          logger.error({ err: error }, "Failed to scan for TODOs");
+          return c.json({ ok: false, error: "Failed to scan for issues." }, 500);
+        }
+      },
+      "POST /api/boot/skip-scan": async (c: any) => {
+        broadcastToWebSocketClients({ type: "boot:scan:skipped" });
+        return c.json({ ok: true, message: "Scan skipped." });
+      },
+      "GET /api/scan/github-issues": async (c: any) => {
+        try {
+          const issues = await fetchGitHubIssues(TARGET_ROOT);
+          const categorized = categorizeScannedIssues(issues, workflowDefinition);
+          return c.json({ ok: true, issues: categorized, total: categorized.length });
+        } catch (error) {
+          logger.error({ err: error }, "Failed to fetch GitHub issues");
+          return c.json({ ok: false, error: "Failed to fetch GitHub issues." }, 500);
         }
       },
       "GET /api/catalog/agents": async (c: any) => {

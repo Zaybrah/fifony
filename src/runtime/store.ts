@@ -19,7 +19,8 @@ import {
 } from "./constants.ts";
 import { now, debugBoot, fail } from "./helpers.ts";
 import { logger } from "./logger.ts";
-import { computeMetrics, computeCapabilityCounts } from "./issues.ts";
+import { computeCapabilityCounts } from "./issues.ts";
+import { getMetrics } from "./metrics-cache.ts";
 import { clearApiRuntimeContext } from "./api-runtime-context.ts";
 import { broadcastToWebSocketClients } from "./api-server.ts";
 import { NATIVE_RESOURCE_CONFIGS, NATIVE_RESOURCE_NAMES } from "./resources/index.ts";
@@ -40,6 +41,20 @@ let agentPipelineResource: S3dbResource | null = null;
 let activeApiPlugin: { stop?: () => Promise<void> } | null = null;
 let activeStateMachinePlugin: { stop?: () => Promise<void> } | null = null;
 let activeEcPlugin: S3dbModule["EventualConsistencyPlugin"] extends new (...a: never[]) => infer R ? R | null : null = null;
+
+import {
+  markIssueDirty,
+  markEventDirty,
+  hasDirtyState,
+  getDirtyIssueIds,
+  getDirtyEventIds,
+  clearDirtyIssueIds,
+  clearDirtyEventIds,
+  markAllIssuesDirty,
+  markAllEventsDirty,
+} from "./dirty-tracker.ts";
+
+export { markIssueDirty, markEventDirty, hasDirtyState };
 
 export function getStateDb(): S3dbDatabase | null { return stateDb; }
 function getRuntimeStateResource(): S3dbResource | null { return runtimeStateResource; }
@@ -274,23 +289,30 @@ async function recoverStateFromIssueResource(): Promise<RuntimeState | null> {
 
 export async function persistState(state: RuntimeState): Promise<void> {
   state.metrics = {
-    ...computeMetrics(state.issues),
+    ...getMetrics(state.issues),
     activeWorkers: state.metrics.activeWorkers,
   };
 
   if (!runtimeStateResource) return;
 
-  await runtimeStateResource.replace(S3DB_RUNTIME_RECORD_ID, {
-    id: S3DB_RUNTIME_RECORD_ID,
-    schemaVersion: S3DB_RUNTIME_SCHEMA_VERSION,
-    trackerKind: "filesystem",
-    runtimeTag: "local-only",
-    updatedAt: now(),
-    state,
-  } satisfies RuntimeStateRecord);
+  // Only write the runtime state blob if something changed
+  const dirty = hasDirtyState();
 
-  if (issueStateResource) {
+  if (dirty) {
+    await runtimeStateResource.replace(S3DB_RUNTIME_RECORD_ID, {
+      id: S3DB_RUNTIME_RECORD_ID,
+      schemaVersion: S3DB_RUNTIME_SCHEMA_VERSION,
+      trackerKind: "filesystem",
+      runtimeTag: "local-only",
+      updatedAt: now(),
+      state,
+    } satisfies RuntimeStateRecord);
+  }
+
+  const dirtyIssues = getDirtyIssueIds();
+  if (issueStateResource && dirtyIssues.size > 0) {
     for (const issue of state.issues) {
+      if (!dirtyIssues.has(issue.id)) continue;
       // s3db requires valid datetime or undefined — clean empty strings
       const clean = {
         ...issue,
@@ -306,12 +328,16 @@ export async function persistState(state: RuntimeState): Promise<void> {
         logger.warn(`Failed to persist issue ${issue.id}: ${String(error)}`);
       }
     }
+    clearDirtyIssueIds();
   }
 
-  if (eventStateResource) {
+  const dirtyEvents = getDirtyEventIds();
+  if (eventStateResource && dirtyEvents.size > 0) {
     for (const event of state.events) {
+      if (!dirtyEvents.has(event.id)) continue;
       await eventStateResource.replace(event.id, event satisfies EventRecord);
     }
+    clearDirtyEventIds();
   }
 
   // Push state to connected WebSocket clients
@@ -323,6 +349,13 @@ export async function persistState(state: RuntimeState): Promise<void> {
     events: state.events.slice(0, 50),
     updatedAt: state.updatedAt,
   });
+}
+
+/** Force persist all issues (used during boot and shutdown). */
+export async function persistStateFull(state: RuntimeState): Promise<void> {
+  markAllIssuesDirty(state.issues.map((i) => i.id));
+  markAllEventsDirty(state.events.map((e) => e.id));
+  await persistState(state);
 }
 
 export async function loadPersistedSettings(): Promise<RuntimeSettingRecord[]> {

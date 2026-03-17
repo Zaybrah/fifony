@@ -55,6 +55,7 @@ import {
   isStateNotFoundError,
   persistState,
 } from "./store.ts";
+import { markIssueDirty } from "./dirty-tracker.ts";
 import {
   normalizeAgentProvider,
   getEffectiveAgentProviders,
@@ -72,6 +73,7 @@ import {
 } from "../routing/capability-resolver.ts";
 import { renderPrompt, renderPromptString } from "../prompting.ts";
 import { discoverSkills, buildSkillContext } from "./skills.ts";
+import { ensureSourceReady } from "./workflow.ts";
 import { compileExecution, compileReview, persistCompilationArtifacts, buildExecutionAudit, persistExecutionAudit } from "./adapters/index.ts";
 import { getWorkflowConfig, loadRuntimeSettings } from "./settings.ts";
 import { record as recordTokens } from "./token-ledger.ts";
@@ -1117,6 +1119,8 @@ async function prepareWorkspace(
     if (workflowDefinition?.afterCreateHook) {
       await runHook(workflowDefinition.afterCreateHook, workspaceRoot, issue, "after_create");
     } else {
+      // Ensure source snapshot is ready (lazy bootstrap)
+      await ensureSourceReady();
       cpSync(SOURCE_ROOT, workspaceRoot, {
         recursive: true,
         force: true,
@@ -1612,6 +1616,7 @@ export async function runIssueOnce(
     }
   } finally {
     issue.updatedAt = now();
+    markIssueDirty(issue.id);
     state.metrics.activeWorkers = Math.max(state.metrics.activeWorkers - 1, 0);
     running.delete(issue.id);
     state.metrics = computeMetrics(state.issues);

@@ -4,7 +4,7 @@ import { env, exit, argv } from "node:process";
 import { CLI_ARGS, STATE_ROOT, TRACKER_KIND, WORKFLOW_RENDERED } from "./constants.ts";
 import { debugBoot, fail, now } from "./helpers.ts";
 import { initLogger, logger } from "./logger.ts";
-import { initStateStore, loadPersistedState, persistState, closeStateStore } from "./store.ts";
+import { initStateStore, loadPersistedState, persistState, persistStateFull, closeStateStore } from "./store.ts";
 import {
   applyPersistedSettings,
   loadRuntimeSettings,
@@ -16,7 +16,7 @@ import {
   resolveDefaultProvider,
   getProviderDefaultCommand,
 } from "./providers.ts";
-import { bootstrapSource, loadWorkflowDefinition, parsePort } from "./workflow.ts";
+import { loadWorkflowDefinition, parsePort, setSkipSource } from "./workflow.ts";
 import { deriveConfig, applyWorkflowConfig, buildRuntimeState, computeMetrics, addEvent, validateConfig } from "./issues.ts";
 import { startApiServer } from "./api-server.ts";
 import { scheduler, installGracefulShutdown } from "./scheduler.ts";
@@ -37,7 +37,11 @@ function usage() {
     "  --poll <ms>            Scheduler interval in ms\n" +
     "  --timeout <ms>         Agent command timeout in ms (default: 1800000)\n" +
     "  --dev                   Start Vite dev server alongside API (HMR on port+1)\n" +
-    "  --once                  Process once and exit\n",
+    "  --once                  Process once and exit\n" +
+    "  --skip-source           Skip source snapshot copy\n" +
+    "  --skip-scan             Skip project analysis\n" +
+    "  --skip-recovery         Skip orphaned agent recovery\n" +
+    "  --fast-boot             Equivalent to --skip-source --skip-scan --skip-recovery\n",
   );
 }
 
@@ -65,6 +69,9 @@ async function main() {
   const interfaceMode = (env.FIFONY_INTERFACE ?? "cli").trim().toLowerCase();
   const runOnce = args.includes("--once");
   const devMode = args.includes("--dev") || env.NODE_ENV === "development";
+  const fastBoot = args.includes("--fast-boot");
+  const skipSource = fastBoot || args.includes("--skip-source");
+  if (skipSource) setSkipSource(true);
 
   debugBoot("main:state-root-ready");
   const workflowDefinition = loadWorkflowDefinition();
@@ -86,17 +93,51 @@ async function main() {
   }
 
   const dashboardPort = port ?? (config.dashboardPort ? Number.parseInt(config.dashboardPort, 10) : undefined);
+  const skipRecovery = args.includes("--skip-recovery") || args.includes("--fast-boot");
 
-  bootstrapSource();
-  debugBoot("main:source-bootstrapped");
+  // ── Phase B: Parallel initialization ────────────────────────────────────────
+  debugBoot("main:phase-b-start");
   await initStateStore();
   debugBoot("main:store-initialized");
-  await persistDetectedProvidersSetting(detectedProviders);
-  await recoverPlanningSession();
 
-  const previous = await loadPersistedState();
-  const persistedSettings = await loadRuntimeSettings();
+  // ── Early API start: dashboard available while boot continues ─────────────
+  // Build a minimal placeholder state for the early API server
+  const earlyState: RuntimeState = {
+    startedAt: now(),
+    updatedAt: now(),
+    trackerKind: "filesystem",
+    sourceRepoUrl: "",
+    sourceRef: "workspace",
+    workflowPath: "",
+    config: config as any,
+    issues: [],
+    events: [],
+    metrics: { total: 0, queued: 0, inProgress: 0, blocked: 0, done: 0, cancelled: 0, activeWorkers: 0 },
+    notes: [],
+    booting: true,
+  };
+
+  let apiState = earlyState;
+  if (dashboardPort) {
+    await startApiServer(apiState, dashboardPort, workflowDefinition);
+    debugBoot("main:api-server-early-start");
+
+    if (devMode) {
+      const devPort = dashboardPort + 1;
+      await startDevFrontend(dashboardPort, devPort);
+    }
+  }
+
+  // ── Phase C: Parallel state loading ─────────────────────────────────────────
+  debugBoot("main:phase-c-start");
+  const [previous, persistedSettings] = await Promise.all([
+    loadPersistedState(),
+    loadRuntimeSettings(),
+    persistDetectedProvidersSetting(detectedProviders),
+    recoverPlanningSession(),
+  ]);
   debugBoot("main:state-loaded");
+
   config = applyPersistedSettings(config, persistedSettings);
   await syncRuntimeConfigSettings(config, persistedSettings);
   const state = buildRuntimeState(previous, config, workflowDefinition);
@@ -105,6 +146,7 @@ async function main() {
   state.config.dashboardPort = dashboardPort ? String(dashboardPort) : undefined;
   state.workflowPath = WORKFLOW_RENDERED;
   state.updatedAt = now();
+  (state as any).booting = false;
 
   if (state.config.agentCommand) {
     state.notes.push(`Using agent command: ${state.config.agentCommand}`);
@@ -141,27 +183,36 @@ async function main() {
   }
 
   // Recover orphaned agent processes from previous session
-  for (const issue of state.issues) {
-    if (issue.state === "Running" || issue.state === "Interrupted" || issue.state === "Queued") {
-      const { alive, pid } = isAgentStillRunning(issue);
-      if (alive && pid) {
-        logger.info(`Agent for ${issue.identifier} still alive (PID ${pid.pid}), keeping state as Running.`);
-        issue.state = "Running" as any;
-        addEvent(state, issue.id, "info", `Orphaned agent detected (PID ${pid.pid}), still alive — tracking resumed.`);
-      } else {
-        // Agent died — clean PID file, mark as Interrupted for resumption
-        if (issue.workspacePath) cleanStalePidFile(issue.workspacePath);
-        if (issue.state === "Running") {
-          issue.state = "Interrupted" as any;
-          issue.history.push(`[${now()}] Agent process not found on boot — marked Interrupted.`);
-          addEvent(state, issue.id, "info", `Agent for ${issue.identifier} not found, marked Interrupted.`);
+  if (!skipRecovery) {
+    for (const issue of state.issues) {
+      if (issue.state === "Running" || issue.state === "Interrupted" || issue.state === "Queued") {
+        const { alive, pid } = isAgentStillRunning(issue);
+        if (alive && pid) {
+          logger.info(`Agent for ${issue.identifier} still alive (PID ${pid.pid}), keeping state as Running.`);
+          issue.state = "Running" as any;
+          addEvent(state, issue.id, "info", `Orphaned agent detected (PID ${pid.pid}), still alive — tracking resumed.`);
+        } else {
+          // Agent died — clean PID file, mark as Interrupted for resumption
+          if (issue.workspacePath) cleanStalePidFile(issue.workspacePath);
+          if (issue.state === "Running") {
+            issue.state = "Interrupted" as any;
+            issue.history.push(`[${now()}] Agent process not found on boot — marked Interrupted.`);
+            addEvent(state, issue.id, "info", `Agent for ${issue.identifier} not found, marked Interrupted.`);
+          }
         }
       }
     }
   }
 
   state.metrics = computeMetrics(state.issues);
-  await persistState(state);
+  await persistStateFull(state);
+
+  // Update the API server to use the real state (swap reference)
+  if (dashboardPort) {
+    // The API server closure captures apiState — mutate it to point to real state
+    Object.assign(apiState, state);
+    debugBoot("main:api-state-swapped");
+  }
 
   const running = new Set<string>();
   installGracefulShutdown(state, running);
@@ -175,16 +226,6 @@ async function main() {
   logger.info(`Agent provider: ${state.config.agentProvider}`);
   logger.info(`Interface mode: ${interfaceMode}`);
 
-  if (dashboardPort) {
-    await startApiServer(state, dashboardPort, workflowDefinition);
-
-    // In dev mode, start Vite on a separate port with proxy back to API
-    if (devMode) {
-      const devPort = dashboardPort + 1;
-      await startDevFrontend(dashboardPort, devPort);
-    }
-  }
-
   try {
     addEvent(state, undefined, "info", `Runtime started in local-only mode (filesystem tracker).`);
     const runForever = !runOnce && (Boolean(dashboardPort) || interfaceMode === "mcp");
@@ -197,7 +238,7 @@ async function main() {
   } finally {
     state.updatedAt = now();
     state.metrics = computeMetrics(state.issues);
-    await persistState(state);
+    await persistStateFull(state);
     await closeStateStore();
   }
 }
