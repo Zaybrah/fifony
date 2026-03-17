@@ -2,9 +2,8 @@ import { useEffect, useRef } from "react";
 
 /**
  * Radial burst of music notes exploding from the center of the screen.
- * Notes spawn continuously from the title area and drift outward toward
- * the edges, fading and spinning as they go. Creates a living, breathing
- * "orchestra warming up" effect behind the wizard/loading hero.
+ * Uses a pre-rendered sprite atlas for high performance — each symbol+color
+ * combo is drawn once to an offscreen canvas, then blitted via drawImage.
  */
 export default function OnboardingParticles() {
   const canvasRef = useRef(null);
@@ -16,16 +15,43 @@ export default function OnboardingParticles() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
 
-    const SYMBOLS = ["\u266A", "\u266B", "\u2669", "\u266C", "\u{1D160}", "\u{1D15E}"];
+    const SYMBOLS = ["\u266A", "\u266B", "\u2669", "\u266C"];
     const COLORS = [
-      "oklch(0.75 0.18 250)",   // blue
-      "oklch(0.80 0.16 200)",   // cyan
-      "oklch(0.70 0.20 330)",   // pink
-      "oklch(0.85 0.14 85)",    // gold
-      "oklch(0.75 0.18 145)",   // green
-      "oklch(0.80 0.12 280)",   // purple
-      "oklch(0.78 0.15 30)",    // orange
+      "oklch(0.75 0.18 250)",
+      "oklch(0.80 0.16 200)",
+      "oklch(0.70 0.20 330)",
+      "oklch(0.85 0.14 85)",
+      "oklch(0.75 0.18 145)",
+      "oklch(0.80 0.12 280)",
+      "oklch(0.78 0.15 30)",
     ];
+
+    // ── Sprite atlas: pre-render every symbol+color at a fixed size ──
+    const SPRITE_SIZE = 48; // px, largest we'll render
+    const PAD = 4;
+    const CELL = SPRITE_SIZE + PAD * 2;
+    const cols = COLORS.length;
+    const rows = SYMBOLS.length;
+    const atlas = document.createElement("canvas");
+    atlas.width = cols * CELL;
+    atlas.height = rows * CELL;
+    const actx = atlas.getContext("2d");
+    actx.textAlign = "center";
+    actx.textBaseline = "middle";
+    actx.font = `${SPRITE_SIZE}px serif`;
+
+    // spriteIndex[symbolIdx][colorIdx] = { x, y } in atlas
+    const spriteIndex = [];
+    for (let si = 0; si < rows; si++) {
+      spriteIndex[si] = [];
+      for (let ci = 0; ci < cols; ci++) {
+        const sx = ci * CELL + CELL / 2;
+        const sy = si * CELL + CELL / 2;
+        actx.fillStyle = COLORS[ci];
+        actx.fillText(SYMBOLS[si], sx, sy);
+        spriteIndex[si][ci] = { x: ci * CELL, y: si * CELL };
+      }
+    }
 
     let w = 0;
     let h = 0;
@@ -42,42 +68,38 @@ export default function OnboardingParticles() {
     };
     resize();
 
-    // Spawn a new particle from center with radial velocity
     function spawnParticle() {
       const cx = w / 2;
-      const cy = h * 0.38; // slightly above center, where the title sits
-
-      // Random angle for radial burst
+      const cy = h * 0.38;
       const angle = Math.random() * Math.PI * 2;
-      // Speed varies — some fast, some slow for depth
       const speed = Math.random() * 1.8 + 0.4;
-      // Slight spread from exact center
       const spread = Math.random() * 20;
+      const si = Math.floor(Math.random() * rows);
+      const ci = Math.floor(Math.random() * cols);
 
       return {
         x: cx + Math.cos(angle) * spread,
         y: cy + Math.sin(angle) * spread,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        // Gentle gravity pulling notes slightly downward
         gravity: 0.003 + Math.random() * 0.005,
-        size: Math.random() * 18 + 12,
-        symbol: SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)],
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        rotation: Math.random() * 360,
-        rotationSpeed: (Math.random() - 0.5) * 2.5,
+        // scale relative to SPRITE_SIZE (0.25 to 0.65 of atlas sprite)
+        scale: Math.random() * 0.4 + 0.25,
+        si,
+        ci,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.04,
         life: 0,
-        maxLife: 180 + Math.random() * 200, // frames until fade-out complete
-        fadeIn: 15, // frames to reach full opacity
+        maxLife: 180 + Math.random() * 200,
+        fadeIn: 15,
       };
     }
 
-    // Seed initial burst so it doesn't start empty
+    // Seed initial burst
     const initialCount = Math.min(Math.floor((w * h) / 6000), 120);
     particlesRef.current = [];
     for (let i = 0; i < initialCount; i++) {
       const p = spawnParticle();
-      // Pre-advance particles so they're already spread out
       const advance = Math.random() * p.maxLife * 0.8;
       p.x += p.vx * advance;
       p.y += p.vy * advance + 0.5 * p.gravity * advance * advance;
@@ -86,7 +108,6 @@ export default function OnboardingParticles() {
       particlesRef.current.push(p);
     }
 
-    // How many to spawn per frame (continuous emission)
     const spawnRate = Math.max(1, Math.floor(initialCount / 90));
     let frameCount = 0;
 
@@ -94,7 +115,7 @@ export default function OnboardingParticles() {
       ctx.clearRect(0, 0, w, h);
       frameCount++;
 
-      // Spawn new particles continuously
+      // Spawn new particles every other frame
       if (frameCount % 2 === 0) {
         for (let i = 0; i < spawnRate; i++) {
           particlesRef.current.push(spawnParticle());
@@ -109,13 +130,10 @@ export default function OnboardingParticles() {
         p.y += p.vy;
         p.vy += p.gravity;
         p.rotation += p.rotationSpeed;
-
-        // Slow down gradually (air resistance)
         p.vx *= 0.998;
         p.vy *= 0.998;
 
-        if (p.life > p.maxLife) continue; // dead
-        // Skip if way off screen
+        if (p.life > p.maxLife) continue;
         if (p.x < -60 || p.x > w + 60 || p.y < -60 || p.y > h + 60) continue;
 
         alive.push(p);
@@ -126,19 +144,19 @@ export default function OnboardingParticles() {
         const fadeOutAlpha = p.life > fadeOutStart
           ? 1 - (p.life - fadeOutStart) / (p.maxLife - fadeOutStart)
           : 1;
-        const alpha = fadeInAlpha * fadeOutAlpha * 0.5;
+        const alpha = fadeInAlpha * fadeOutAlpha * 0.45;
 
         if (alpha <= 0.01) continue;
 
+        const sprite = spriteIndex[p.si][p.ci];
+        const drawSize = CELL * p.scale;
+        const half = drawSize / 2;
+
         ctx.save();
         ctx.translate(p.x, p.y);
-        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.rotate(p.rotation);
         ctx.globalAlpha = alpha;
-        ctx.font = `${p.size}px serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = p.color;
-        ctx.fillText(p.symbol, 0, 0);
+        ctx.drawImage(atlas, sprite.x, sprite.y, CELL, CELL, -half, -half, drawSize, drawSize);
         ctx.restore();
       }
 
