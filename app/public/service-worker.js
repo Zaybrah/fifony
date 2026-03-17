@@ -1,14 +1,22 @@
 const CACHE_VERSION = "__BUILD_TIMESTAMP__";
 const CORE_CACHE = `fifony-core-${CACHE_VERSION}`;
 const ASSET_CACHE = `fifony-assets-${CACHE_VERSION}`;
-const APP_SHELL_ROUTES = ["/kanban", "/issues", "/agents", "/providers", "/settings"];
+const APP_SHELL_ROUTES = ["/kanban", "/issues", "/agents", "/settings", "/onboarding"];
 const APP_SHELL_FILES = ["/offline.html", "/manifest.webmanifest", "/icon.svg", "/icon-maskable.svg"];
 const API_PREFIXES = ["/api/", "/docs", "/ws"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CORE_CACHE);
-    await cache.addAll([...APP_SHELL_ROUTES, ...APP_SHELL_FILES]);
+    // Cache each route individually so one failure doesn't block the rest
+    await Promise.allSettled(
+      [...APP_SHELL_ROUTES, ...APP_SHELL_FILES].map(async (url) => {
+        try {
+          const response = await fetch(url);
+          if (response.ok) await cache.put(url, response);
+        } catch {}
+      }),
+    );
     await self.skipWaiting();
   })());
 });
