@@ -76,6 +76,8 @@ export type IssueEntry = {
   mergeResult?: { copied: number; deleted: number; skipped: number; conflicts: number };
   /** Planning process status — driven by background plan generation */
   planningStatus?: "idle" | "planning" | "refining";
+  /** ISO timestamp when planning/refining started */
+  planningStartedAt?: string;
   /** Error message from last plan generation attempt */
   planningError?: string;
 };

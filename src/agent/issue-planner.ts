@@ -723,6 +723,7 @@ export function generatePlanInBackground(
   const fast = options?.fast ?? false;
 
   issue.planningStatus = "planning";
+  issue.planningStartedAt = now();
   issue.planningError = undefined;
   issue.updatedAt = now();
 
@@ -733,6 +734,7 @@ export function generatePlanInBackground(
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
       issue.planningStatus = "idle";
+      issue.planningStartedAt = undefined;
       issue.planningError = undefined;
       issue.updatedAt = now();
 
@@ -747,6 +749,7 @@ export function generatePlanInBackground(
     })
     .catch(async (err) => {
       issue.planningStatus = "idle";
+      issue.planningStartedAt = undefined;
       issue.planningError = err instanceof Error ? err.message : String(err);
       issue.updatedAt = now();
       addEvent(issue.id, "error", `Plan generation failed for ${issue.identifier}: ${issue.planningError}`);
@@ -769,6 +772,7 @@ export function refinePlanInBackground(
   const { addEvent, persistState, applyUsage, applySuggestions } = callbacks;
 
   issue.planningStatus = "refining";
+  issue.planningStartedAt = now();
   issue.planningError = undefined;
   issue.updatedAt = now();
 
@@ -779,6 +783,7 @@ export function refinePlanInBackground(
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
       issue.planningStatus = "idle";
+      issue.planningStartedAt = undefined;
       issue.planningError = undefined;
       issue.updatedAt = now();
 
@@ -794,6 +799,7 @@ export function refinePlanInBackground(
     })
     .catch(async (err) => {
       issue.planningStatus = "idle";
+      issue.planningStartedAt = undefined;
       issue.planningError = err instanceof Error ? err.message : String(err);
       issue.updatedAt = now();
       addEvent(issue.id, "error", `Plan refinement failed for ${issue.identifier}: ${issue.planningError}`);

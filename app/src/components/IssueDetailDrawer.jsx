@@ -795,13 +795,15 @@ function PlanningTab({ issue, onStateChange }) {
     return () => clearTimeout(timer);
   }, [localGenerating]);
 
-  // Track elapsed time while planning/refining
+  // Track elapsed time while planning/refining — use server timestamp so it persists across drawer open/close
   useEffect(() => {
     if (!isBusy) { setElapsed(0); return; }
-    setElapsed(0);
-    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
+    const startedAt = issue.planningStartedAt ? new Date(issue.planningStartedAt).getTime() : Date.now();
+    const tick = () => setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    tick(); // set initial value immediately
+    const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [isBusy]);
+  }, [isBusy, issue.planningStartedAt]);
 
   // Auto-focus refine textarea when plan loads
   useEffect(() => {
