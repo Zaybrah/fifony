@@ -47,7 +47,9 @@ const commonOptions = {
   },
   port: {
     type: "number",
+    aliases: ["-p"],
     description: "Start the local API/dashboard on the provided port.",
+    default: 4000,
   },
   concurrency: {
     type: "number",
@@ -198,7 +200,7 @@ const cli = createCLI({
   description: packageJson.description ?? "Filesystem-backed local multi-agent orchestrator.",
   commands: {
     run: {
-      description: "Run the local Fifony runtime with the dashboard/API enabled when --port is provided.",
+      description: "Run the local Fifony runtime with dashboard/API (default port 4000).",
       options: commonOptions,
       handler: (result) => runRuntime("cli", result),
     },

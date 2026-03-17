@@ -282,7 +282,7 @@ async function recoverStateFromIssueResource(): Promise<RuntimeState | null> {
       config: {} as any,
       issues,
       events: [],
-      metrics: computeMetrics(issues),
+      metrics: getMetrics(issues),
       notes: ["State recovered from individual issue records after corruption."],
     };
   } catch (error) {
