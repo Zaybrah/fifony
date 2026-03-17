@@ -156,6 +156,9 @@ jobs:
           }
           JS
 
+      - name: Build
+        run: pnpm build
+
       - name: Pack tarball
         run: |
           rm -rf .artifacts
