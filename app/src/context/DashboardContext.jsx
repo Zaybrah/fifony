@@ -63,7 +63,7 @@ export function DashboardProvider({ children }) {
   const [toastExiting, setToastExiting] = useState(false);
   const [confetti, setConfetti] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [selectedIssue, setSelectedIssue] = useState(null);
+  const [selectedIssueId, setSelectedIssueId] = useState(null);
   const [isEventsOpen, setIsEventsOpen] = useState(false);
   const [eventSnapshot, setEventSnapshot] = useState([]);
   const pwa = usePwa();
@@ -89,6 +89,17 @@ export function DashboardProvider({ children }) {
   const metrics = data.metrics || {};
   const status = liveMode ? "ok" : data.config ? "ok" : "offline";
   const eventsData = liveMode ? eventSnapshot : events.data?.events || [];
+
+  // Derive selectedIssue from live issues list so the drawer stays in sync
+  const selectedIssue = useMemo(() => {
+    if (!selectedIssueId) return null;
+    return issues.find((i) => i.id === selectedIssueId) || null;
+  }, [selectedIssueId, issues]);
+
+  // Accept an issue object (or null) but store only the ID
+  const setSelectedIssue = useCallback((issue) => {
+    setSelectedIssueId(issue?.id || null);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();

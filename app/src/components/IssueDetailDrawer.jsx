@@ -691,11 +691,12 @@ const COMPLEXITY_COLOR = { trivial: "badge-ghost", low: "badge-success", medium:
 function PlanningTab({ issue, onStateChange }) {
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState(null);
+  const [localGenerating, setLocalGenerating] = useState(false);
   const plan = issue.plan;
   const isPlanning = issue.state === "Planning";
 
-  // Server-driven status via WS — no local generating state needed
-  const isGenerating = issue.planningStatus === "planning";
+  // Server-driven status via WS, with local fallback for when WS isn't connected
+  const isGenerating = issue.planningStatus === "planning" || (localGenerating && !plan);
   const isRefining = issue.planningStatus === "refining";
   const isBusy = isGenerating || isRefining;
 
@@ -707,14 +708,34 @@ function PlanningTab({ issue, onStateChange }) {
     if (issue.planningError) setError(null);
   }, [issue.planningError]);
 
+  // Auto-clear local generating state when plan appears or server confirms status
+  useEffect(() => {
+    if (localGenerating && (plan || issue.planningStatus === "planning" || issue.planningError)) {
+      setLocalGenerating(false);
+    }
+  }, [localGenerating, plan, issue.planningStatus, issue.planningError]);
+
+  // Safety timeout: clear generating after 5 minutes
+  useEffect(() => {
+    if (!localGenerating) return;
+    const timer = setTimeout(() => {
+      setLocalGenerating(false);
+      setError("Plan generation timed out. The plan may still be generating in the background — check back soon.");
+    }, 5 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [localGenerating]);
+
   const handleGenerate = async (fast = false) => {
     setError(null);
+    setLocalGenerating(true);
     try {
       const res = await api.post(`/issues/${encodeURIComponent(issue.id)}/plan`, { fast });
       if (!res.ok) throw new Error(res.error || "Plan generation failed.");
       // Server will set planningStatus="planning" → WS broadcasts → UI updates
+      // Local generating state kept as fallback until server confirms or plan appears
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setLocalGenerating(false);
     }
   };
 

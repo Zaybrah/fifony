@@ -49,13 +49,16 @@ export function useRuntimeWebSocket(onMessage) {
     let ws = null;
     let timer = null;
     let alive = true;
+    let backoff = 2000; // Start at 2s, double each failure, cap at 30s
+    const MAX_BACKOFF = 30000;
 
     const connect = () => {
       try {
         ws = new WebSocket(url);
       } catch {
         setStatus("error");
-        timer = setTimeout(connect, 2000);
+        timer = setTimeout(connect, backoff);
+        backoff = Math.min(backoff * 2, MAX_BACKOFF);
         return;
       }
 
@@ -63,6 +66,7 @@ export function useRuntimeWebSocket(onMessage) {
 
       ws.onopen = () => {
         setStatus("connected");
+        backoff = 2000; // Reset backoff on successful connection
       };
 
       ws.onmessage = (e) => {
@@ -75,7 +79,10 @@ export function useRuntimeWebSocket(onMessage) {
 
       ws.onclose = () => {
         setStatus("disconnected");
-        if (alive) timer = setTimeout(connect, 2000);
+        if (alive) {
+          timer = setTimeout(connect, backoff);
+          backoff = Math.min(backoff * 2, MAX_BACKOFF);
+        }
       };
 
       ws.onerror = () => {
