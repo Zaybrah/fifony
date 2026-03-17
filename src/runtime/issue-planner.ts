@@ -218,6 +218,15 @@ function parsePlanOutput(raw: string): IssuePlan | null {
   // 1. Try to unwrap --output-format json envelope
   try {
     const outer = JSON.parse(text);
+
+    // --json-schema puts structured output in .structured_output (not .result)
+    if (outer?.structured_output && typeof outer.structured_output === "object") {
+      const plan = tryBuildPlan(outer.structured_output);
+      if (plan) return plan;
+      // If it didn't validate, still try as a candidate string
+      candidates.push(JSON.stringify(outer.structured_output));
+    }
+
     if (outer?.result && typeof outer.result === "string") {
       const result = outer.result;
       candidates.push(result);

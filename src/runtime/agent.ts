@@ -172,6 +172,12 @@ function tryParseJsonOutput(output: string): JsonRecord | null {
     const parsed = JSON.parse(trimmed) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const obj = parsed as JsonRecord;
+
+      // --json-schema puts structured output in .structured_output (not .result)
+      if (obj.structured_output && typeof obj.structured_output === "object" && !Array.isArray(obj.structured_output)) {
+        return obj.structured_output as JsonRecord;
+      }
+
       // Claude --output-format json returns { result: "..." } — the result may itself be JSON
       if (typeof obj.result === "string") {
         try {
