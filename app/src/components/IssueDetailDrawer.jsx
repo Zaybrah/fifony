@@ -1166,7 +1166,7 @@ function HistoryTab({ issue }) {
   };
 
   return (
-    <div ref={listRef} className="space-y-2 max-h-96 overflow-y-auto -mx-2 px-2">
+    <div ref={listRef} className="space-y-2 -mx-6 -my-4 px-6 py-4 h-full overflow-y-auto">
       {events.map((ev, i) => {
         const style = KIND_STYLES[ev.kind] || KIND_STYLES.info;
         const EvIcon = style.icon;
