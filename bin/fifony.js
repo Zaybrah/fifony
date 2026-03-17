@@ -54,6 +54,10 @@ if (hasCompiled && !forceSource) {
     exit(1);
   });
 } else {
-  console.error("Neither dist/cli.js nor src/cli.ts found. The package may be corrupted — try reinstalling.");
+  console.error(`Fifony CLI entry point not found.`);
+  console.error(`  Package root: ${packageRoot}`);
+  console.error(`  Checked: ${distCli} (exists: ${hasCompiled})`);
+  console.error(`  Checked: ${srcCli} (exists: ${hasSrc})`);
+  console.error(`  Try: npx -y fifony@latest  or  pnpm build`);
   exit(1);
 }

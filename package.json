@@ -16,6 +16,7 @@
     "build": "pnpm prompts:generate && tsup && vite build --config app/vite.config.js",
     "build:server": "pnpm prompts:generate && tsup",
     "build:ui": "vite build --config app/vite.config.js",
+    "prepack": "pnpm build",
     "prepublishOnly": "pnpm build",
     "mcp": "pnpm prompts:generate && node ./bin/fifony.js mcp"
   },
