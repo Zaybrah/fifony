@@ -82,7 +82,7 @@ export function buildCodexCommand(options: {
 
   if (options.addDirs?.length) {
     for (const dir of options.addDirs) {
-      parts.push(`--add-dir ${dir}`);
+      parts.push(`--add-dir "${dir}"`);
     }
   }
 

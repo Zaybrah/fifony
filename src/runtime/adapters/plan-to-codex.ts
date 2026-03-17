@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan } from "../types.ts";
 import type { CompiledExecution } from "./index.ts";
 import { renderPrompt } from "../../prompting.ts";
@@ -50,9 +51,13 @@ export async function compileForCodex(
     outputContract: CODEX_RESULT_CONTRACT,
   });
 
+  // Resolve plan dirs to absolute paths against the workspace
+  const relativeDirs = extractPlanDirs(plan);
+  const absoluteDirs = relativeDirs.map((d) => join(workspacePath, d));
+
   const command = buildCodexCommand({
     model: provider.model,
-    addDirs: extractPlanDirs(plan),
+    addDirs: absoluteDirs,
   });
 
   const env: Record<string, string> = {
