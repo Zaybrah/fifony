@@ -1123,7 +1123,7 @@ function HistoryTab({ issue }) {
       try {
         const data = await api.get(`/events/feed?issueId=${encodeURIComponent(issue.id)}`);
         if (active && Array.isArray(data?.events)) {
-          setEvents(data.events);
+          setEvents([...data.events].reverse());
         }
       } catch {}
       if (active) setLoading(false);
@@ -1132,15 +1132,6 @@ function HistoryTab({ issue }) {
     const interval = setInterval(fetchEvents, 3000);
     return () => { active = false; clearInterval(interval); };
   }, [issue.id]);
-
-  // Auto-scroll to bottom when new events arrive
-  useEffect(() => {
-    if (listRef.current) {
-      requestAnimationFrame(() => {
-        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-      });
-    }
-  }, [events.length]);
 
   if (loading && events.length === 0) {
     return (
