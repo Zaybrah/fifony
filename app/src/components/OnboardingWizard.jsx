@@ -260,6 +260,7 @@ function WelcomeStep({ workspacePath, onGetStarted }) {
       >
         Get Started <ChevronRight className="size-5" />
       </button>
+      <GitignoreBanner />
     </div>
   );
 }
@@ -1299,9 +1300,8 @@ export default function OnboardingWizard({ onComplete }) {
 
       {/* Header with step indicator — hidden on welcome screen */}
       {step > 0 && (
-        <div className="relative z-10 pt-6 pb-2 px-4 flex flex-col items-center gap-3">
+        <div className="relative z-10 pt-6 pb-2 px-4 flex justify-center">
           <StepIndicator current={step} wantsDiscovery={wantsDiscovery} />
-          <GitignoreBanner />
         </div>
       )}
 
