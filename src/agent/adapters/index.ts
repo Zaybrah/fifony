@@ -102,7 +102,7 @@ export async function compileReview(
     if (reviewer.provider === "claude") {
       command = buildClaudeCommand({ model: reviewer.model, jsonSchema: REVIEW_RESULT_SCHEMA });
     } else if (reviewer.provider === "codex") {
-      command = buildCodexCommand({ model: reviewer.model });
+      command = buildCodexCommand({ model: reviewer.model, reasoningEffort: reviewer.reasoningEffort });
     }
   }
 
@@ -153,13 +153,22 @@ export function persistCompilationArtifacts(workspacePath: string, compiled: Com
         postHooks: compiled.postHooks,
         hasOutputSchema: !!compiled.outputSchema,
         hasPayload: !!compiled.payload,
-        commandLength: compiled.command.length,
+        command: compiled.command,
         promptLength: compiled.prompt.length,
         compiledAt: new Date().toISOString(),
       }, null, 2),
       "utf8",
     );
   } catch { /* optional audit data */ }
+
+  // Save full prompt for debugging
+  try {
+    writeFileSync(
+      join(workspacePath, "fifony-prompt.md"),
+      compiled.prompt,
+      "utf8",
+    );
+  } catch { /* optional */ }
 
   if (compiled.payload) {
     try {

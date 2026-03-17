@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 const COLORS = [
   "oklch(0.8 0.18 145)",  // green
@@ -40,6 +40,9 @@ function Particle({ color, style }) {
  */
 export function Confetti({ x = "50%", y = "50%", active, onDone, count = 24 }) {
   const [particles, setParticles] = useState([]);
+  // Use a ref for onDone so it never invalidates the burst callback
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
   const burst = useCallback(() => {
     const ps = Array.from({ length: count }, (_, i) => {
@@ -62,9 +65,9 @@ export function Confetti({ x = "50%", y = "50%", active, onDone, count = 24 }) {
     const maxDur = Math.max(...ps.map((p) => p.duration));
     setTimeout(() => {
       setParticles([]);
-      onDone?.();
+      onDoneRef.current?.();
     }, maxDur + 50);
-  }, [count, onDone]);
+  }, [count]); // no longer depends on onDone — stable across parent re-renders
 
   useEffect(() => {
     if (active) burst();

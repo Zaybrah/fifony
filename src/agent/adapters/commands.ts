@@ -73,11 +73,16 @@ export function buildClaudeCommand(options: {
 export function buildCodexCommand(options: {
   model?: string;
   addDirs?: string[];
+  reasoningEffort?: string;
 }): string {
   const parts = ["codex", "exec", "--skip-git-repo-check"];
 
   if (options.model && options.model !== "codex") {
     parts.push(`--model ${options.model}`);
+  }
+
+  if (options.reasoningEffort) {
+    parts.push(`--reasoning-effort ${options.reasoningEffort}`);
   }
 
   if (options.addDirs?.length) {

@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -13,6 +13,19 @@ import { record as recordTokens } from "./token-ledger.ts";
 import type { AgentTokenUsage } from "./types.ts";
 import { renderPrompt } from "../prompting.ts";
 import { callOpenAI } from "./openai-adapter.ts";
+import { STATE_ROOT } from "./constants.ts";
+
+function savePlanDebugFiles(slug: string, prompt: string, output: string): void {
+  try {
+    const debugDir = join(STATE_ROOT, "debug");
+    mkdirSync(debugDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    writeFileSync(join(debugDir, `plan-${slug}-${ts}-prompt.md`), prompt, "utf8");
+    if (output) writeFileSync(join(debugDir, `plan-${slug}-${ts}-output.txt`), output, "utf8");
+  } catch {
+    // non-critical
+  }
+}
 
 // ── Planning session persistence ────────────────────────────────────────────
 
@@ -457,6 +470,7 @@ export async function generatePlan(
       apiResult.usage.durationMs = durationMs;
 
       logger.info({ rawOutput: apiResult.content.slice(0, 2000) }, `Plan raw output from ${preferred} (API)`);
+      savePlanDebugFiles("api", prompt, apiResult.content);
 
       plan = parsePlanOutput(apiResult.content);
       if (!plan) {
@@ -583,6 +597,7 @@ export async function generatePlan(
     });
 
     logger.info({ rawOutput: output.slice(0, 2000) }, `Plan raw output from ${preferred}`);
+    savePlanDebugFiles("cli", prompt, output);
 
     logger.debug({ outputLength: output.length }, "[Planner] Plan command completed, parsing output");
     plan = parsePlanOutput(output);
@@ -709,6 +724,7 @@ export async function refinePlan(
       apiResult.usage.durationMs = durationMs;
 
       logger.info({ rawOutput: apiResult.content.slice(0, 2000) }, `Refine raw output from ${preferred} (API)`);
+      savePlanDebugFiles("refine-api", prompt, apiResult.content);
 
       plan = parsePlanOutput(apiResult.content);
       if (!plan) {
@@ -812,6 +828,7 @@ export async function refinePlan(
     });
 
     logger.info({ rawOutput: output.slice(0, 2000) }, `Refine raw output from ${preferred}`);
+    savePlanDebugFiles("refine-cli", prompt, output);
 
     plan = parsePlanOutput(output);
 

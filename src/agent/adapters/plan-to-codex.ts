@@ -58,6 +58,7 @@ export async function compileForCodex(
   const command = buildCodexCommand({
     model: provider.model,
     addDirs: absoluteDirs,
+    reasoningEffort: effort,
   });
 
   const env: Record<string, string> = {

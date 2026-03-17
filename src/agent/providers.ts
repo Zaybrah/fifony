@@ -103,8 +103,8 @@ export function resolveEffort(
 
 import { buildClaudeCommand, buildCodexCommand, CLAUDE_RESULT_SCHEMA } from "./adapters/commands.ts";
 
-export function getProviderDefaultCommand(provider: string, _reasoningEffort?: string, model?: string): string {
-  if (provider === "codex") return buildCodexCommand({ model });
+export function getProviderDefaultCommand(provider: string, reasoningEffort?: string, model?: string): string {
+  if (provider === "codex") return buildCodexCommand({ model, reasoningEffort });
   if (provider === "claude") return buildClaudeCommand({ model, jsonSchema: CLAUDE_RESULT_SCHEMA });
   return "";
 }
