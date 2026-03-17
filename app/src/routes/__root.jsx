@@ -207,12 +207,23 @@ function OnboardingGate({ children }) {
   return children;
 }
 
-export const Route = createRootRoute({
-  component: () => (
+function RootComponent() {
+  const routerState = useRouterState();
+  const isOnboarding = routerState.location.pathname === "/onboarding";
+
+  if (isOnboarding) {
+    return <Outlet />;
+  }
+
+  return (
     <OnboardingGate>
       <DashboardProvider>
         <RootLayout />
       </DashboardProvider>
     </OnboardingGate>
-  ),
+  );
+}
+
+export const Route = createRootRoute({
+  component: RootComponent,
 });
