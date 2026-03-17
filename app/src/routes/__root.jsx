@@ -188,12 +188,17 @@ function OnboardingGate({ children }) {
   const settingsList = getSettingsList(settingsQuery.data);
   const completed = getSettingValue(settingsList, "ui.onboarding.completed", null);
 
-  // Still loading settings — show hero
-  if (settingsQuery.isLoading) {
+  // Still loading settings (first fetch) — show hero briefly
+  if (settingsQuery.isLoading && !settingsQuery.data) {
     return <LoadingHero />;
   }
 
-  // Onboarding not completed — show inline wizard (no navigation needed)
+  // If settings failed to load (backend down), skip the gate — don't block the app
+  if (settingsQuery.isError) {
+    return children;
+  }
+
+  // Onboarding not completed — redirect to /onboarding
   if (completed !== true) {
     return (
       <Suspense fallback={<LoadingHero />}>
