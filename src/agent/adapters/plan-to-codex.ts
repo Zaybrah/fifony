@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan } from "../types.ts";
 import type { CompiledExecution } from "./index.ts";
@@ -51,9 +52,10 @@ export async function compileForCodex(
     outputContract: CODEX_RESULT_CONTRACT,
   });
 
-  // Resolve plan dirs to absolute paths against the workspace
+  // Resolve plan dirs to absolute paths against the worktree (code dir), not the management dir
   const relativeDirs = extractPlanDirs(plan);
-  const absoluteDirs = relativeDirs.map((d) => join(workspacePath, d));
+  const codePath = existsSync(join(workspacePath, "worktree")) ? join(workspacePath, "worktree") : workspacePath;
+  const absoluteDirs = relativeDirs.map((d) => join(codePath, d));
 
   const command = buildCodexCommand({
     model: provider.model,
@@ -65,7 +67,7 @@ export async function compileForCodex(
     FIFONY_PLAN_COMPLEXITY: plan.estimatedComplexity,
     FIFONY_PLAN_STEPS: String(plan.steps.length),
     FIFONY_PLAN_PHASES: String(plan.phases?.length || 0),
-    FIFONY_EXECUTION_PAYLOAD_FILE: "fifony-execution-payload.json",
+    FIFONY_EXECUTION_PAYLOAD_FILE: "execution-payload.json",
   };
   if (plan.suggestedPaths?.length) env.FIFONY_PLAN_PATHS = plan.suggestedPaths.join(",");
 

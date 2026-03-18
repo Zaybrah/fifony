@@ -734,11 +734,21 @@ export async function startApiServer(
           if (!issueId) return c.json({ ok: false, error: "Issue id is required." }, 400);
           const issue = findIssue(issueId);
           if (!issue) return c.json({ ok: false, error: "Issue not found." }, 404);
-          const wp = issue.workspacePath;
+          if (issue.state !== "Done") {
+            return c.json({ ok: false, error: `Issue ${issue.identifier} is in state ${issue.state}. Merge is only allowed after approval.` }, 409);
+          }
+          const wp = issue.worktreePath ?? issue.workspacePath;
           if (!wp || !existsSync(wp)) {
             return c.json({ ok: false, error: "No workspace found for this issue." }, 400);
           }
           const result = mergeWorkspace(issue);
+          issue.mergedAt = now();
+          issue.mergeResult = {
+            copied: result.copied.length,
+            deleted: result.deleted.length,
+            skipped: result.skipped.length,
+            conflicts: result.conflicts.length,
+          };
           const conflictMsg = result.conflicts.length > 0
             ? ` ${result.conflicts.length} conflict(s): ${result.conflicts.join(", ")}.`
             : "";
@@ -811,7 +821,7 @@ export async function startApiServer(
           const elapsed = startedAtTs ? Date.now() - startedAtTs : 0;
 
           const wp = issue.workspacePath;
-          const liveLog = wp ? `${wp}/fifony-live-output.log` : null;
+          const liveLog = wp ? `${wp}/live-output.log` : null;
           let logTail = "";
           let logSize = 0;
           if (liveLog && existsSync(liveLog)) {

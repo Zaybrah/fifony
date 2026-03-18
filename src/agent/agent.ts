@@ -235,7 +235,7 @@ function tryParseJsonOutput(output: string): JsonRecord | null {
 
 function readAgentDirective(workspacePath: string, output: string, success: boolean): AgentDirective {
   const fallbackStatus: AgentDirectiveStatus = success ? "done" : "failed";
-  const resultFile = join(workspacePath, "fifony-result.json");
+  const resultFile = join(workspacePath, "result.json");
   let resultPayload: JsonRecord = {};
 
   // 1. Try structured JSON from stdout (claude --output-format json --json-schema)
@@ -254,7 +254,7 @@ function readAgentDirective(workspacePath: string, output: string, success: bool
     };
   }
 
-  // 2. Try fifony-result.json file
+  // 2. Try result.json file
   if (existsSync(resultFile)) {
     try {
       const parsed = JSON.parse(readFileSync(resultFile, "utf8")) as unknown;
@@ -262,7 +262,7 @@ function readAgentDirective(workspacePath: string, output: string, success: bool
         resultPayload = parsed as JsonRecord;
       }
     } catch (error) {
-      logger.warn(`Invalid fifony-result.json in ${workspacePath}: ${String(error)}`);
+      logger.warn(`Invalid result.json in ${workspacePath}: ${String(error)}`);
     }
   }
 
@@ -294,7 +294,7 @@ type AgentPidInfo = {
 
 /** Read PID file from workspace, returns null if missing/invalid. */
 export function readAgentPid(workspacePath: string): AgentPidInfo | null {
-  const pidFile = join(workspacePath, "fifony-agent.pid");
+  const pidFile = join(workspacePath, "agent.pid");
   if (!existsSync(pidFile)) return null;
   try {
     const data = JSON.parse(readFileSync(pidFile, "utf8")) as AgentPidInfo;
@@ -329,7 +329,7 @@ export function cleanStalePidFile(workspacePath: string): void {
   const pidInfo = readAgentPid(workspacePath);
   if (!pidInfo) return;
   if (!isProcessAlive(pidInfo.pid)) {
-    try { rmSync(join(workspacePath, "fifony-agent.pid"), { force: true }); } catch {}
+    try { rmSync(join(workspacePath, "agent.pid"), { force: true }); } catch {}
   }
 }
 
@@ -486,6 +486,29 @@ function parseDiffStats(issue: IssueEntry, raw: string): void {
   issue.linesRemoved = delMatch ? parseInt(delMatch[1], 10) : 0;
 }
 
+function ensureWorktreeCommitted(issue: IssueEntry): void {
+  const worktreePath = issue.worktreePath;
+  if (!worktreePath || !issue.branchName) return;
+
+  execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
+  const statusBeforeCommit = execSync("git status --porcelain", { cwd: worktreePath, encoding: "utf8" }).trim();
+  if (!statusBeforeCommit) return;
+
+  try {
+    execSync(`git commit -m "fifony: agent changes for ${issue.identifier}"`, { cwd: worktreePath, stdio: "pipe" });
+  } catch (error) {
+    const remaining = execSync("git status --porcelain", { cwd: worktreePath, encoding: "utf8" }).trim();
+    if (remaining) {
+      throw new Error(`Failed to commit agent changes for ${issue.identifier}: ${String(error)}`);
+    }
+  }
+
+  const statusAfterCommit = execSync("git status --porcelain", { cwd: worktreePath, encoding: "utf8" }).trim();
+  if (statusAfterCommit) {
+    throw new Error(`Worktree for ${issue.identifier} still has uncommitted changes after commit.`);
+  }
+}
+
 export interface MergeResult {
   copied: string[];
   deleted: string[];
@@ -496,15 +519,17 @@ export interface MergeResult {
 /** Merge a worktree branch into TARGET_ROOT using git merge --no-ff. */
 function mergeWorktree(issue: IssueEntry, worktreePath: string): MergeResult {
   const result: MergeResult = { copied: [], deleted: [], skipped: [], conflicts: [] };
+  ensureWorktreeCommitted(issue);
 
-  // Auto-commit any uncommitted changes the agent left in the worktree
-  try {
-    execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
-    const status = execSync("git status --porcelain", { cwd: worktreePath, encoding: "utf8" });
-    if (status.trim()) {
-      execSync(`git commit -m "fifony: agent changes for ${issue.identifier}"`, { cwd: worktreePath, stdio: "pipe" });
-    }
-  } catch { /* nothing staged or commit failed — continue */ }
+  const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: TARGET_ROOT, encoding: "utf8" }).trim();
+  if (currentBranch !== issue.baseBranch) {
+    throw new Error(`Cannot merge ${issue.identifier}: current branch is ${currentBranch}, expected ${issue.baseBranch}.`);
+  }
+
+  const targetStatus = execSync("git status --porcelain", { cwd: TARGET_ROOT, encoding: "utf8" }).trim();
+  if (targetStatus) {
+    throw new Error(`Cannot merge ${issue.identifier}: target repository has uncommitted changes.`);
+  }
 
   // Collect changed files before merging (for the result summary)
   try {
@@ -519,13 +544,6 @@ function mergeWorktree(issue: IssueEntry, worktreePath: string): MergeResult {
       else result.copied.push(filePath);
     }
   } catch { /* best-effort */ }
-
-  // Stash any uncommitted changes in TARGET_ROOT so merge can proceed
-  let didStash = false;
-  try {
-    const stashOut = execSync("git stash", { cwd: TARGET_ROOT, encoding: "utf8" }).trim();
-    didStash = !stashOut.includes("No local changes to save");
-  } catch { /* ignore stash failure */ }
 
   try {
     execSync(
@@ -543,11 +561,6 @@ function mergeWorktree(issue: IssueEntry, worktreePath: string): MergeResult {
     } catch {}
     try { execSync("git merge --abort", { cwd: TARGET_ROOT, stdio: "pipe" }); } catch {}
     logger.warn({ issueId: issue.id, err: String(err) }, "[Agent] Git merge failed, aborted");
-  }
-
-  // Restore stashed changes
-  if (didStash) {
-    try { execSync("git stash pop", { cwd: TARGET_ROOT, stdio: "pipe" }); } catch {}
   }
 
   return result;
@@ -1101,7 +1114,7 @@ async function runCommandWithTimeout(
       }
     }
 
-    const envFilePath = join(workspacePath, ".fifony-env.sh");
+    const envFilePath = join(workspacePath, ".env.sh");
     const envFileLines = Object.entries(allVars)
       .map(([k, v]) => `export ${k}=${JSON.stringify(v)}`)
       .join("\n");
@@ -1123,7 +1136,7 @@ async function runCommandWithTimeout(
     }
 
     // Write PID file for recovery
-    const pidFile = join(workspacePath, "fifony-agent.pid");
+    const pidFile = join(workspacePath, "agent.pid");
     const pid = child.pid;
     if (pid) {
       logger.debug({ issueId: issue.id, pid, command: command.slice(0, 120), cwd: workspacePath }, "[Agent] Process spawned");
@@ -1138,7 +1151,7 @@ async function runCommandWithTimeout(
     let output = "";
     let timedOut = false;
     let outputBytes = 0;
-    const liveLogFile = join(workspacePath, "fifony-live-output.log");
+    const liveLogFile = join(workspacePath, "live-output.log");
     writeFileSync(liveLogFile, "", "utf8");
 
     const onChunk = (chunk: Buffer | string) => {
@@ -1332,9 +1345,9 @@ async function prepareWorkspace(
     logger.debug({ issueId: issue.id, workspacePath: workspaceRoot }, "[Agent] Reusing existing workspace");
   }
 
-  const metaPath = join(workspaceRoot, "fifony-issue.json");
+  const metaPath = join(workspaceRoot, "issue.json");
   const promptText = await buildPrompt(issue, workflowDefinition);
-  const promptFile = join(workspaceRoot, "fifony-prompt.md");
+  const promptFile = join(workspaceRoot, "prompt.md");
   writeFileSync(metaPath, JSON.stringify({ ...issue, runtimeSource: SOURCE_ROOT, bootstrapAt: now() }, null, 2), "utf8");
   writeFileSync(promptFile, `${promptText}\n`, "utf8");
 
@@ -1400,7 +1413,7 @@ async function runAgentSession(
   let nextPrompt = session.nextPrompt;
   let lastCode: number | null = session.lastCode;
   let lastOutput = session.lastOutput;
-  const resultFile = join(workspacePath, `fifony-result-${provider.role}-${provider.provider}.json`);
+  const resultFile = join(workspacePath, `result-${provider.role}-${provider.provider}.json`);
 
   if (session.status === "done" && session.turns.length > 0) {
     logger.debug({ issueId: issue.id, identifier: issue.identifier, provider: provider.provider, role: provider.role }, "[Agent] Session already completed, returning cached result");
@@ -1418,7 +1431,7 @@ async function runAgentSession(
   const turnPrompt = await buildTurnPrompt(issue, basePromptText, previousOutput, turnIndex, maxTurns, nextPrompt);
   const turnPromptFile = turnIndex === 1
     ? basePromptFile
-    : join(workspacePath, `fifony-turn-${String(turnIndex).padStart(2, "0")}.md`);
+    : join(workspacePath, `turn-${String(turnIndex).padStart(2, "0")}.md`);
 
   if (turnIndex > 1) writeFileSync(turnPromptFile, `${turnPrompt}\n`, "utf8");
 
@@ -1569,7 +1582,7 @@ export async function runAgentPipeline(
 
   // Write skills reference to workspace
   if (skillContext) {
-    writeFileSync(join(workspacePath, "fifony-skills.md"), skillContext, "utf8");
+    writeFileSync(join(workspacePath, "skills.md"), skillContext, "utf8");
   }
 
   // Compile plan-aware execution if plan exists
@@ -1588,7 +1601,7 @@ export async function runAgentPipeline(
 
     // Merge compiled env into issue env file
     if (Object.keys(compiled.env).length > 0) {
-      const envFile = join(workspacePath, ".fifony-compiled-env.sh");
+      const envFile = join(workspacePath, ".compiled-env.sh");
       const envLines = Object.entries(compiled.env).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`).join("\n");
       writeFileSync(envFile, envLines, "utf8");
     }
@@ -1726,8 +1739,9 @@ export async function runIssueOnce(
           );
           diffSummary = diffResult.trim();
         } else {
+          const diffTarget = issue.worktreePath ?? workspacePath;
           const diffResult = execSync(
-            `git diff --no-index --stat -- "${SOURCE_ROOT}" "${workspacePath}" 2>/dev/null`,
+            `git diff --no-index --stat -- "${SOURCE_ROOT}" "${diffTarget}" 2>/dev/null`,
             { encoding: "utf8", maxBuffer: 512_000, timeout: 10_000 },
           );
           diffSummary = diffResult.trim();
@@ -1740,7 +1754,7 @@ export async function runIssueOnce(
       const compiled = await compileReview(issue, reviewer, workspacePath, diffSummary);
       const effectiveReviewer = { ...reviewer, command: compiled.command || reviewer.command };
 
-      const reviewPromptFile = join(workspacePath, "fifony-review-prompt.md");
+      const reviewPromptFile = join(workspacePath, "review-prompt.md");
       writeFileSync(reviewPromptFile, `${compiled.prompt}\n`, "utf8");
 
       (state as any)._workflowDefinition = workflowDefinition;
@@ -1794,41 +1808,22 @@ export async function runIssueOnce(
 
     issue.durationMs = Date.now() - startTs;
     issue.commandExitCode = runResult.code;
-    issue.commandOutputTail = runResult.output;
+      issue.commandOutputTail = runResult.output;
 
-    if (runResult.success) {
-      // Compute diff stats before transitioning
-      computeDiffStats(issue);
-      if (issue.filesChanged) {
-        addEvent(state, issue.id, "info", `Diff: ${issue.filesChanged} files, +${issue.linesAdded || 0} -${issue.linesRemoved || 0} lines.`);
-      }
+      if (runResult.success) {
+        ensureWorktreeCommitted(issue);
 
-      // Merge workspace into TARGET_ROOT so the code is runnable/testable before review
-      try {
-        const mergeResult = mergeWorkspace(issue);
-        issue.mergedAt = now();
-        issue.mergeResult = {
-          copied: mergeResult.copied.length,
-          deleted: mergeResult.deleted.length,
-          skipped: mergeResult.skipped.length,
-          conflicts: mergeResult.conflicts.length,
-        };
-        const conflictMsg = mergeResult.conflicts.length > 0
-          ? ` ${mergeResult.conflicts.length} conflict(s): ${mergeResult.conflicts.join(", ")}.`
-          : "";
-        addEvent(state, issue.id, "merge", `Workspace merged to project: ${mergeResult.copied.length} file(s) copied, ${mergeResult.deleted.length} deleted.${conflictMsg} Code is now available in the project root.`);
-        if (mergeResult.conflicts.length > 0) {
-          addEvent(state, issue.id, "error", `Merge conflicts detected — ${mergeResult.conflicts.length} file(s) modified by another worker: ${mergeResult.conflicts.join(", ")}`);
+        // Compute diff stats before transitioning
+        computeDiffStats(issue);
+        if (issue.filesChanged) {
+          addEvent(state, issue.id, "info", `Diff: ${issue.filesChanged} files, +${issue.linesAdded || 0} -${issue.linesRemoved || 0} lines.`);
         }
-        logger.info(`Workspace merged for ${issue.identifier}: ${mergeResult.copied.length} copied, ${mergeResult.deleted.length} deleted, ${mergeResult.conflicts.length} conflicts.`);
-      } catch (mergeErr) {
-        addEvent(state, issue.id, "error", `Merge failed: ${String(mergeErr)}`);
-        logger.error(`Merge failed for ${issue.identifier}: ${String(mergeErr)}`);
-      }
 
-      // Persist execution audit
-      const executor = routedProviders.find((p) => p.role === "executor") || routedProviders[0];
-      if (executor && workspacePath) {
+        addEvent(state, issue.id, "info", `Workspace prepared for review on branch ${issue.branchName ?? "workspace"}.`);
+
+        // Persist execution audit
+        const executor = routedProviders.find((p) => p.role === "executor") || routedProviders[0];
+        if (executor && workspacePath) {
         const audit = buildExecutionAudit(executor, null, issue, Date.now() - startTs, "success");
         persistExecutionAudit(workspacePath, audit);
       }

@@ -141,7 +141,7 @@ export function buildExecutionAudit(
 export function persistCompilationArtifacts(workspacePath: string, compiled: CompiledExecution): void {
   try {
     writeFileSync(
-      join(workspacePath, "fifony-compiled-execution.json"),
+      join(workspacePath, "compiled-execution.json"),
       JSON.stringify({
         adapter: compiled.meta.adapter,
         model: compiled.meta.model,
@@ -164,7 +164,7 @@ export function persistCompilationArtifacts(workspacePath: string, compiled: Com
   // Save full prompt for debugging
   try {
     writeFileSync(
-      join(workspacePath, "fifony-prompt.md"),
+      join(workspacePath, "prompt.md"),
       compiled.prompt,
       "utf8",
     );
@@ -173,7 +173,7 @@ export function persistCompilationArtifacts(workspacePath: string, compiled: Com
   if (compiled.payload) {
     try {
       writeFileSync(
-        join(workspacePath, "fifony-execution-payload.json"),
+        join(workspacePath, "execution-payload.json"),
         JSON.stringify(compiled.payload, null, 2),
         "utf8",
       );
@@ -184,7 +184,7 @@ export function persistCompilationArtifacts(workspacePath: string, compiled: Com
 export function persistExecutionAudit(workspacePath: string, audit: ExecutionAudit): void {
   try {
     writeFileSync(
-      join(workspacePath, "fifony-execution-audit.json"),
+      join(workspacePath, "execution-audit.json"),
       JSON.stringify(audit, null, 2),
       "utf8",
     );

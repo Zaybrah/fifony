@@ -9,9 +9,10 @@ export type DiscoveredSkill = {
 
 export function discoverSkills(workspacePath: string): DiscoveredSkill[] {
   const home = homedir();
+  const codePath = existsSync(join(workspacePath, "worktree")) ? join(workspacePath, "worktree") : workspacePath;
   const searchPaths = [
-    resolve(workspacePath, ".codex", "skills"),
-    resolve(workspacePath, ".claude", "skills"),
+    resolve(codePath, ".codex", "skills"),
+    resolve(codePath, ".claude", "skills"),
     join(home, ".codex", "skills"),
     join(home, ".claude", "skills"),
   ];
