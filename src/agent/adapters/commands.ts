@@ -60,7 +60,7 @@ export function buildClaudeCommand(options: {
     parts.push(`--json-schema '${options.jsonSchema}'`);
   }
 
-  if (options.model) {
+  if (options.model && options.model !== "claude") {
     parts.splice(1, 0, `--model ${options.model}`);
   }
 

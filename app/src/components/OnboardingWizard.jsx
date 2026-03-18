@@ -126,9 +126,9 @@ function normalizeRoleEfforts(value) {
  */
 function buildWorkflowConfig(pipeline, efforts, models = {}) {
   return {
-    plan: { provider: pipeline.planner || "claude", model: models.plan || pipeline.planner || "claude", effort: efforts.planner || "medium" },
-    execute: { provider: pipeline.executor || "codex", model: models.execute || pipeline.executor || "codex", effort: efforts.executor || "medium" },
-    review: { provider: pipeline.reviewer || "claude", model: models.review || pipeline.reviewer || "claude", effort: efforts.reviewer || "medium" },
+    plan: { provider: pipeline.planner || "claude", model: models.plan || "", effort: efforts.planner || "medium" },
+    execute: { provider: pipeline.executor || "codex", model: models.execute || "", effort: efforts.executor || "medium" },
+    review: { provider: pipeline.reviewer || "claude", model: models.review || "", effort: efforts.reviewer || "medium" },
   };
 }
 

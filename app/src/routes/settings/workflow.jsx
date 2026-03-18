@@ -113,7 +113,7 @@ function StageBlock({ stage, config, providers, modelsByProvider, onChange, isLa
                   onChange({
                     ...config,
                     provider: newProvider,
-                    model: newModels[0]?.id || newProvider,
+                    model: newModels[0]?.id || "",
                     effort: newEffort,
                   });
                 }}
@@ -253,8 +253,8 @@ function WorkflowSettings() {
       const available = freshProviders.filter((p) => p.available);
       const hasClaude = available.some((p) => p.name === "claude");
       const hasCodex = available.some((p) => p.name === "codex");
-      const claudeModel = freshModels.claude?.[0]?.id || "claude";
-      const codexModel = freshModels.codex?.[0]?.id || "codex";
+      const claudeModel = freshModels.claude?.[0]?.id || "";
+      const codexModel = freshModels.codex?.[0]?.id || "";
 
       const defaults = {
         plan: { provider: hasClaude ? "claude" : "codex", model: hasClaude ? claudeModel : codexModel, effort: "high" },
