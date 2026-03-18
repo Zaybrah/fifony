@@ -73,16 +73,9 @@ export function buildClaudeCommand(options: {
 export function buildCodexCommand(options: {
   model?: string;
   addDirs?: string[];
-  reasoningEffort?: string;
+  reasoningEffort?: string; // not supported by codex CLI, kept for API compatibility
 }): string {
-  // --reasoning-effort is a global flag that must come before the subcommand
-  const parts = ["codex"];
-
-  if (options.reasoningEffort) {
-    parts.push(`--reasoning-effort ${options.reasoningEffort}`);
-  }
-
-  parts.push("exec", "--skip-git-repo-check");
+  const parts = ["codex", "exec", "--skip-git-repo-check"];
 
   if (options.model && options.model !== "codex") {
     parts.push(`--model ${options.model}`);
