@@ -1294,10 +1294,8 @@ export default function OnboardingWizard({ onComplete }) {
       saves.push(saveSetting("runtime.agentProvider", pipeline.executor, "runtime"));
       saves.push(saveSetting("runtime.pipeline", pipelineProviders, "runtime"));
 
-      // Save as WorkflowConfig (the format read by planner, executor, reviewer stages)
-      saves.push(saveSetting("runtime.workflowConfig", buildWorkflowConfig(pipeline, efforts), "runtime"));
-
       saves.push(saveSetting("runtime.defaultEffort", efforts, "runtime"));
+      // Save as WorkflowConfig (the format read by planner, executor, reviewer stages)
       saves.push(saveSetting("runtime.workflowConfig", buildWorkflowConfig(pipeline, efforts, models), "runtime"));
       saves.push(api.post("/config/concurrency", { concurrency }));
 

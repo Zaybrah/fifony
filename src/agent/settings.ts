@@ -302,7 +302,8 @@ export async function syncRuntimeConfigSettings(
 function isValidStage(v: unknown): v is PipelineStageConfig {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
-  return typeof s.provider === "string" && typeof s.model === "string" && typeof s.effort === "string";
+  // model is optional — empty string means "use CLI default"
+  return typeof s.provider === "string" && typeof s.effort === "string";
 }
 
 /**
@@ -318,9 +319,9 @@ export function buildDefaultWorkflowConfig(
   const hasClaude = available.some((p) => p.name === "claude");
   const hasCodex = available.some((p) => p.name === "codex");
 
-  // Pick the first discovered model for each provider, or fall back to provider name
-  const claudeModel = discoveredModels?.claude?.[0]?.id || "claude";
-  const codexModel = discoveredModels?.codex?.[0]?.id || "codex";
+  // Pick the first discovered model for each provider, or leave empty (CLI will use its default)
+  const claudeModel = discoveredModels?.claude?.[0]?.id || "";
+  const codexModel = discoveredModels?.codex?.[0]?.id || "";
 
   const claudeDefault: PipelineStageConfig = { provider: "claude", model: claudeModel, effort: "medium" };
   const codexDefault: PipelineStageConfig = { provider: "codex", model: codexModel, effort: "medium" };
