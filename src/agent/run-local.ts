@@ -5,6 +5,7 @@ import { CLI_ARGS, STATE_ROOT, TARGET_ROOT } from "./constants.ts";
 import { debugBoot, fail, now } from "./helpers.ts";
 import { initLogger, logger } from "./logger.ts";
 import { initStateStore, loadPersistedState, persistState, persistStateFull, closeStateStore } from "./store.ts";
+import { initQueueWorkers, stopQueueWorkers } from "./queue-workers.ts";
 import {
   applyPersistedSettings,
   loadRuntimeSettings,
@@ -227,6 +228,13 @@ async function main() {
   state.metrics = computeMetrics(state.issues);
   await persistStateFull(state);
 
+  // Initialize queue workers after state is fully ready
+  try {
+    await initQueueWorkers(state);
+  } catch (error) {
+    logger.warn({ err: error }, "[Boot] Queue workers failed to initialize — continuing without queue-based dispatch");
+  }
+
   // Update the API server to use the real state (swap reference)
   if (dashboardPort) {
     // The API server closure captures apiState — mutate it to point to real state
@@ -260,6 +268,7 @@ async function main() {
     state.updatedAt = now();
     state.metrics = computeMetrics(state.issues);
     await persistStateFull(state);
+    try { await stopQueueWorkers(); } catch {}
     await closeStateStore();
   }
 }

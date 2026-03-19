@@ -100,6 +100,11 @@ export async function loadS3dbModule(): Promise<S3dbModule> {
       EventualConsistencyPluginCtor = (pluginModule as { EventualConsistencyPlugin: S3dbModule["EventualConsistencyPlugin"] }).EventualConsistencyPlugin;
     }
 
+    let S3QueuePluginCtor: S3dbModule["S3QueuePlugin"] | undefined;
+    if (typeof (pluginModule as Record<string, unknown>).S3QueuePlugin === "function") {
+      S3QueuePluginCtor = (pluginModule as { S3QueuePlugin: S3dbModule["S3QueuePlugin"] }).S3QueuePlugin;
+    }
+
     loadedS3dbModule = {
       S3db: imported.S3db as S3dbModule["S3db"],
       FileSystemClient: imported.FileSystemClient as S3dbModule["FileSystemClient"],
@@ -107,6 +112,7 @@ export async function loadS3dbModule(): Promise<S3dbModule> {
       WebSocketPlugin: WebSocketPluginCtor,
       StateMachinePlugin: StateMachinePluginCtor,
       EventualConsistencyPlugin: EventualConsistencyPluginCtor,
+      S3QueuePlugin: S3QueuePluginCtor,
     };
     return loadedS3dbModule;
   } catch (error) {
@@ -459,6 +465,14 @@ export async function getEcDailyLines(days = 90): Promise<Array<{ date: string; 
 export async function closeStateStore(): Promise<void> {
   logger.info("[Store] Closing state store and plugins");
   clearApiRuntimeContext();
+
+  try {
+    const { stopQueueWorkers } = await import("./queue-workers.ts");
+    await stopQueueWorkers();
+  } catch (error) {
+    logger.warn(`Failed to stop queue workers: ${String(error)}`);
+  }
+
   if (activeEcPlugin?.stop) {
     try {
       await activeEcPlugin.stop();

@@ -692,14 +692,21 @@ export async function transitionIssueState(
 ): Promise<void> {
   try {
     await runStateMachineTransition(issue, target, note);
-    return;
   } catch (error) {
     if (options?.fallbackToLocal || !getIssueStateMachinePlugin()) {
       logger.warn(`State machine transition failed for issue ${issue.id}, falling back to local transition: ${String(error)}`);
       transition(issue, target, note);
-      return;
+    } else {
+      throw error;
     }
-    throw error;
+  }
+
+  if (target === "Planning") {
+    import("./queue-workers.ts").then((m) => m.enqueueForPlanning(issue)).catch((err) => logger.warn({ err }, "[StateMachine] Failed to enqueue for planning"));
+  } else if (target === "Queued") {
+    import("./queue-workers.ts").then((m) => m.enqueueForExecution(issue)).catch((err) => logger.warn({ err }, "[StateMachine] Failed to enqueue for execution"));
+  } else if (target === "Reviewing") {
+    import("./queue-workers.ts").then((m) => m.enqueueForReview(issue)).catch((err) => logger.warn({ err }, "[StateMachine] Failed to enqueue for review"));
   }
 }
 

@@ -447,6 +447,12 @@ export type S3dbModule = {
     getTopRecords?: (resource: string, field: string, options?: Record<string, unknown>) => Promise<unknown[]>;
     getStatus?: () => Record<string, unknown>;
   };
+  S3QueuePlugin?: new (options: Record<string, unknown>) => {
+    startProcessing: (handler?: any, options?: { concurrency?: number }) => Promise<void>;
+    stopProcessing: () => Promise<void>;
+    getStats: () => Promise<{ total: number; pending: number; processing: number; completed: number; failed: number; dead: number }>;
+    recoverStalledMessages: (now: number) => Promise<void>;
+  };
 };
 
 export type ParallelismAnalysis = {
