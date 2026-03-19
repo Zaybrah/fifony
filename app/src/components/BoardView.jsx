@@ -40,30 +40,30 @@ const COLUMN_BADGE = {
 };
 
 const COLUMN_ACCENT_STYLE = {
-  Planning: { borderTopColor: 'oklch(var(--in) / 0.4)' },
-  "In Progress": { borderTopColor: 'oklch(var(--p) / 0.5)' },
-  "Reviewing": { borderTopColor: 'oklch(var(--s) / 0.4)' },
-  Blocked: { borderTopColor: 'oklch(var(--er) / 0.4)' },
-  Done: { borderTopColor: 'oklch(var(--su) / 0.4)' },
-  Cancelled: { borderTopColor: 'oklch(var(--bc) / 0.15)' },
+  Planning: { borderTopColor: 'color-mix(in oklab, var(--color-info) 40%, transparent)' },
+  "In Progress": { borderTopColor: 'color-mix(in oklab, var(--color-primary) 50%, transparent)' },
+  "Reviewing": { borderTopColor: 'color-mix(in oklab, var(--color-secondary) 40%, transparent)' },
+  Blocked: { borderTopColor: 'color-mix(in oklab, var(--color-error) 40%, transparent)' },
+  Done: { borderTopColor: 'color-mix(in oklab, var(--color-success) 40%, transparent)' },
+  Cancelled: { borderTopColor: 'color-mix(in oklab, var(--color-base-content) 15%, transparent)' },
 };
 
 const COLUMN_HEADER_COLOR = {
-  Planning: 'oklch(var(--in))',
-  "In Progress": 'oklch(var(--p))',
-  "Reviewing": 'oklch(var(--s))',
-  Blocked: 'oklch(var(--er))',
-  Done: 'oklch(var(--su))',
+  Planning: 'var(--color-info)',
+  "In Progress": 'var(--color-primary)',
+  "Reviewing": 'var(--color-secondary)',
+  Blocked: 'var(--color-error)',
+  Done: 'var(--color-success)',
   Cancelled: undefined,
 };
 
 const COLUMN_DOT_COLOR = {
-  Planning: 'oklch(var(--in))',
-  "In Progress": 'oklch(var(--p))',
-  "Reviewing": 'oklch(var(--s))',
-  Blocked: 'oklch(var(--er))',
-  Done: 'oklch(var(--su))',
-  Cancelled: 'oklch(var(--bc) / 0.3)',
+  Planning: 'var(--color-info)',
+  "In Progress": 'var(--color-primary)',
+  "Reviewing": 'var(--color-secondary)',
+  Blocked: 'var(--color-error)',
+  Done: 'var(--color-success)',
+  Cancelled: 'color-mix(in oklab, var(--color-base-content) 30%, transparent)',
 };
 
 const EMPTY_CONFIG = {

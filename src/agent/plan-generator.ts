@@ -80,12 +80,15 @@ export async function generatePlan(
     // Fall through to default provider selection
   }
 
-  // Provider selection: respect the user's explicit configuration. If no provider is
-  // configured (or it's unavailable), fall back to claude (best structured-output support)
-  // then whatever's available.
-  const configuredProvider = planStageProvider && available.includes(planStageProvider) ? planStageProvider : null;
-  const preferred = configuredProvider
-    ?? (available.includes("claude") ? "claude" : available[0]);
+  // Provider selection priority:
+  // 1. Explicit workflow plan stage provider (from settings)
+  // 2. Global agentProvider from runtime config (user's default CLI)
+  // 3. First available provider detected on the system
+  // NO hardcoded provider preference — user config always wins.
+  const preferred =
+    (planStageProvider && available.includes(planStageProvider)) ? planStageProvider :
+    (config.agentProvider && available.includes(config.agentProvider)) ? config.agentProvider :
+    available[0];
   if (!preferred) throw new Error("No AI provider available for planning.");
 
   // If provider changed (configured wasn't available → fallback), the model may belong

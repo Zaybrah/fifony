@@ -83,7 +83,8 @@ export function buildCodexCommand(options: {
   }
 
   if (options.reasoningEffort) {
-    parts.push(`--reasoning-effort ${options.reasoningEffort}`);
+    // Codex uses -c config overrides, not a dedicated --reasoning-effort flag
+    parts.push(`-c reasoning_effort="${options.reasoningEffort}"`);
   }
 
   if (options.addDirs?.length) {

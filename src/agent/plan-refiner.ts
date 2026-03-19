@@ -63,9 +63,10 @@ export async function refinePlan(
     // Fall through to default provider selection
   }
 
-  const configuredProvider = planStageProvider && available.includes(planStageProvider) ? planStageProvider : null;
-  const preferred = configuredProvider
-    ?? (available.includes("claude") ? "claude" : available[0]);
+  const preferred =
+    (planStageProvider && available.includes(planStageProvider)) ? planStageProvider :
+    (config.agentProvider && available.includes(config.agentProvider)) ? config.agentProvider :
+    available[0];
   if (!preferred) throw new Error("No AI provider available for plan refinement.");
 
   // If provider changed (configured wasn't available → fallback), discard provider-specific model

@@ -27,8 +27,8 @@ export function normalizeRoleEfforts(value) {
  */
 export function buildWorkflowConfig(pipeline, efforts, models = {}) {
   return {
-    plan: { provider: pipeline.planner || "claude", model: models.plan || "", effort: efforts.planner || "medium" },
-    execute: { provider: pipeline.executor || "codex", model: models.execute || "", effort: efforts.executor || "medium" },
-    review: { provider: pipeline.reviewer || "claude", model: models.review || "", effort: efforts.reviewer || "medium" },
+    plan: { provider: pipeline.planner || pipeline.executor || "", model: models.plan || "", effort: efforts.planner || "medium" },
+    execute: { provider: pipeline.executor || "", model: models.execute || "", effort: efforts.executor || "medium" },
+    review: { provider: pipeline.reviewer || pipeline.executor || "", model: models.review || "", effort: efforts.reviewer || "medium" },
   };
 }
