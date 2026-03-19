@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { logger } from "./logger.ts";
+import { listReferenceRepositories, collectArtifacts } from "../reference-repositories.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,46 +34,53 @@ export type InstallResult = {
 
 // ── Catalog loaders ──────────────────────────────────────────────────────────
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function resolveFixturePath(filename: string): string {
-  // In dev (ts source): src/agent/ -> src/fixtures/
-  // In dist (compiled): dist/ -> src/fixtures/ (via PACKAGE_ROOT)
-  const candidates = [
-    join(__dirname, "..", "fixtures", filename),
-    join(__dirname, "../..", "src", "fixtures", filename),
-    join(__dirname, "../../..", "src", "fixtures", filename),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+function parseFrontmatter(content: string): Record<string, string> {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const result: Record<string, string> = {};
+  for (const line of match[1].split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
+    if (key) result[key] = value;
   }
-
-  // Fallback: return the first candidate path (will error on read)
-  return candidates[0];
+  return result;
 }
 
 export function loadAgentCatalog(): AgentCatalogEntry[] {
+  const entries: AgentCatalogEntry[] = [];
   try {
-    const filePath = resolveFixturePath("agent-catalog.json");
-    const raw = readFileSync(filePath, "utf8");
-    return JSON.parse(raw) as AgentCatalogEntry[];
+    const repos = listReferenceRepositories();
+    for (const repo of repos) {
+      if (!repo.present || !repo.synced) continue;
+      const artifacts = collectArtifacts(repo.path, repo.id).filter((a) => a.kind === "agent");
+      for (const artifact of artifacts) {
+        try {
+          const content = readFileSync(artifact.sourcePath, "utf8");
+          const fm = parseFrontmatter(content);
+          entries.push({
+            name: artifact.targetName,
+            displayName: fm.name || artifact.targetName,
+            description: fm.description || "",
+            emoji: fm.emoji || "\u{1F916}",
+            domains: fm.domains ? fm.domains.split(",").map((d) => d.trim()).filter(Boolean) : [],
+            source: repo.id,
+            content,
+          });
+        } catch (err) {
+          logger.warn({ err, path: artifact.sourcePath }, "Failed to read agent file");
+        }
+      }
+    }
   } catch (error) {
-    logger.error({ err: error }, "Failed to load agent catalog");
-    return [];
+    logger.error({ err: error }, "Failed to load agent catalog from repositories");
   }
+  return entries;
 }
 
 export function loadSkillCatalog(): SkillCatalogEntry[] {
-  try {
-    const filePath = resolveFixturePath("skill-catalog.json");
-    const raw = readFileSync(filePath, "utf8");
-    return JSON.parse(raw) as SkillCatalogEntry[];
-  } catch (error) {
-    logger.error({ err: error }, "Failed to load skill catalog");
-    return [];
-  }
+  return [];
 }
 
 // ── Filter by domains ────────────────────────────────────────────────────────

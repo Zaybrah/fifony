@@ -5,8 +5,6 @@ import { useSettings, getSettingsList, getSettingValue, SETTINGS_QUERY_KEY, upse
 import { PROJECT_SETTING_ID, buildQueueTitle, normalizeProjectName, resolveProjectMeta } from "../../project-meta.js";
 import Confetti from "../Confetti";
 import OnboardingParticles from "../OnboardingParticles";
-import { ChevronRight } from "lucide-react";
-import { DiscoveredIssuesOnboarding } from "../DiscoveredIssuesView";
 
 import { getStepLabels, getStepCount } from "./constants";
 import { saveSetting, normalizeRoleEfforts, buildWorkflowConfig } from "./helpers";
@@ -15,13 +13,9 @@ import StepIndicator from "./steps/StepIndicator";
 import StepContent from "./steps/StepContent";
 import WizardNavFooter from "./steps/WizardNavFooter";
 import WelcomeStep from "./steps/WelcomeStep";
-import ProjectStep from "./steps/ProjectStep";
-import BranchStep from "./steps/BranchStep";
+import SetupStep from "./steps/SetupStep";
 import PipelineStep from "./steps/PipelineStep";
-import ScanProjectStep from "./steps/ScanProjectStep";
-import DomainsStep from "./steps/DomainsStep";
 import AgentsSkillsStep from "./steps/AgentsSkillsStep";
-import EffortStep from "./steps/EffortStep";
 import WorkersThemeStep from "./steps/WorkersThemeStep";
 import CompleteStep from "./steps/CompleteStep";
 
@@ -47,22 +41,16 @@ export default function OnboardingWizard({ onComplete }) {
   const [selectedTheme, setSelectedTheme] = useState("auto");
 
   // New step state
-  const [scanResult, setScanResult] = useState(null);
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [projectDescription, setProjectDescription] = useState("");
   const [projectName, setProjectNameState] = useState("");
   const [projectSource, setProjectSource] = useState("missing");
   const [runtimeSnapshot, setRuntimeSnapshot] = useState(null);
-  const [selectedDomains, setSelectedDomains] = useState([]);
   const [selectedAgents, setSelectedAgents] = useState([]);
   const [selectedSkills, setSelectedSkills] = useState([]);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [wantsDiscovery, setWantsDiscovery] = useState(false);
 
-  const STEP_COUNT = getStepCount(wantsDiscovery);
-  const STEP_LABELS = getStepLabels(wantsDiscovery);
+  const STEP_COUNT = getStepCount();
+  const STEP_LABELS = getStepLabels();
 
-  // Map logical step index to step name (handles the optional discovery step)
+  // Map logical step index to step name.
   const stepName = STEP_LABELS[step] || "";
 
   // Provider detection
@@ -91,18 +79,29 @@ export default function OnboardingWizard({ onComplete }) {
     if (hydratedRef.current || settingsQuery.isLoading) return;
     hydratedRef.current = true;
 
-    const savedProvider = getSettingValue(settings, "runtime.agentProvider", "");
+    const savedPipeline = getSettingValue(settings, "runtime.pipeline", null);
+    const savedWorkflowConfig = getSettingValue(settings, "runtime.workflowConfig", null);
     const savedEfforts = getSettingValue(settings, "runtime.defaultEffort", null);
     const savedTheme = getSettingValue(settings, "ui.theme", "auto");
     const savedConcurrency = getSettingValue(settings, "runtime.workerConcurrency", 3);
 
-    if (typeof savedProvider === "string" && savedProvider.trim()) {
-      setPipeline((prev) => ({
-        planner: prev.planner || savedProvider,
-        executor: prev.executor || savedProvider,
-        reviewer: prev.reviewer || savedProvider,
-      }));
+    if (Array.isArray(savedPipeline) && savedPipeline.length > 0) {
+      const byRole = Object.fromEntries(savedPipeline.map((entry) => [entry.role, entry.provider]));
+      setPipeline({
+        planner: byRole.planner || "",
+        executor: byRole.executor || "",
+        reviewer: byRole.reviewer || "",
+      });
     }
+
+    if (savedWorkflowConfig && typeof savedWorkflowConfig === "object") {
+      setModels({
+        plan: savedWorkflowConfig.plan?.model || "",
+        execute: savedWorkflowConfig.execute?.model || "",
+        review: savedWorkflowConfig.review?.model || "",
+      });
+    }
+
     setEfforts(normalizeRoleEfforts(savedEfforts));
     if (typeof savedTheme === "string" && savedTheme.trim()) {
       setSelectedTheme(savedTheme);
@@ -137,7 +136,7 @@ export default function OnboardingWizard({ onComplete }) {
 
   // Fetch providers (and models) shortly before the pipeline step
   useEffect(() => {
-    if (step >= 2 && providers === null) {
+    if (step >= 1 && providers === null) {
       setProvidersLoading(true);
       Promise.all([
         api.get("/providers"),
@@ -193,12 +192,11 @@ export default function OnboardingWizard({ onComplete }) {
 
   // Save settings progressively as user advances
   const saveStepSettings = useCallback((currentStepName) => {
-    if (currentStepName === "Project") {
+    if (currentStepName === "Setup") {
       if (normalizedProjectName) {
         saveSetting(PROJECT_SETTING_ID, normalizedProjectName, "system").catch(() => {});
       }
-    } else if (currentStepName === "Providers") {
-      // Save pipeline as providers array + primary provider
+    } else if (currentStepName === "Pipeline") {
       const pipelineProviders = [
         { provider: pipeline.planner, role: "planner" },
         { provider: pipeline.executor, role: "executor" },
@@ -206,13 +204,9 @@ export default function OnboardingWizard({ onComplete }) {
       ];
       saveSetting("runtime.agentProvider", pipeline.executor, "runtime").catch(() => {});
       saveSetting("runtime.pipeline", pipelineProviders, "runtime").catch(() => {});
-      // Also save as WorkflowConfig so planner/executor/reviewer use correct providers
-      saveSetting("runtime.workflowConfig", buildWorkflowConfig(pipeline, efforts, models), "runtime").catch(() => {});
-    } else if (currentStepName === "Effort") {
       saveSetting("runtime.defaultEffort", efforts, "runtime").catch(() => {});
-      // Update WorkflowConfig with latest efforts + models
       saveSetting("runtime.workflowConfig", buildWorkflowConfig(pipeline, efforts, models), "runtime").catch(() => {});
-    } else if (currentStepName === "Workers & Theme") {
+    } else if (currentStepName === "Preferences") {
       saveSetting("ui.theme", selectedTheme, "ui").catch(() => {});
       api.post("/config/concurrency", { concurrency }).catch(() => {});
     }
@@ -315,19 +309,14 @@ export default function OnboardingWizard({ onComplete }) {
   // Can proceed from step
   const canProceed =
     stepName === "Welcome" ||
-    (stepName === "Project" && Boolean(normalizedProjectName)) ||
-    stepName === "Branch" ||
-    (stepName === "Providers" && (pipeline.executor || providersLoading)) ||
-    stepName === "Scan Project" ||
-    stepName === "Discover Issues" ||
-    stepName === "Domains" ||
+    (stepName === "Setup" && Boolean(normalizedProjectName)) ||
+    (stepName === "Pipeline" && (pipeline.executor || providersLoading)) ||
     stepName === "Agents & Skills" ||
-    stepName === "Effort" ||
-    stepName === "Workers & Theme" ||
+    stepName === "Preferences" ||
     stepName === "Launch";
 
-  const existingAgents = (scanResult?.existingAgents || []).map((a) => typeof a === "string" ? { name: a } : a);
-  const existingSkills = (scanResult?.existingSkills || []).map((s) => typeof s === "string" ? { name: s } : s);
+  const existingAgents = [];
+  const existingSkills = [];
 
   const config = {
     projectName: normalizedProjectName,
@@ -336,14 +325,13 @@ export default function OnboardingWizard({ onComplete }) {
     efforts,
     concurrency,
     theme: selectedTheme,
-    domains: selectedDomains,
     agents: selectedAgents,
     skills: selectedSkills,
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-base-100 flex flex-col overflow-hidden">
-      <OnboardingParticles />
+      {step === 0 && <OnboardingParticles />}
 
       {confetti && (
         <Confetti x={confetti.x} y={confetti.y} active onDone={() => setConfetti(null)} />
@@ -352,65 +340,51 @@ export default function OnboardingWizard({ onComplete }) {
       {/* Header with step indicator — hidden on welcome screen */}
       {step > 0 && (
         <div className="relative z-10 pt-6 pb-2 px-4 flex justify-center">
-          <StepIndicator current={step} wantsDiscovery={wantsDiscovery} />
+          <StepIndicator current={step} />
         </div>
       )}
 
       {/* Step content area */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-start px-4 py-6 overflow-y-auto">
-        <StepContent direction={direction} stepKey={step} center={stepName === "Welcome" || stepName === "Project" || stepName === "Branch" || stepName === "Providers" || stepName === "Launch"}>
-          {stepName === "Welcome" && <WelcomeStep workspacePath={workspacePath} onGetStarted={goNext} />}
-          {stepName === "Project" && (
-            <ProjectStep
+        <StepContent
+          direction={direction}
+          stepKey={step}
+          center={
+            stepName === "Welcome" ||
+            stepName === "Setup" ||
+            stepName === "Pipeline" ||
+            stepName === "Launch"
+          }
+        >
+          {stepName === "Welcome" && (
+            <WelcomeStep workspacePath={workspacePath} onGetStarted={goNext} />
+          )}
+          {stepName === "Setup" && (
+            <SetupStep
               projectName={projectName}
               setProjectName={setProjectName}
               detectedProjectName={runtimeSnapshot?.detectedProjectName || ""}
               projectSource={projectSource}
               workspacePath={workspacePath}
-            />
-          )}
-          {stepName === "Branch" && (
-            <BranchStep
               currentBranch={defaultBranch}
               onBranchCreated={(branch) => setDefaultBranch(branch)}
             />
           )}
-          {stepName === "Providers" && (
+          {stepName === "Pipeline" && (
             <PipelineStep
               providers={providers || []}
               providersLoading={providersLoading}
               pipeline={pipeline}
               setPipeline={setPipeline}
-            />
-          )}
-          {stepName === "Scan Project" && (
-            <ScanProjectStep
-              scanResult={scanResult}
-              setScanResult={setScanResult}
-              projectDescription={projectDescription}
-              setProjectDescription={setProjectDescription}
-              analysisResult={analysisResult}
-              setAnalysisResult={setAnalysisResult}
-              selectedProvider={pipeline.executor}
-              analyzing={analyzing}
-              setAnalyzing={setAnalyzing}
-              wantsDiscovery={wantsDiscovery}
-              setWantsDiscovery={setWantsDiscovery}
-            />
-          )}
-          {stepName === "Discover Issues" && (
-            <DiscoveredIssuesOnboarding />
-          )}
-          {stepName === "Domains" && (
-            <DomainsStep
-              selectedDomains={selectedDomains}
-              setSelectedDomains={setSelectedDomains}
-              analysisResult={analysisResult}
+              efforts={efforts}
+              setEfforts={setEfforts}
+              models={models}
+              setModels={setModels}
+              modelsByProvider={modelsByProvider}
             />
           )}
           {stepName === "Agents & Skills" && (
             <AgentsSkillsStep
-              selectedDomains={selectedDomains}
               selectedAgents={selectedAgents}
               setSelectedAgents={setSelectedAgents}
               selectedSkills={selectedSkills}
@@ -419,17 +393,7 @@ export default function OnboardingWizard({ onComplete }) {
               existingSkills={existingSkills}
             />
           )}
-          {stepName === "Effort" && (
-            <EffortStep
-              efforts={efforts}
-              setEfforts={setEfforts}
-              pipeline={pipeline}
-              models={models}
-              setModels={setModels}
-              modelsByProvider={modelsByProvider}
-            />
-          )}
-          {stepName === "Workers & Theme" && (
+          {stepName === "Preferences" && (
             <WorkersThemeStep
               concurrency={concurrency}
               setConcurrency={setConcurrency}
