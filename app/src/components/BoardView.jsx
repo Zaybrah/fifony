@@ -24,9 +24,10 @@ function ColumnBadge({ count, className }) {
   );
 }
 
-// Kanban columns — Planned/Queued/Running are grouped as "In Progress", Reviewing/Reviewed as "Reviewing"
+// Kanban columns — Planning/Planned grouped as "Planning", Queued/Running as "In Progress", Reviewing/Reviewed as "Reviewing"
 const COLUMNS = ["Planning", "In Progress", "Reviewing", "Blocked", "Done", "Cancelled"];
-const IN_PROGRESS_STATES = new Set(["Planned", "Queued", "Running"]);
+const PLANNING_STATES = new Set(["Planning", "Planned"]);
+const IN_PROGRESS_STATES = new Set(["Queued", "Running"]);
 const REVIEWING_STATES = new Set(["Reviewing", "Reviewed"]);
 
 const COLUMN_BADGE = {
@@ -435,7 +436,8 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, 
     const buckets = Object.fromEntries(COLUMNS.map((c) => [c, []]));
     for (const issue of issues) {
       let col;
-      if (IN_PROGRESS_STATES.has(issue.state)) col = "In Progress";
+      if (PLANNING_STATES.has(issue.state)) col = "Planning";
+      else if (IN_PROGRESS_STATES.has(issue.state)) col = "In Progress";
       else if (REVIEWING_STATES.has(issue.state)) col = "Reviewing";
       else col = buckets[issue.state] ? issue.state : "Planning";
       buckets[col].push(issue);
