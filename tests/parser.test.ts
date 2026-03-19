@@ -278,6 +278,136 @@ describe("parsePlanOutput", () => {
     });
   });
 
+  // ── Codex model variants — different models produce different field names ──
+
+  describe("Codex / gpt-5.4-mini format (what, id, suggestedFilePaths)", () => {
+    // Mirrors actual output captured from gpt-5.4-mini via codex CLI
+    const GPT54_MINI_OUTPUT = {
+      issueTitle: "mobile",
+      complexity: "medium",
+      effortSuggestion: { planner: "low", executor: "medium", reviewer: "medium" },
+      assumptions: ["Frontend-only change"],
+      constraints: ["No horizontal overflow on mobile"],
+      unknowns: [
+        { question: "What breakpoints?", resolveBy: "Check tailwind config" },
+      ],
+      risks: [{ risk: "Chart overflow", impact: "Unreadable", mitigation: "Responsive wrapper" }],
+      labels: ["frontend", "mobile"],
+      suggestedFilePaths: ["app/src/routes/agents.jsx", "app/src/routes/analytics.lazy.jsx"],
+      steps: [
+        {
+          id: 1,
+          ownerType: "agent",
+          what: "Audit agents screen on 360px width and fix overflow",
+          doneWhen: ["No horizontal scroll at 360px", "Actions reachable by touch"],
+        },
+        {
+          id: 2,
+          ownerType: "agent",
+          what: "Audit analytics screen on 360px width and fix chart overflow",
+          doneWhen: ["Charts fit within viewport", "KPI cards stack vertically"],
+        },
+      ],
+    };
+
+    it("parses issueTitle as summary", () => {
+      const plan = parsePlanOutput(JSON.stringify(GPT54_MINI_OUTPUT));
+      assert.ok(plan !== null);
+      assert.equal(plan!.summary, "mobile");
+    });
+
+    it("parses complexity alias", () => {
+      const plan = parsePlanOutput(JSON.stringify(GPT54_MINI_OUTPUT));
+      assert.equal(plan!.estimatedComplexity, "medium");
+    });
+
+    it("parses step.what as action", () => {
+      const plan = parsePlanOutput(JSON.stringify(GPT54_MINI_OUTPUT));
+      assert.ok(plan !== null);
+      assert.equal(plan!.steps[0].action, "Audit agents screen on 360px width and fix overflow");
+    });
+
+    it("parses step.id as step number", () => {
+      const plan = parsePlanOutput(JSON.stringify(GPT54_MINI_OUTPUT));
+      assert.equal(plan!.steps[0].step, 1);
+      assert.equal(plan!.steps[1].step, 2);
+    });
+
+    it("joins doneWhen array into string", () => {
+      const plan = parsePlanOutput(JSON.stringify(GPT54_MINI_OUTPUT));
+      assert.ok(plan!.steps[0].doneWhen?.includes("No horizontal scroll at 360px"));
+      assert.ok(plan!.steps[0].doneWhen?.includes("Actions reachable by touch"));
+    });
+
+    it("parses suggestedFilePaths as suggestedPaths", () => {
+      const plan = parsePlanOutput(JSON.stringify(GPT54_MINI_OUTPUT));
+      assert.ok(plan!.suggestedPaths.includes("app/src/routes/agents.jsx"));
+    });
+
+    it("parses labels as suggestedLabels", () => {
+      const plan = parsePlanOutput(JSON.stringify(GPT54_MINI_OUTPUT));
+      assert.ok(plan!.suggestedLabels.includes("mobile"));
+    });
+
+    it("parses when output has codex preamble header + JSON + token count", () => {
+      const preamble = [
+        "",
+        "Reading prompt from stdin...",
+        "",
+        "OpenAI Codex v0.115.0 (research preview)",
+        "--------",
+        "model: gpt-5.4-mini",
+        "provider: openai",
+        "--------",
+        "user",
+        "",
+        "Return strict JSON...",
+        "",
+        "codex",
+      ].join("\n");
+      const raw = preamble + "\n" + JSON.stringify(GPT54_MINI_OUTPUT) + "\n\ntokens used\n33,834\n";
+      const plan = parsePlanOutput(raw);
+      assert.ok(plan !== null, "should parse plan from real codex stdout");
+      assert.equal(plan!.steps.length, 2);
+      assert.equal(plan!.steps[0].action, "Audit agents screen on 360px width and fix overflow");
+    });
+  });
+
+  describe("Codex / alternative model format (task, index, file_paths)", () => {
+    // Hypothetical output from a model that uses snake_case and different aliases
+    const ALT_MODEL_OUTPUT = {
+      title: "Add auth middleware",
+      estimated_complexity: "low",
+      steps: [
+        {
+          index: 1,
+          task: "Create JWT validation middleware",
+          file_paths: ["src/middleware/auth.ts"],
+          done_when: "Middleware rejects requests with invalid tokens",
+        },
+      ],
+      suggested_paths: ["src/middleware/"],
+      suggested_labels: ["backend", "security"],
+    };
+
+    it("parses title as summary", () => {
+      const plan = parsePlanOutput(JSON.stringify(ALT_MODEL_OUTPUT));
+      assert.ok(plan !== null);
+      assert.equal(plan!.summary, "Add auth middleware");
+    });
+
+    it("parses step number from fallback index", () => {
+      const plan = parsePlanOutput(JSON.stringify(ALT_MODEL_OUTPUT));
+      // index field not aliased — falls back to array position (i+1)
+      assert.equal(plan!.steps[0].step, 1);
+    });
+
+    it("parses done_when string", () => {
+      const plan = parsePlanOutput(JSON.stringify(ALT_MODEL_OUTPUT));
+      assert.equal(plan!.steps[0].doneWhen, "Middleware rejects requests with invalid tokens");
+    });
+  });
+
   // ── Edge cases ──
 
   describe("edge cases", () => {
