@@ -57,6 +57,7 @@ import {
   applyCapabilityMetadata,
 } from "./providers.ts";
 import { resolveTaskCapabilities } from "../routing/capability-resolver.ts";
+import { computeDiffStats } from "./workspace-diff.ts";
 
 export function normalizeIssue(
   raw: JsonRecord,
@@ -555,6 +556,10 @@ export function transition(issue: IssueEntry, target: IssueState, note: string):
 
   if (target === "Done") {
     issue.lastError = undefined;
+    // Capture diff stats if not already set (covers auto-approve and reviewer-approve paths)
+    if (!issue.linesAdded && !issue.linesRemoved) {
+      computeDiffStats(issue);
+    }
   }
 }
 

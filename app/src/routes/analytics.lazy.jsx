@@ -1,7 +1,7 @@
 import { createLazyFileRoute } from "@tanstack/react-router";
 import { useTokenAnalytics, useCodeChurnAnalytics, useKpiAnalytics } from "../hooks.js";
 import { fillDailyGaps } from "../utils.js";
-import { Zap, TrendingUp, Layers, Cpu, Clock, Activity, GitMerge, Timer, GitPullRequest } from "lucide-react";
+import { Zap, TrendingUp, Layers, Cpu, Clock, Activity, GitMerge, Timer, GitPullRequestArrow } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
 
 // ── Format helpers ───────────────────────────────────────────────────────
@@ -742,7 +742,7 @@ function AnalyticsPage() {
               formatValue={fmtDays}
             />
             <KpiCard
-              icon={GitPullRequest}
+              icon={GitPullRequestArrow}
               iconClass="text-secondary"
               title="PR Cycle Time"
               avg={kpis?.prCycleTimeDays?.avg ?? null}
