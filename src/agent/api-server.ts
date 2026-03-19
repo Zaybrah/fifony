@@ -31,6 +31,7 @@ import { registerSettingsRoutes } from "./api-routes/settings.js";
 import { registerAnalyticsRoutes } from "./api-routes/analytics.js";
 import { registerScanningRoutes } from "./api-routes/scanning.js";
 import { registerCatalogRoutes } from "./api-routes/catalog.js";
+import { registerReferenceRepositoryRoutes } from "./api-routes/reference-repositories.js";
 import { registerMiscRoutes } from "./api-routes/misc.js";
 
 // ── Route collector ──────────────────────────────────────────────────────────
@@ -120,6 +121,7 @@ export async function startApiServer(
   registerAnalyticsRoutes(collector);
   registerScanningRoutes(collector, state);
   registerCatalogRoutes(collector);
+  registerReferenceRepositoryRoutes(collector);
   registerMiscRoutes(collector, state);
 
   const apiPlugin = new ApiPlugin({

@@ -48,8 +48,8 @@
     "node": ">=23"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.91.0",
-    "@tanstack/react-router": "^1.167.4",
+    "@tanstack/react-query": "^5.91.2",
+    "@tanstack/react-router": "^1.167.5",
     "cli-args-parser": "^1.0.6",
     "lucide-react": "^0.577.0",
     "node-cron": "^4.2.1",
@@ -59,18 +59,18 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recker": "^1.0.86",
-    "s3db.js": "21.2.11",
+    "s3db.js": "21.3.2",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
-    "@tanstack/router-plugin": "^1.166.13",
+    "@tanstack/router-plugin": "^1.166.14",
     "@vitejs/plugin-react": "^6.0.1",
     "daisyui": "^5.5.19",
     "tailwindcss": "^4.2.2",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vite": "^8.0.0"
+    "vite": "^8.0.1"
   }
 }

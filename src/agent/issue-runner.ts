@@ -14,7 +14,7 @@ import type {
 import { SOURCE_ROOT, TARGET_ROOT, WORKSPACE_ROOT } from "./constants.ts";
 import { now, idToSafePath } from "./helpers.ts";
 import { logger } from "./logger.ts";
-import { markIssueDirty } from "./dirty-tracker.ts";
+import { markIssueDirty, markIssuePlanDirty } from "./dirty-tracker.ts";
 import { getEffectiveAgentProviders } from "./providers.ts";
 import { addEvent, transitionIssueState, computeMetrics, getNextRetryAt } from "./issues.ts";
 import { compileReview, buildExecutionAudit, persistExecutionAudit } from "./adapters/index.ts";
@@ -60,6 +60,7 @@ export async function runPlanningJob(
     );
 
     issue.plan = plan;
+    markIssuePlanDirty(issue.id);
     issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
 
     // Apply plan suggestions (paths, labels, effort)

@@ -9,7 +9,7 @@ import {
 // ── Source tab config ────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "todos", label: "TODOs & FIXMEs", icon: FileCode },
+  { id: "all", label: "TODOs & FIXMEs", icon: FileCode },
   { id: "github", label: "GitHub Issues", icon: Github },
 ];
 
@@ -89,7 +89,7 @@ function DiscoveredIssueCard({ item, selected, onToggle, onCreateSingle, creatin
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export default function DiscoveredIssuesView({ embedded = false, onBack }) {
-  const [activeTab, setActiveTab] = useState("todos");
+  const [activeTab, setActiveTab] = useState("all");
   const [todoItems, setTodoItems] = useState([]);
   const [githubItems, setGithubItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -101,7 +101,7 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
 
   const ctx = embedded ? null : useDashboard();
 
-  const items = activeTab === "todos" ? todoItems : githubItems;
+  const items = activeTab === "all" ? todoItems : githubItems;
   const filtered = searchQuery.trim()
     ? items.filter((item) =>
         item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -115,10 +115,10 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
     setLoading(true);
     setError(null);
     try {
-      const endpoint = tab === "todos" ? "/scan/issues" : "/scan/github-issues";
+      const endpoint = tab === "all" ? "/scan/issues" : "/scan/github-issues";
       const data = await api.get(endpoint);
       const issues = data.issues || [];
-      if (tab === "todos") setTodoItems(issues);
+      if (tab === "all") setTodoItems(issues);
       else setGithubItems(issues);
     } catch (err) {
       setError(err.message || "Failed to scan");
@@ -128,7 +128,7 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
   }, []);
 
   useEffect(() => {
-    const current = activeTab === "todos" ? todoItems : githubItems;
+    const current = activeTab === "all" ? todoItems : githubItems;
     if (current.length === 0) {
       fetchTab(activeTab);
     }
@@ -177,7 +177,7 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
         return next;
       });
       // Remove from list
-      if (activeTab === "todos") {
+      if (activeTab === "all") {
         setTodoItems((prev) => prev.filter((i) => itemKey(i) !== key));
       } else {
         setGithubItems((prev) => prev.filter((i) => itemKey(i) !== key));
@@ -209,7 +209,7 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
 
     // Remove created items from list
     const createdKeys = new Set(selectedItems.map(itemKey));
-    if (activeTab === "todos") {
+    if (activeTab === "all") {
       setTodoItems((prev) => prev.filter((i) => !createdKeys.has(itemKey(i))));
     } else {
       setGithubItems((prev) => prev.filter((i) => !createdKeys.has(itemKey(i))));
@@ -250,7 +250,7 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
         <div role="tablist" className="tabs tabs-boxed tabs-sm flex-1">
           {TABS.map((tab) => {
             const Icon = tab.icon;
-            const count = tab.id === "todos" ? todoItems.length : githubItems.length;
+            const count = tab.id === "all" ? todoItems.length : githubItems.length;
             return (
               <button
                 key={tab.id}
@@ -320,7 +320,7 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader2 className="size-8 animate-spin text-primary" />
           <p className="text-sm text-base-content/50">
-            {activeTab === "todos" ? "Scanning codebase for TODOs..." : "Fetching GitHub issues..."}
+            {activeTab === "all" ? "Scanning codebase for TODOs..." : "Fetching GitHub issues..."}
           </p>
         </div>
       ) : error ? (
@@ -333,14 +333,14 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-2 opacity-50">
-          {activeTab === "todos" ? (
+          {activeTab === "all" ? (
             <FileCode className="size-10" />
           ) : (
             <Github className="size-10" />
           )}
           <p className="text-sm">
             {items.length === 0
-              ? activeTab === "todos"
+              ? activeTab === "all"
                 ? "No TODOs or FIXMEs found in your codebase"
                 : "No open GitHub issues found"
               : "No items match your search"
@@ -373,31 +373,31 @@ export default function DiscoveredIssuesView({ embedded = false, onBack }) {
 export function DiscoveredIssuesOnboarding({ onIssuesCreated }) {
   const [todoItems, setTodoItems] = useState([]);
   const [githubItems, setGithubItems] = useState([]);
-  const [activeTab, setActiveTab] = useState("todos");
+  const [activeTab, setActiveTab] = useState("all");
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [creating, setCreating] = useState(false);
   const [createdCount, setCreatedCount] = useState(0);
 
-  const items = activeTab === "todos" ? todoItems : githubItems;
+  const items = activeTab === "all" ? todoItems : githubItems;
 
   const fetchTab = useCallback(async (tab) => {
     setLoading(true);
     try {
-      const endpoint = tab === "todos" ? "/scan/issues" : "/scan/github-issues";
+      const endpoint = tab === "all" ? "/scan/issues" : "/scan/github-issues";
       const data = await api.get(endpoint);
-      if (tab === "todos") setTodoItems(data.issues || []);
+      if (tab === "all") setTodoItems(data.issues || []);
       else setGithubItems(data.issues || []);
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
-    fetchTab("todos");
+    fetchTab("all");
   }, []);
 
   useEffect(() => {
-    const current = activeTab === "todos" ? todoItems : githubItems;
+    const current = activeTab === "all" ? todoItems : githubItems;
     if (current.length === 0 && activeTab === "github") fetchTab("github");
   }, [activeTab]);
 
@@ -432,7 +432,7 @@ export function DiscoveredIssuesOnboarding({ onIssuesCreated }) {
     }
 
     const createdKeys = new Set(selectedItems.map(itemKey));
-    if (activeTab === "todos") {
+    if (activeTab === "all") {
       setTodoItems((prev) => prev.filter((i) => !createdKeys.has(itemKey(i))));
     } else {
       setGithubItems((prev) => prev.filter((i) => !createdKeys.has(itemKey(i))));
@@ -457,7 +457,7 @@ export function DiscoveredIssuesOnboarding({ onIssuesCreated }) {
       <div role="tablist" className="tabs tabs-boxed tabs-sm justify-center">
         {TABS.map((tab) => {
           const Icon = tab.icon;
-          const count = tab.id === "todos" ? todoItems.length : githubItems.length;
+          const count = tab.id === "all" ? todoItems.length : githubItems.length;
           return (
             <button
               key={tab.id}
@@ -481,7 +481,7 @@ export function DiscoveredIssuesOnboarding({ onIssuesCreated }) {
       ) : items.length === 0 ? (
         <div className="text-center py-8 opacity-50">
           <p className="text-sm">
-            {activeTab === "todos"
+            {activeTab === "all"
               ? "No TODOs or FIXMEs found"
               : "No open GitHub issues found"}
           </p>

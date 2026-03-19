@@ -175,8 +175,8 @@ export function PreviewModal({ issue, onClose }) {
             <div className="alert alert-info text-xs py-2 gap-1.5">
               <FlaskConical className="size-3.5 shrink-0" />
               <span>
-                Squash aplicado no seu workspace — seu servidor recompilou com as mudanças.
-                Teste, depois aprove ou reverta.
+                Squash test applied to your workspace — your server rebuilt with the changes.
+                Review then accept or revert it.
               </span>
             </div>
           )}
@@ -234,19 +234,19 @@ export function PreviewModal({ issue, onClose }) {
             {showCmds && (
               <div className="px-3 pb-3 space-y-2 border-t border-base-300 pt-2">
                 <div className="space-y-1">
-                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Inspecionar sem aplicar</div>
+                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Inspect only</div>
                   <CmdLine cmd={cmdInspect} />
                 </div>
                 <div className="space-y-1">
-                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Testar com hot reload (sem commit)</div>
+                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Test with hot reload (no commit)</div>
                   <CmdLine cmd={cmdTest} />
                 </div>
                 <div className="space-y-1">
-                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Reverter o teste</div>
+                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Revert test</div>
                   <CmdLine cmd={cmdRevert} />
                 </div>
                 <div className="space-y-1">
-                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Aceitar manualmente</div>
+                  <div className="text-[10px] opacity-50 uppercase tracking-wide">Accept manually</div>
                   <CmdLine cmd={cmdAccept} />
                 </div>
               </div>
@@ -265,14 +265,14 @@ export function PreviewModal({ issue, onClose }) {
             <div className="border border-base-300 rounded-box p-4 space-y-3 bg-base-200">
               {confirming === "merge" ? (
                 <p className="text-sm">
-                  Você está prestes a mergear em{" "}
+                  You are about to merge into{" "}
                   <span className="font-mono font-semibold">{baseBranch}</span>.
-                  O worktree e a branch serão removidos após o merge.
+                  The worktree and branch will be removed after merge.
                 </p>
               ) : (
                 <p className="text-sm">
-                  Você está prestes a descartar todas as mudanças desta issue.
-                  O worktree e a branch serão removidos permanentemente.
+                  You are about to discard all changes from this issue.
+                  The worktree and branch will be removed permanently.
                 </p>
               )}
               <div className="flex items-center gap-2">
@@ -281,7 +281,7 @@ export function PreviewModal({ issue, onClose }) {
                   onClick={() => setConfirming(null)}
                   disabled={actionBusy}
                 >
-                  Cancelar
+                  Cancel
                 </button>
                 <button
                   className={`btn btn-sm flex-1 ${confirming === "merge" ? "btn-success" : "btn-error"}`}
@@ -291,8 +291,8 @@ export function PreviewModal({ issue, onClose }) {
                   {actionBusy
                     ? <Loader className="size-4 animate-spin" />
                     : confirming === "merge"
-                      ? "Confirmar Merge"
-                      : "Confirmar Rollback"
+                      ? "Confirm merge"
+                      : "Confirm rollback"
                   }
                 </button>
               </div>
@@ -303,14 +303,14 @@ export function PreviewModal({ issue, onClose }) {
         {/* Footer actions */}
         {!confirming && (
           <div className="px-5 py-4 border-t border-base-300 shrink-0 space-y-2">
-            {/* Test Live row */}
-            {!tested ? (
-              <button
-                className="btn btn-sm btn-info btn-soft gap-1.5 w-full"
-                onClick={handleTryLive}
-                disabled={actionBusy || !issue.branchName}
-                title="Aplica git merge --squash no seu workspace para testar com hot reload, sem compromisso"
-              >
+              {/* Test Live row */}
+              {!tested ? (
+                <button
+                  className="btn btn-sm btn-info btn-soft gap-1.5 w-full"
+                  onClick={handleTryLive}
+                  disabled={actionBusy || !issue.branchName}
+                  title="Run git merge --squash on your workspace to test with hot reload without committing"
+                >
                 {actionBusy ? <Loader className="size-3.5 animate-spin" /> : <FlaskConical className="size-3.5" />}
                 Test Live
               </button>

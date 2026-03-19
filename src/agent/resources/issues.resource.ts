@@ -3,7 +3,7 @@ import type { JsonRecord, RuntimeState } from "../types.ts";
 import { TERMINAL_STATES } from "../constants.ts";
 import { loadAgentPipelineSnapshotForIssue, loadAgentSessionSnapshotsForIssue } from "../agent.ts";
 import { getApiRuntimeContextOrThrow } from "../api-runtime-context.ts";
-import { persistState } from "../store.ts";
+import { persistState, markIssuePlanDirty } from "../store.ts";
 import { getEffectiveAgentProviders } from "../providers.ts";
 import { addEvent, createIssueFromPayload, handleStatePatch, transitionIssueState } from "../issues.ts";
 import { now } from "../helpers.ts";
@@ -113,6 +113,7 @@ async function createIssue(c: unknown) {
     const payload = await (c as { req: { json: () => Promise<unknown> } }).req.json() as JsonRecord;
     const issue = createIssueFromPayload(payload, context.state.issues, context.state.config.defaultBranch);
     context.state.issues.push(issue);
+    if (issue.plan) markIssuePlanDirty(issue.id);
     addEvent(context.state, issue.id, "info", `Issue ${issue.identifier} created via API.`);
     await persistState(context.state);
     return { body: { ok: true, issue } };

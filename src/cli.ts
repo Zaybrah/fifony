@@ -5,6 +5,15 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { createCLI, type CommandParseResult } from "cli-args-parser";
+import {
+  getReferenceRepositoriesRoot,
+  importReferenceArtifacts,
+  listReferenceRepositories,
+  syncReferenceRepositories,
+  type ReferenceImportSummary,
+  type ReferenceImportKind,
+  type ReferenceSyncResult,
+} from "./reference-repositories.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -70,18 +79,166 @@ const commonOptions = {
   },
 } as const;
 
-function getStringOption(result: CommandParseResult, key: keyof typeof commonOptions): string | undefined {
+function getStringOption(result: CommandParseResult, key: string): string | undefined {
   const value = result.options[key];
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function getNumberOption(result: CommandParseResult, key: keyof typeof commonOptions): number | undefined {
+function getNumberOption(result: CommandParseResult, key: string): number | undefined {
   const value = result.options[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function getBooleanOption(result: CommandParseResult, key: keyof typeof commonOptions): boolean {
+function getBooleanOption(result: CommandParseResult, key: string): boolean {
   return result.options[key] === true;
+}
+
+function parseReferenceKind(value: unknown): ReferenceImportKind {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "all";
+  if (normalized === "all") return "all";
+  if (normalized === "agents" || normalized === "agent") return "agents";
+  if (normalized === "skills" || normalized === "skill") return "skills";
+  throw new Error(`Invalid kind: ${normalized}. Expected all, agents, or skills.`);
+}
+
+function getWorkspaceRoot(result: CommandParseResult): string {
+  const workspace = getStringOption(result, "workspace");
+  return resolve(workspace ?? env.FIFONY_WORKSPACE_ROOT ?? cwd());
+}
+
+async function runOnboardingList(): Promise<void> {
+  const root = getReferenceRepositoriesRoot();
+  const repositories = listReferenceRepositories();
+
+  console.log("Reference repositories:");
+  console.log(`Storage: ${root}`);
+  console.log("");
+
+  for (const repository of repositories) {
+    const status = repository.synced
+      ? repository.branch
+        ? `synced (${repository.branch})`
+        : "synced"
+      : repository.present
+        ? `present — ${repository.error ?? "not synced"}`
+        : "not found";
+
+    console.log(`- ${repository.id}`);
+    console.log(`  name: ${repository.name}`);
+    console.log(`  url:  ${repository.url}`);
+    console.log(`  path: ${repository.path}`);
+    console.log(`  status: ${status}`);
+    if (repository.remote) {
+      console.log(`  remote: ${repository.remote}`);
+    }
+    console.log("");
+  }
+}
+
+async function runOnboardingSync(result: CommandParseResult): Promise<void> {
+  const repositoryFilter = getStringOption(result, "repository");
+  let syncTarget: ReferenceSyncResult[];
+  try {
+    syncTarget = repositoryFilter
+      ? syncReferenceRepositories(repositoryFilter)
+      : syncReferenceRepositories();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    exit(1);
+    return;
+  }
+
+  const succeeded: ReferenceSyncResult[] = [];
+  const failed: ReferenceSyncResult[] = [];
+
+  for (const item of syncTarget) {
+    if (item.action === "failed") {
+      failed.push(item);
+    } else {
+      succeeded.push(item);
+    }
+
+    if (item.action === "failed") {
+      console.log(`✗ ${item.id}: ${item.message}`);
+    } else if (item.action === "cloned") {
+      console.log(`+ ${item.id}: ${item.message}`);
+    } else {
+      console.log(`↻ ${item.id}: ${item.message}`);
+    }
+  }
+
+  if (failed.length > 0) {
+    console.log("");
+    console.log(`${succeeded.length} repository(ies) synced, ${failed.length} failed.`);
+    console.log("Run onboarding sync with a direct repository to retry failed items.");
+    exit(1);
+  }
+
+  console.log("");
+  console.log(`Done: ${succeeded.length} repository(ies) synced.`);
+}
+
+async function runOnboardingImport(result: CommandParseResult): Promise<void> {
+  const repository = typeof result.positional?.repository === "string" ? result.positional.repository : "";
+  let kind: ReferenceImportKind;
+  try {
+    kind = parseReferenceKind(result.options.kind);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    exit(1);
+    return;
+  }
+  const overwrite = getBooleanOption(result, "overwrite");
+  const dryRun = getBooleanOption(result, "dryRun");
+  const importToGlobal = getBooleanOption(result, "global");
+  const workspaceRoot = getWorkspaceRoot(result);
+
+  if (!repository) {
+    console.error("Repository argument is required.");
+    exit(1);
+  }
+
+  let summary: ReferenceImportSummary;
+  try {
+    summary = importReferenceArtifacts(repository, workspaceRoot, {
+      kind,
+      overwrite,
+      dryRun,
+      importToGlobal,
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    exit(1);
+    return;
+  }
+
+  const targetLabel = importToGlobal ? "global ~/.codex" : `${workspaceRoot}/.codex`;
+
+  if (dryRun) {
+    console.log(`Dry run active. No files were written.`);
+  }
+  console.log(`Reference repository: ${summary.repositoryId}`);
+  console.log(`Source: ${summary.localPath}`);
+  console.log(`Target: ${targetLabel}`);
+  console.log(`Kind: ${summary.requestedKind}`);
+  console.log(`Imported agents: ${summary.importedAgents.length}`);
+  console.log(`Imported skills: ${summary.importedSkills.length}`);
+  console.log(`Skipped agents: ${summary.skippedAgents.length}`);
+  console.log(`Skipped skills: ${summary.skippedSkills.length}`);
+
+  if (summary.errors.length > 0) {
+    console.log("");
+    console.log("Errors:");
+    for (const item of summary.errors) {
+      console.log(`- ${item.kind}/${item.targetName}: ${item.error}`);
+    }
+    exit(1);
+  }
+
+  if (summary.importedAgents.length + summary.importedSkills.length === 0) {
+    console.log("Nothing to import. Run onboarding sync first if the repository was not downloaded.");
+    return;
+  }
 }
 
 function buildRuntimeArgs(result: CommandParseResult): string[] {
@@ -208,6 +365,60 @@ const cli = createCLI({
       description: "Run a Fifony MCP server over stdio with resources, tools, and prompts backed by the local durable store.",
       options: commonOptions,
       handler: (result) => runMcpServer(result),
+    },
+    onboarding: {
+      description: "Manage reference repositories and import agents/skills from them.",
+      aliases: ["onboard"],
+      commands: {
+        list: {
+          description: "List reference repositories and local sync status.",
+          handler: () => runOnboardingList(),
+        },
+        sync: {
+          description: "Clone/update reference repositories into ~/.fifony/repositories.",
+          options: {
+            repository: {
+              short: "r",
+              type: "string",
+              description: "Sync only this repository by id or URL.",
+            },
+          },
+          handler: (result) => runOnboardingSync(result),
+        },
+        import: {
+          description: "Import agents/skills from a synced reference repository.",
+          aliases: ["integrate"],
+          positional: [
+            {
+              name: "repository",
+              type: "string",
+              required: true,
+              description: "Repository id or URL",
+            },
+          ],
+          options: {
+            kind: {
+              short: "k",
+              type: "string",
+              default: "all",
+              description: "What to import: agents, skills, or all (default: all).",
+            },
+            overwrite: {
+              type: "boolean",
+              description: "Overwrite existing local files.",
+            },
+            dryRun: {
+              type: "boolean",
+              description: "Show what would be imported without writing files.",
+            },
+            global: {
+              type: "boolean",
+              description: "Import into ~/.codex instead of workspace .codex.",
+            },
+          },
+          handler: (result) => runOnboardingImport(result),
+        },
+      },
     },
   },
 });

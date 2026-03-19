@@ -61,6 +61,7 @@ export const S3DB_KEY_PREFIX = env.FIFONY_STORAGE_KEY_PREFIX ?? "state";
 
 export const S3DB_RUNTIME_RESOURCE = "runtime_state";
 export const S3DB_ISSUE_RESOURCE = "issues";
+export const S3DB_ISSUE_PLAN_RESOURCE = "issue_plans";
 export const S3DB_EVENT_RESOURCE = "events";
 export const S3DB_SETTINGS_RESOURCE = "settings";
 export const S3DB_AGENT_SESSION_RESOURCE = "agent_sessions";

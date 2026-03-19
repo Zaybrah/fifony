@@ -18,7 +18,7 @@ function WizardNavFooter({ step, stepCount, stepName, canProceed, launching, onB
           onClick={onNext}
           disabled={!canProceed}
         >
-          {stepName === "Discover Issues" ? "Continue" : "Next"} <ChevronRight className="size-4" />
+          Next <ChevronRight className="size-4" />
         </button>
       ) : (
         <button

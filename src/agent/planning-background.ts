@@ -1,6 +1,7 @@
 import type { IssuePlan, RuntimeConfig, IssueEntry } from "./types.ts";
 import { now } from "./helpers.ts";
 import { logger } from "./logger.ts";
+import { markIssuePlanDirty } from "./dirty-tracker.ts";
 import { type PlanningSessionUsage } from "./planning-session.ts";
 import { generatePlan } from "./plan-generator.ts";
 import { refinePlan } from "./plan-refiner.ts";
@@ -39,6 +40,7 @@ export function generatePlanInBackground(
   generatePlan(issue.title, issue.description, config, null, { fast })
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
+      markIssuePlanDirty(issue.id);
       issue.planningStatus = "idle";
       issue.planningStartedAt = undefined;
       issue.planningError = undefined;
@@ -88,6 +90,7 @@ export function refinePlanInBackground(
   refinePlan(issue, feedback, config, null)
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
+      markIssuePlanDirty(issue.id);
       issue.planningStatus = "idle";
       issue.planningStartedAt = undefined;
       issue.planningError = undefined;

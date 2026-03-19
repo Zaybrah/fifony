@@ -270,6 +270,38 @@ export function registerMiscRoutes(
     }
   });
 
+  app.get("/api/git/status", async (c: any) => {
+    try {
+      const isGit = (() => {
+        try { execSync("git rev-parse --git-dir", { cwd: TARGET_ROOT, stdio: "pipe" }); return true; } catch { return false; }
+      })();
+      if (!isGit) return c.json({ isGit: false, branch: null, hasCommits: false });
+      const branch = (() => {
+        try { return execSync("git rev-parse --abbrev-ref HEAD", { cwd: TARGET_ROOT, encoding: "utf8", stdio: "pipe" }).trim(); } catch { return null; }
+      })();
+      const hasCommits = (() => {
+        try { execSync("git rev-parse HEAD", { cwd: TARGET_ROOT, stdio: "pipe" }); return true; } catch { return false; }
+      })();
+      return c.json({ isGit: true, branch, hasCommits });
+    } catch (error) {
+      return c.json({ ok: false, error: String(error) }, 500);
+    }
+  });
+
+  app.post("/api/git/init", async (c: any) => {
+    try {
+      execSync("git init", { cwd: TARGET_ROOT, stdio: "pipe" });
+      // Create an empty initial commit so HEAD exists and branching works normally
+      execSync('git commit --allow-empty -m "Initial commit"', { cwd: TARGET_ROOT, stdio: "pipe" });
+      const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: TARGET_ROOT, encoding: "utf8", stdio: "pipe" }).trim();
+      state.config.defaultBranch = branch;
+      await persistState(state);
+      return c.json({ ok: true, branch });
+    } catch (error) {
+      return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   app.post("/api/git/branch", async (c: any) => {
     try {
       const { branchName } = await c.req.json() as { branchName?: string };

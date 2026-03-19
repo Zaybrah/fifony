@@ -76,9 +76,9 @@ export function ExecutionTab({ issue, workflowConfig }) {
         <div className="space-y-0.5">
           <Field label="Exit code" value={issue.commandExitCode ?? "-"} mono />
           <Field label="Duration" value={formatDuration(issue.durationMs)} />
-          {issue.workspacePath && <Field label="Workspace meta" value={issue.workspacePath} mono />}
-          {issue.worktreePath && <Field label="Code worktree" value={issue.worktreePath} mono />}
-          {issue.workspacePreparedAt && <Field label="Workspace ready" value={formatDate(issue.workspacePreparedAt)} />}
+          {issue.workspacePath && <Field label="Issue workspace root" value={issue.workspacePath} mono />}
+          {issue.worktreePath && <Field label="Issue code checkout" value={issue.worktreePath} mono />}
+          {issue.workspacePreparedAt && <Field label="Workspace prepared at" value={formatDate(issue.workspacePreparedAt)} />}
         </div>
       </Section>
 

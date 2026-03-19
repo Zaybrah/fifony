@@ -319,6 +319,19 @@ function validateAnalysis(parsed: Record<string, unknown>): ProjectAnalysis | nu
   };
 }
 
+function isBlockedProjectAnalysisResponse(analysis: ProjectAnalysis): boolean {
+  const normalized = `${analysis.description || ""}`.toLowerCase();
+  const indicators = [
+    "could not inspect the repository files",
+    "local command execution is blocked",
+    "please provide access",
+    "paste the key files",
+    "failed to inspect",
+    "unable to access the repository",
+  ];
+  return indicators.some((indicator) => normalized.includes(indicator));
+}
+
 // ── Analysis cache ────────────────────────────────────────────────────────────
 
 import { createHash } from "node:crypto";
@@ -474,7 +487,7 @@ export async function analyzeProjectWithCli(
     });
 
     const analysis = parseAnalysisOutput(output);
-    if (analysis) {
+    if (analysis && !isBlockedProjectAnalysisResponse(analysis)) {
       logger.info(
         { provider: normalizedProvider, domains: analysis.domains, stack: analysis.stack },
         "CLI project analysis completed",
@@ -484,10 +497,17 @@ export async function analyzeProjectWithCli(
       return analysis;
     }
 
-    logger.warn(
-      { provider: normalizedProvider, rawOutput: output.slice(0, 500) },
-      "CLI returned unparseable output, using fallback",
-    );
+    if (!analysis) {
+      logger.warn(
+        { provider: normalizedProvider, rawOutput: output.slice(0, 500) },
+        "CLI returned unparseable output, using fallback",
+      );
+    } else {
+      logger.warn(
+        { provider: normalizedProvider, blockedAnalysis: analysis.description },
+        "CLI analysis returned blocked/insufficient context response, using fallback",
+      );
+    }
     return buildFallbackAnalysis(targetRoot);
   } catch (error) {
     logger.warn(

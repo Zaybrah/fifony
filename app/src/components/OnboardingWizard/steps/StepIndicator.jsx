@@ -1,7 +1,7 @@
 import { getStepperLabels } from "../constants";
 
-function StepIndicator({ current, wantsDiscovery }) {
-  const labels = getStepperLabels(wantsDiscovery);
+function StepIndicator({ current }) {
+  const labels = getStepperLabels();
   // current is 1-based from the wizard because the welcome screen is hidden from the stepper
   const stepperIndex = current - 1;
   return (

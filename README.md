@@ -146,6 +146,13 @@ npx -y fifony --once
 
 # Fine-grained control
 npx -y fifony --concurrency 2 --attempts 3 --poll 500
+
+# Onboarding reference repositories
+fifony onboarding list
+fifony onboarding sync
+fifony onboarding sync --repository ring
+fifony onboarding import ring --kind skills
+fifony onboarding import agency-agents --kind agents --overwrite
 ```
 
 ---

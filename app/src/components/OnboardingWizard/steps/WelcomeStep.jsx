@@ -10,12 +10,12 @@ function WelcomeStep({ workspacePath, onGetStarted }) {
         Welcome to <span className="text-primary">fifony</span>
       </h1>
       <p className="text-base-content/60 text-lg max-w-md">
-        Let's set up your AI orchestration workspace in just a few steps.
+        Let's set up your AI orchestration project in just a few steps.
       </p>
       {workspacePath && (
         <div className="badge badge-lg badge-soft badge-primary gap-2">
           <Sparkles className="size-3.5" />
-          {workspacePath}
+          Project target: {workspacePath}
         </div>
       )}
       <button

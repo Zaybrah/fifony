@@ -144,29 +144,29 @@ export function PlanningTab({ issue, onStateChange, workflowConfig }) {
       return (
         <div className="space-y-4 py-4">
           {isPendingScheduler && (
-            <div className="flex flex-col items-center justify-center gap-4 py-10">
-              <div className="flex items-center gap-2">
-                <span className="loading loading-dots loading-sm text-info" />
-                <span className="text-sm opacity-60">Na fila — aguardando worker de planejamento...</span>
+              <div className="flex flex-col items-center justify-center gap-4 py-10">
+                <div className="flex items-center gap-2">
+                  <span className="loading loading-dots loading-sm text-info" />
+                  <span className="text-sm opacity-60">Queued — waiting for the planner worker...</span>
+                </div>
+                <div className="text-xs opacity-30">The plan will be generated automatically shortly.</div>
+                <div className="flex items-center gap-2 mt-2">
+                  <button className="btn btn-ghost btn-xs gap-1 opacity-50 hover:opacity-100" onClick={() => handleGenerate(false)}>
+                  <Zap className="size-3" /> Generate now
+                  </button>
+                </div>
               </div>
-              <div className="text-xs opacity-30">O plano será gerado em breve automaticamente</div>
-              <div className="flex items-center gap-2 mt-2">
-                <button className="btn btn-ghost btn-xs gap-1 opacity-50 hover:opacity-100" onClick={() => handleGenerate(false)}>
-                  <Zap className="size-3" /> Gerar agora
-                </button>
-              </div>
-            </div>
-          )}
-          {displayError && (
-            <div className="space-y-3">
-              <div className="alert alert-error text-sm flex-col items-start gap-1">
-                <div className="font-medium flex items-center gap-1.5"><AlertTriangle className="size-4" /> Falha na geração do plano</div>
-                <div className="text-xs opacity-80">{displayError}</div>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button className="btn btn-primary btn-sm gap-1.5" onClick={() => handleGenerate(false)}>
-                  <RotateCcw className="size-3.5" /> Tentar novamente
-                </button>
+            )}
+            {displayError && (
+              <div className="space-y-3">
+                <div className="alert alert-error text-sm flex-col items-start gap-1">
+                  <div className="font-medium flex items-center gap-1.5"><AlertTriangle className="size-4" /> Plan generation failed</div>
+                  <div className="text-xs opacity-80">{displayError}</div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button className="btn btn-primary btn-sm gap-1.5" onClick={() => handleGenerate(false)}>
+                  <RotateCcw className="size-3.5" /> Try again
+                  </button>
                 <button className="btn btn-ghost btn-sm gap-1" onClick={() => handleGenerate(true)}>
                   <Zap className="size-3.5" /> Fast
                 </button>

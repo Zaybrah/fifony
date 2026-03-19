@@ -1,5 +1,5 @@
 import { env } from "node:process";
-import { markIssueDirty, markEventDirty } from "./dirty-tracker.ts";
+import { markIssueDirty, markIssuePlanDirty, markEventDirty } from "./dirty-tracker.ts";
 import { recordEvent as recordLedgerEvent } from "./token-ledger.ts";
 import { invalidateMetrics } from "./metrics-cache.ts";
 import type {
@@ -719,6 +719,7 @@ export function triggerReplan(issue: IssueEntry): void {
     if (!Array.isArray(issue.planHistory)) issue.planHistory = [];
     issue.planHistory.push(issue.plan);
     issue.plan = undefined;
+    markIssuePlanDirty(issue.id);
   }
   issue.planVersion = (issue.planVersion ?? 0) + 1;
   issue.executeAttempt = 0;

@@ -84,7 +84,7 @@ function ProjectStep({
 
           {workspacePath && (
             <div className="text-xs text-base-content/50 break-all">
-              Workspace: {workspacePath}
+              Target repository: {workspacePath}
             </div>
           )}
 

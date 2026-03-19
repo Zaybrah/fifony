@@ -34,6 +34,7 @@ let loadedS3dbModule: S3dbModule | null = null;
 let stateDb: S3dbDatabase | null = null;
 let runtimeStateResource: S3dbResource | null = null;
 let issueStateResource: S3dbResource | null = null;
+let issuePlanResource: S3dbResource | null = null;
 let eventStateResource: S3dbResource | null = null;
 let settingStateResource: S3dbResource | null = null;
 let agentSessionResource: S3dbResource | null = null;
@@ -44,19 +45,24 @@ let activeEcPlugin: S3dbModule["EventualConsistencyPlugin"] extends new (...a: n
 
 import {
   markIssueDirty,
+  markIssuePlanDirty,
   markEventDirty,
   hasDirtyState,
   getDirtyIssueIds,
+  getDirtyIssuePlanIds,
   getDirtyEventIds,
   clearDirtyIssueIds,
+  clearDirtyIssuePlanIds,
   clearDirtyEventIds,
   markAllIssuesDirty,
+  markAllIssuePlansDirty,
   markAllEventsDirty,
 } from "./dirty-tracker.ts";
 
-export { markIssueDirty, markEventDirty, hasDirtyState };
+export { markIssueDirty, markIssuePlanDirty, markEventDirty, hasDirtyState };
 
 export function getStateDb(): S3dbDatabase | null { return stateDb; }
+export function getIssuePlanResource(): S3dbResource | null { return issuePlanResource; }
 export function getEventStateResource(): S3dbResource | null { return eventStateResource; }
 export function getSettingStateResource(): S3dbResource | null { return settingStateResource; }
 export function getAgentSessionResource(): S3dbResource | null { return agentSessionResource; }
@@ -210,6 +216,7 @@ export async function initStateStore(): Promise<void> {
   const [
     runtimeStateResourceName,
     issueResourceName,
+    issuePlanResourceName,
     eventResourceName,
     settingResourceName,
     agentSessionResourceName,
@@ -217,6 +224,7 @@ export async function initStateStore(): Promise<void> {
   ] = NATIVE_RESOURCE_NAMES;
   runtimeStateResource = await stateDb.getResource(runtimeStateResourceName);
   issueStateResource = await stateDb.getResource(issueResourceName);
+  issuePlanResource = await stateDb.getResource(issuePlanResourceName);
   eventStateResource = await stateDb.getResource(eventResourceName);
   settingStateResource = await stateDb.getResource(settingResourceName);
   agentSessionResource = await stateDb.getResource(agentSessionResourceName);
@@ -276,6 +284,18 @@ async function recoverStateFromIssueResource(): Promise<RuntimeState | null> {
 
     logger.info(`Recovered ${issues.length} issue(s) from s3db issue resource.`);
 
+    if (issuePlanResource) {
+      for (const issue of issues) {
+        try {
+          const planRecord = await issuePlanResource.get(issue.id) as Record<string, unknown> | null | undefined;
+          if (planRecord?.plan) issue.plan = planRecord.plan as IssueEntry["plan"];
+          if (planRecord?.planHistory) issue.planHistory = planRecord.planHistory as IssueEntry["planHistory"];
+        } catch {
+          // plan may not exist yet — ok
+        }
+      }
+    }
+
     return {
       startedAt: now(),
       updatedAt: now(),
@@ -326,8 +346,10 @@ export async function persistState(state: RuntimeState): Promise<void> {
     for (const issue of state.issues) {
       if (!dirtyIssues.has(issue.id)) continue;
       // s3db requires valid datetime or undefined — clean empty strings
+      // Exclude plan/planHistory — those live in issue_plans resource
+      const { plan: _plan, planHistory: _planHistory, ...issueCore } = issue;
       const clean = {
-        ...issue,
+        ...issueCore,
         nextRetryAt: issue.nextRetryAt || undefined,
         startedAt: issue.startedAt || undefined,
         completedAt: issue.completedAt || undefined,
@@ -335,12 +357,30 @@ export async function persistState(state: RuntimeState): Promise<void> {
         commandExitCode: typeof issue.commandExitCode === "number" ? issue.commandExitCode : undefined,
       };
       try {
-        await issueStateResource.replace(issue.id, clean satisfies IssueEntry);
+        await issueStateResource.replace(issue.id, clean);
       } catch (error) {
         logger.warn(`Failed to persist issue ${issue.id}: ${String(error)}`);
       }
     }
     clearDirtyIssueIds();
+  }
+
+  const dirtyIssuePlans = getDirtyIssuePlanIds();
+  if (issuePlanResource && dirtyIssuePlans.size > 0) {
+    for (const issue of state.issues) {
+      if (!dirtyIssuePlans.has(issue.id)) continue;
+      try {
+        await issuePlanResource.replace(issue.id, {
+          id: issue.id,
+          plan: issue.plan,
+          planHistory: issue.planHistory,
+          planVersion: issue.planVersion ?? 0,
+        });
+      } catch (error) {
+        logger.warn(`Failed to persist issue plan ${issue.id}: ${String(error)}`);
+      }
+    }
+    clearDirtyIssuePlanIds();
   }
 
   const dirtyEvents = getDirtyEventIds();
@@ -366,6 +406,7 @@ export async function persistState(state: RuntimeState): Promise<void> {
 /** Force persist all issues (used during boot and shutdown). */
 export async function persistStateFull(state: RuntimeState): Promise<void> {
   markAllIssuesDirty(state.issues.map((i) => i.id));
+  markAllIssuePlansDirty(state.issues.map((i) => i.id));
   markAllEventsDirty(state.events.map((e) => e.id));
   await persistState(state);
 }
@@ -521,6 +562,7 @@ export async function closeStateStore(): Promise<void> {
     stateDb = null;
     runtimeStateResource = null;
     issueStateResource = null;
+    issuePlanResource = null;
     eventStateResource = null;
     settingStateResource = null;
     agentSessionResource = null;
