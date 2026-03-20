@@ -10,7 +10,7 @@ Point at a repo. Open the dashboard. AI plans, builds, and reviews — you appro
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![Node](https://img.shields.io/badge/node-%3E%3D23-brightgreen.svg)]()
 
-<br clear="left" />
+<div style="clear:both"></div>
 
 ---
 
