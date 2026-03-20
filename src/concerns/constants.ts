@@ -2,12 +2,27 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { env, argv, cwd as getCwd } from "node:process";
 import { homedir } from "node:os";
+import { existsSync } from "node:fs";
 import type { IssueState } from "../types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const PACKAGE_ROOT = resolve(__dirname, "../..");
+// Walk up from the compiled chunk to find the package root (where package.json lives).
+// In dev: __dirname = src/concerns → ../../ = package root
+// In prod: __dirname = dist/ (chunk) or dist/agent (entry) → walk up until package.json
+function findPackageRoot(startDir: string): string {
+  let dir = startDir;
+  for (let i = 0; i < 5; i++) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(startDir, "../..");
+}
+
+export const PACKAGE_ROOT = findPackageRoot(__dirname);
 export const CLI_ARGS = argv.slice(2);
 
 function readArgValue(args: string[], flag: string): string | undefined {
