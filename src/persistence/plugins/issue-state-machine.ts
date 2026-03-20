@@ -63,6 +63,14 @@ function issueResource(machine: Machine) {
   return machine.database?.resources?.[S3DB_ISSUE_RESOURCE];
 }
 
+/** Shared stale-check condition for Running/Reviewing cron triggers. */
+const STALE_TIMEOUT_MS = 2_400_000; // 40 minutes
+async function isStaleIssue(context: Record<string, unknown>, _entityId: string): Promise<boolean> {
+  const issue = resolveIssue(context);
+  if (!issue) return false;
+  return Date.now() - Date.parse(issue.updatedAt) > STALE_TIMEOUT_MS;
+}
+
 // ── FSM config: states, transitions, guards, actions, triggers ──────────────
 
 export const issueStateMachineConfig = {
@@ -98,11 +106,7 @@ export const issueStateMachineConfig = {
             type: "cron" as const,
             cron: "*/10 * * * *",
             sendEvent: "BLOCK",
-            condition: async (context: Record<string, unknown>, _entityId: string) => {
-              const issue = resolveIssue(context);
-              if (!issue) return false;
-              return Date.now() - Date.parse(issue.updatedAt) > 2_400_000;
-            },
+            condition: isStaleIssue,
           }],
         },
         Reviewing: {
@@ -113,11 +117,7 @@ export const issueStateMachineConfig = {
             type: "cron" as const,
             cron: "*/10 * * * *",
             sendEvent: "BLOCK",
-            condition: async (context: Record<string, unknown>, _entityId: string) => {
-              const issue = resolveIssue(context);
-              if (!issue) return false;
-              return Date.now() - Date.parse(issue.updatedAt) > 2_400_000;
-            },
+            condition: isStaleIssue,
           }],
         },
         Reviewed: {

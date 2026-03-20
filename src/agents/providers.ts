@@ -1,6 +1,6 @@
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import type {
   AgentProviderDefinition,
@@ -141,36 +141,11 @@ export function invalidateProviderCache(): void {
   providersCachedAt = 0;
 }
 
-// ── Model discovery ─────────────────────────────────────────────────────────
+// ── Model discovery (delegated to model-discovery.ts) ────────────────────────
 
-export type DiscoveredModel = {
-  id: string;
-  provider: string;
-  label: string;
-  tier: string;
-};
+export type { DiscoveredModel } from "./model-discovery.ts";
+export { discoverModels } from "./model-discovery.ts";
 
-/** Cache: { models, fetchedAt } per provider */
-const modelCache = new Map<string, { models: DiscoveredModel[]; fetchedAt: number }>();
-const MODEL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-/**
- * Fetch models from the OpenAI /v1/models API.
- * Filters to models relevant for Codex CLI usage (chat/reasoning models).
- */
-/**
- * Read Codex CLI's own model list from ~/.codex/models_cache.json.
- *
- * The Codex CLI fetches and caches its supported models locally.
- * This is the authoritative source — same data the /model picker uses.
- * We read it directly: zero hardcoding, always up-to-date with the CLI version.
- *
- * Falls back to OpenAI /v1/models API (filtered to gpt-5.*) if cache doesn't exist.
- */
-/**
- * Read the user's configured default model from ~/.codex/config.toml.
- * Returns the model string (e.g. "gpt-5.4") and reasoning effort if present.
- */
 export function readCodexConfig(): { model?: string; reasoningEffort?: string } {
   try {
     const configPath = join(homedir(), ".codex", "config.toml");
@@ -184,26 +159,6 @@ export function readCodexConfig(): { model?: string; reasoningEffort?: string } 
   }
 }
 
-/**
- * Read the user's configured default model from ~/.claude/settings.json.
- * Returns the model alias/ID (e.g. "sonnet", "opus").
- */
-function readClaudeConfig(): { model?: string } {
-  try {
-    const settingsPath = join(homedir(), ".claude", "settings.json");
-    if (!existsSync(settingsPath)) return {};
-    const raw = readFileSync(settingsPath, "utf8");
-    const settings = JSON.parse(raw) as { model?: string };
-    return { model: typeof settings.model === "string" ? settings.model : undefined };
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Read the user's config from ~/.gemini/settings.json.
- * Returns the configured model (if any) and whether preview features are enabled.
- */
 export function readGeminiConfig(): { model?: string; previewFeatures?: boolean } {
   try {
     const settingsPath = join(homedir(), ".gemini", "settings.json");
@@ -220,213 +175,6 @@ export function readGeminiConfig(): { model?: string; previewFeatures?: boolean 
   } catch {
     return {};
   }
-}
-
-/**
- * Find the models.js file from the installed @google/gemini-cli package.
- *
- * Strategy: resolve the `gemini` symlink → get real path of dist/index.js
- * → navigate to node_modules/@google/gemini-cli-core/dist/src/config/models.js
- * This is always in sync with whatever version of the CLI is installed.
- */
-function resolveGeminiModelsFile(): string | null {
-  try {
-    const binPath = execFileSync("which", ["gemini"], { encoding: "utf8", timeout: 3000 }).trim();
-    if (!binPath) return null;
-    // Resolve the symlink: bin/gemini → .../node_modules/@google/gemini-cli/dist/index.js
-    const realBin = realpathSync(binPath);
-    // Go up: dist/index.js → dist → @google/gemini-cli
-    const cliRoot = dirname(dirname(realBin));
-    const modelsPath = join(cliRoot, "node_modules", "@google", "gemini-cli-core", "dist", "src", "config", "models.js");
-    return existsSync(modelsPath) ? modelsPath : null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchGeminiModels(): Promise<DiscoveredModel[]> {
-  const modelsPath = resolveGeminiModelsFile();
-  if (!modelsPath) return [];
-
-  try {
-    const content = readFileSync(modelsPath, "utf8");
-
-    // Parse `export const SOME_CONST = 'gemini-...'` lines
-    const regex = /export const ([A-Z0-9_]+)\s*=\s*'(gemini-[^']+)';/g;
-    const seen = new Set<string>();
-    const stable: DiscoveredModel[] = [];
-    const preview: DiscoveredModel[] = [];
-
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(content)) !== null) {
-      const [, constName, modelId] = match;
-      if (seen.has(modelId)) continue;
-      if (modelId.includes("embedding")) continue;
-      seen.add(modelId);
-
-      const isPreview = constName.startsWith("PREVIEW_");
-      const tier = isPreview ? "Preview" : "Stable";
-      const model: DiscoveredModel = { id: modelId, provider: "gemini", label: modelId, tier };
-      if (isPreview) preview.push(model);
-      else stable.push(model);
-    }
-
-    // Stable models first, preview models after
-    return [...stable, ...preview];
-  } catch {
-    return [];
-  }
-}
-
-async function fetchCodexModels(): Promise<DiscoveredModel[]> {
-  // 1. Try ~/.codex/models_cache.json (authoritative — from the CLI itself)
-  const cachePath = join(homedir(), ".codex", "models_cache.json");
-  try {
-    if (existsSync(cachePath)) {
-      const raw = readFileSync(cachePath, "utf8");
-      const cache = JSON.parse(raw) as {
-        models?: Array<{
-          slug: string;
-          display_name?: string;
-          description?: string;
-          visibility?: string;
-          priority?: number;
-          supported_reasoning_levels?: Array<{ effort: string; description?: string }>;
-        }>;
-      };
-
-      if (Array.isArray(cache.models) && cache.models.length > 0) {
-        return cache.models
-          // Show "list" models first, then "hide" (legacy) — sorted by CLI priority
-          .sort((a, b) => {
-            const visA = a.visibility === "list" ? 0 : 1;
-            const visB = b.visibility === "list" ? 0 : 1;
-            if (visA !== visB) return visA - visB;
-            return (a.priority ?? 99) - (b.priority ?? 99);
-          })
-          .map((m) => ({
-            id: m.slug,
-            provider: "codex",
-            label: m.slug,
-            tier: m.description || (m.visibility === "list" ? "Supported" : "Legacy"),
-          }));
-      }
-    }
-  } catch {
-    // Cache unreadable
-  }
-
-  return [];
-}
-
-/**
- * Discover Claude models from the CLI.
- *
- * Strategy: use the stable aliases that the Claude CLI maintains itself
- * (opus → latest opus, sonnet → latest sonnet, haiku → latest haiku).
- *
- * Why aliases instead of version-pinned IDs extracted from the binary:
- * - Aliases always point to the current production model — no stale IDs
- * - No `strings` parsing, no binary inspection, no network calls
- * - When Anthropic releases a new version, the alias updates automatically
- *
- * The actual resolved model ID (e.g. claude-sonnet-4-6) is captured from
- * the `modelUsage` field in the CLI JSON response after each run.
- */
-async function fetchAnthropicModels(): Promise<DiscoveredModel[]> {
-  // Verify the CLI is reachable before returning anything
-  try {
-    execFileSync("which", ["claude"], { encoding: "utf8", timeout: 3000 });
-  } catch {
-    return [];
-  }
-
-  // These aliases are maintained by Anthropic in the Claude CLI itself.
-  // They always resolve to the current production model for each family.
-  return [
-    { id: "opus",   provider: "claude", label: "claude/opus (latest)",   tier: "Most capable" },
-    { id: "sonnet", provider: "claude", label: "claude/sonnet (latest)",  tier: "Balanced" },
-    { id: "haiku",  provider: "claude", label: "claude/haiku (latest)",   tier: "Fast" },
-  ];
-}
-
-
-/**
- * Discover available models for all detected providers.
- * Results are cached for 5 minutes.
- */
-export async function discoverModels(providers: DetectedProvider[]): Promise<Record<string, DiscoveredModel[]>> {
-  const result: Record<string, DiscoveredModel[]> = {};
-
-  const tasks: Array<{ name: string; fetch: () => Promise<DiscoveredModel[]> }> = [];
-
-  for (const p of providers) {
-    if (!p.available) continue;
-    const cached = modelCache.get(p.name);
-    if (cached && Date.now() - cached.fetchedAt < MODEL_CACHE_TTL_MS) {
-      result[p.name] = cached.models;
-      continue;
-    }
-    if (p.name === "codex") tasks.push({ name: "codex", fetch: fetchCodexModels });
-    if (p.name === "claude") tasks.push({ name: "claude", fetch: fetchAnthropicModels });
-    if (p.name === "gemini") tasks.push({ name: "gemini", fetch: fetchGeminiModels });
-  }
-
-  const settled = await Promise.allSettled(tasks.map((t) => t.fetch()));
-  for (let i = 0; i < tasks.length; i++) {
-    const res = settled[i];
-    let models = res.status === "fulfilled" ? res.value : [];
-
-    // Promote the user's configured CLI default model to the top of the list
-    if (tasks[i].name === "codex") {
-      const { model: configuredModel } = readCodexConfig();
-      if (configuredModel) {
-        const idx = models.findIndex((m) => m.id === configuredModel);
-        if (idx > 0) {
-          // Move to front
-          models = [models[idx], ...models.slice(0, idx), ...models.slice(idx + 1)];
-        } else if (idx === -1) {
-          // Not in list yet — add it
-          models = [{ id: configuredModel, provider: "codex", label: configuredModel, tier: "Configured default" }, ...models];
-        }
-      }
-    }
-
-    if (tasks[i].name === "claude") {
-      const { model: configuredModel } = readClaudeConfig();
-      if (configuredModel) {
-        // Claude config uses aliases ("sonnet", "opus") — find matching model by id/prefix
-        const idx = models.findIndex((m) => m.id === configuredModel || m.id.includes(configuredModel));
-        if (idx > 0) {
-          models = [models[idx], ...models.slice(0, idx), ...models.slice(idx + 1)];
-        }
-      }
-    }
-
-    if (tasks[i].name === "gemini") {
-      const { model: configuredModel, previewFeatures } = readGeminiConfig();
-      if (configuredModel) {
-        // Explicit model configured — promote it to top
-        const idx = models.findIndex((m) => m.id === configuredModel);
-        if (idx > 0) {
-          models = [models[idx], ...models.slice(0, idx), ...models.slice(idx + 1)];
-        } else if (idx === -1) {
-          models = [{ id: configuredModel, provider: "gemini", label: configuredModel, tier: "Configured default" }, ...models];
-        }
-      } else if (previewFeatures) {
-        // No explicit model, but preview features enabled → promote the first preview model to top
-        const previewIdx = models.findIndex((m) => m.tier === "Preview");
-        if (previewIdx > 0) {
-          models = [models[previewIdx], ...models.slice(0, previewIdx), ...models.slice(previewIdx + 1)];
-        }
-      }
-    }
-
-    result[tasks[i].name] = models;
-    modelCache.set(tasks[i].name, { models, fetchedAt: Date.now() });
-  }
-
-  return result;
 }
 
 export function resolveDefaultProvider(detected: DetectedProvider[]): string {

@@ -11,6 +11,7 @@ import { getContainer } from "../container.ts";
 import { createIssueCommand } from "../../commands/create-issue.command.ts";
 import { cancelIssueCommand } from "../../commands/cancel-issue.command.ts";
 import { transitionIssueCommand } from "../../commands/transition-issue.command.ts";
+import { findIssue } from "../../routes/helpers.ts";
 
 function getIssueId(c: unknown): string | null {
   if (!c || typeof c !== "object" || !("req" in c) || !c.req || typeof (c as { req: unknown }).req !== "object") {
@@ -21,10 +22,6 @@ function getIssueId(c: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
-}
-
-function findIssue(state: RuntimeState, issueId: string) {
-  return state.issues.find((issue) => issue.id === issueId || issue.identifier === issueId);
 }
 
 async function getIssuePipeline(c: unknown) {
