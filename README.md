@@ -4,7 +4,7 @@
 
 **AI agents that actually ship code. You just watch.**
 
-Point at a repo. Open the dashboard. AI plans, builds, and reviews — you approve.
+Point at a repo. Open the dashboard. AI plans, builds, and reviews — you approve and merge.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D23-brightgreen.svg)]()
@@ -16,42 +16,60 @@ Point at a repo. Open the dashboard. AI plans, builds, and reviews — you appro
 ## Quick Start
 
 ```bash
-npx -y fifony --port 4040
+npx -y fifony
 ```
 
-Open **http://localhost:4040**. The first run launches the onboarding wizard — it detects your CLIs, scans your project, and configures everything in six steps. State lives in `.fifony/`. No accounts, no cloud, no external database.
+Open **http://localhost:4000**. The first run launches the onboarding wizard — it detects your CLIs, scans your project, and configures everything in six steps. State lives in `.fifony/`. No accounts, no cloud, no external database.
 
 ---
 
 ## How It Works
 
-fifony breaks every task into three stages, each independently configurable:
-
-```
-  Plan             Execute          Review
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ Claude       │─▶│ Codex        │─▶│ Claude       │
-│ Opus 4.5     │  │              │  │ Sonnet 4.5   │
-│ effort: high │  │ effort: med  │  │ effort: med  │
-└──────────────┘  └──────────────┘  └──────────────┘
-```
-
-You set the provider, model, and reasoning effort for each stage. Claude plans, Codex executes, Claude reviews — or any combination you prefer. Configure it in the Settings UI or drop a `WORKFLOW.md` in your project root.
+fifony auto-detects your installed CLI tools (Claude, Codex, Gemini) and routes each pipeline stage to the best available provider. Configure per-stage provider, model, and reasoning effort in the Settings UI or drop a `WORKFLOW.md` in your project root.
 
 ### Issue Lifecycle
 
-```
-Planning → Todo → Queued → Running → In Review → Done
-                                ↓            ↓
-                           Interrupted    Blocked → (retry with backoff)
+```mermaid
+stateDiagram-v2
+    [*] --> Planning
+    Planning --> Planned: PLANNED
+    Planned --> Queued: QUEUE
+    Queued --> Running: RUN
+    Running --> Reviewing: REVIEW
+    Reviewing --> Reviewed: REVIEWED
+    Reviewed --> Done: DONE
+    Done --> Merged: MERGE
+
+    Running --> Blocked: BLOCK
+    Reviewing --> Blocked: BLOCK
+    Blocked --> Queued: UNBLOCK
+    Blocked --> Planning: REPLAN
+
+    Reviewed --> Queued: REQUEUE (rework)
+    Reviewed --> Planning: REPLAN
+
+    Done --> Planning: REOPEN
+    Merged --> Planning: REOPEN
+
+    Planning --> Cancelled: CANCEL
+    Planned --> Cancelled: CANCEL
+    Reviewed --> Cancelled: CANCEL
+    Blocked --> Cancelled: CANCEL
+    Cancelled --> Planning: REOPEN
+
+    Merged --> [*]
+    Cancelled --> [*]
 ```
 
-1. **Create** — Describe what you want done. fifony AI-enhances the title and description before planning.
-2. **Plan** — The planner agent generates a structured execution plan: phases, steps, target files, complexity, risks.
-3. **Approve** — You review the plan. Optionally chat with the AI to refine it before approving.
-4. **Execute** — Agents run in an isolated workspace (a copy of your project). Live output streams to the dashboard.
-5. **Review** — The reviewer agent inspects the diff and either approves, requests rework, or blocks.
-6. **Merge** — You review the diff and merge the workspace back to your project root.
+| Step | What happens |
+|------|-------------|
+| **Create** | Describe what you want done. |
+| **Plan** | The planner agent generates a structured execution plan: phases, steps, target files, complexity, risks. |
+| **Approve** | You review the plan. Optionally refine it with AI chat before approving. |
+| **Execute** | Agents run in an isolated git worktree. Live output streams to the dashboard. |
+| **Review** | The reviewer agent inspects the diff and either approves, requests rework, or blocks. |
+| **Done** | Approved and waiting for merge. You review the diff in the dashboard. |
+| **Merge** | You merge the worktree into your project. Analytics capture lines added/removed. |
 
 Agents run as detached child processes, tracked by PID. If the server restarts mid-run, fifony recovers on the next boot.
 
@@ -63,7 +81,7 @@ The first run walks you through six steps:
 
 | Step | What happens |
 |------|-------------|
-| CLI Detection | Finds `claude`, `codex`, `git`, `node`, `docker`, and other tools on your system |
+| CLI Detection | Finds `claude`, `codex`, `gemini`, `git`, `node`, `docker`, and other tools on your system |
 | Project Scan | Detects language, stack, and build system — 18+ ecosystems supported |
 | AI Analysis | Uses the detected CLI to extract domain context from your codebase |
 | Domains | 21 options across Technical / Industry / Role, pre-selected by the AI |
@@ -72,16 +90,14 @@ The first run walks you through six steps:
 
 Settings are saved progressively and can be re-run from Settings at any time.
 
-Supported build files include: `package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `build.gradle`, `Gemfile`, `mix.exs`, `pubspec.yaml`, `CMakeLists.txt`, `composer.json`, `Package.swift`, `deno.json`, `pom.xml`, `Dockerfile`, and more.
-
 ---
 
 ## Dashboard
 
 | Route | What you see |
 |-------|-------------|
-| `/kanban` | Drag-and-drop board. Cards flow through pipeline stages. Desktop click+drag, mobile long-press. |
-| `/issues` | Searchable list with multi-state filters, sort options, and capability filters. Shows token usage and duration per issue. |
+| `/kanban` | Drag-and-drop board with 5 columns: Planning, In Progress, Reviewing, Blocked, Done. |
+| `/issues` | Searchable list with multi-state filters, sort options, and capability filters. |
 | `/agents` | Live cockpit: worker slots, queue depth, real-time log tail, token sparklines per agent. |
 | `/analytics` | Token usage trends, daily and weekly rollups, top issues by cost, per-model breakdown. |
 | `/settings` | General, Workflow pipeline config, Notifications, Providers. |
@@ -125,20 +141,20 @@ Agents install to `.claude/agents/` and `.codex/agents/` during onboarding. Skil
 ## CLI Reference
 
 ```bash
-# Dashboard + API + scheduler
-npx -y fifony --port 4040
+# Dashboard + API (default port 4000)
+npx -y fifony
+
+# Custom port
+npx -y fifony --port 8080
 
 # With Vite HMR for frontend development
-npx -y fifony --port 4040 --dev
-
-# Headless — scheduler only, no UI
-npx -y fifony
+npx -y fifony --dev
 
 # MCP server (stdio)
 npx -y fifony mcp
 
 # Different workspace
-npx -y fifony --workspace /path/to/repo --port 4040
+npx -y fifony --workspace /path/to/repo
 
 # Run one scheduler cycle and exit
 npx -y fifony --once
@@ -187,7 +203,7 @@ Add to `claude_desktop_config.json` or VS Code settings:
 
 ## REST API
 
-Interactive docs at `http://localhost:4040/docs`.
+Interactive docs at `http://localhost:4000/docs`.
 
 | Endpoint | Description |
 |----------|-------------|
@@ -223,6 +239,7 @@ FIFONY_AGENT_PROVIDER=codex           # codex | claude
 FIFONY_WORKER_CONCURRENCY=2
 FIFONY_MAX_ATTEMPTS=3
 FIFONY_AGENT_MAX_TURNS=4
+FIFONY_LOG_FILE=0                     # set to 1 to also write .fifony/fifony-local.log
 ```
 
 ---
@@ -233,49 +250,23 @@ FIFONY_AGENT_MAX_TURNS=4
 .fifony/
   s3db/           ← durable database (issues, events, sessions, settings)
   source/         ← project snapshot used for workspace seeding
-  workspaces/     ← isolated per-issue execution directories
+  workspaces/     ← isolated per-issue execution directories (git worktrees)
 ```
 
-fifony is split into an explicit runtime contract:
-
-- **Persistence layer (s3db.js + resource config):**
-  - Issues, events, sessions, states, and settings are first-class resources under `.fifony/s3db/`.
-  - No external DB is required in normal mode.
-- **Eventual consistency analytics:**  
-  - `EventualConsistencyPlugin` is enabled for issue metrics and supports counters, incremental updates, and analytics rollups.
-  - Metrics tracked include:
-    - `usage.tokens` and `tokenUsage` by phase/model,
-    - `eventsCount`,
-    - `linesAdded`, `linesRemoved`, `filesChanged`.
-  - We query this through `getLastNDays/getLastNHours` to feed `/api/analytics/lines` and `/api/analytics/tokens`.
-- **Issue lifecycle in StateMachinePlugin (single source of truth):**
-  - States, guarded transitions, actions, and triggers are centralized in `issue-state-machine.ts`.
-  - Public commands (`approve`, `execute`, `queue`, `retry`, `merge`) only emit transitions; the workflow behavior is not duplicated in route handlers.
-  - The machine also owns interruption recovery, retry delays, terminal transitions, and rollback edges.
-- **Queue and execution pool:**  
-  - `s3queue` is the runtime queue adapter with polling workers.
-  - Workers consume planning/execution/review jobs and run concurrently respecting configured concurrency.
-- **Agent abstraction:**  
-  - fifony wraps local CLIs, not proprietary model logic.
-  - Per stage we configure `cli`, `model`, and `reasoningEffort` independently (`planning`, `execute`, `review`).
-  - This lets you swap providers by issue without changing core orchestration.
-- **Per-issue isolation:**  
-  - Each issue has its own execution workspace and Git worktree branch.
-  - That avoids file conflicts and enables parallel work on the same repo safely.
-- **Review and execution observability:**  
-  - Diff stats are computed from git `--stat` output (`linesAdded`, `linesRemoved`, `filesChanged`).
-  - Runtime events are emitted for state transitions, review path decisions, and merge outcomes.
-  - CLI output and audit trails are stored to make mid-run interruptions recoverable.
-- **Capability routing:**  
-  - Routing derives issue labels (`capability:<category>`, `overlay:<name>`) from issue text and inferred file paths.
-  - This improves queue triage and worker assignment.
+- **State machine (single source of truth):** States, guarded transitions, actions, and triggers are centralized in `issue-state-machine.ts`. All side effects (events, field mutations, EC tracking) happen in FSM entry actions.
+- **Persistence (s3db.js):** Issues, events, sessions, and settings are first-class resources. No external DB required.
+- **Eventual consistency analytics:** `EventualConsistencyPlugin` tracks `linesAdded`, `linesRemoved`, `filesChanged`, token usage, and event counts with daily cohort rollups.
+- **Queue workers:** `S3QueuePlugin` dispatches planning/execution/review jobs to concurrent workers.
+- **Agent abstraction:** Wraps local CLIs (Claude, Codex, Gemini), not proprietary model logic. Per-stage provider/model/effort configuration.
+- **Per-issue isolation:** Each issue gets its own git worktree branch. No file conflicts, safe parallel work.
+- **Capability routing:** Issue labels derived from text and file paths drive automatic provider/agent selection.
 
 ---
 
 ## Requirements
 
 - Node.js 23 or newer
-- At least one of: `claude` CLI, `codex` CLI
+- At least one of: `claude` CLI, `codex` CLI, `gemini` CLI
 
 ---
 
