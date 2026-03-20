@@ -8,18 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@tanstack/react-query':
-        specifier: ^5.91.2
-        version: 5.91.2(react@19.2.4)
-      '@tanstack/react-router':
-        specifier: ^1.167.5
-        version: 1.167.5(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       cli-args-parser:
         specifier: ^1.0.6
         version: 1.0.6
-      lucide-react:
-        specifier: ^0.577.0
-        version: 0.577.0(react@19.2.4)
       node-cron:
         specifier: ^4.2.1
         version: 4.2.1
@@ -32,12 +23,6 @@ importers:
       raffel:
         specifier: ^1.0.18
         version: 1.0.18(ajv@8.18.0)(fastest-validator@1.19.1)(zod-to-json-schema@3.25.1(zod@4.3.6))(zod@4.3.6)
-      react:
-        specifier: ^19.2.4
-        version: 19.2.4
-      react-dom:
-        specifier: ^19.2.4
-        version: 19.2.4(react@19.2.4)
       recker:
         specifier: ^1.0.86
         version: 1.0.86(ws@8.19.0)
@@ -51,6 +36,12 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.2.2(vite@8.0.1(@types/node@25.5.0)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
+      '@tanstack/react-query':
+        specifier: ^5.91.2
+        version: 5.91.2(react@19.2.4)
+      '@tanstack/react-router':
+        specifier: ^1.167.5
+        version: 1.167.5(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tanstack/router-plugin':
         specifier: ^1.166.14
         version: 1.166.14(@tanstack/react-router@1.167.5(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.0.1(@types/node@25.5.0)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
@@ -60,6 +51,15 @@ importers:
       daisyui:
         specifier: ^5.5.19
         version: 5.5.19
+      lucide-react:
+        specifier: ^0.577.0
+        version: 0.577.0(react@19.2.4)
+      react:
+        specifier: ^19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.2.4
+        version: 19.2.4(react@19.2.4)
       tailwindcss:
         specifier: ^4.2.2
         version: 4.2.2
