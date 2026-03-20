@@ -25,11 +25,11 @@ function ColumnBadge({ count, className }) {
 }
 
 // Kanban columns — Planning/Planned grouped as "Planning", Queued/Running as "In Progress", Reviewing/Reviewed as "Reviewing"
-const COLUMNS = ["Planning", "In Progress", "Reviewing", "Blocked", "Done", "Cancelled"];
+const COLUMNS = ["Planning", "In Progress", "Reviewing", "Blocked", "Done"];
 const PLANNING_STATES = new Set(["Planning", "Planned"]);
 const IN_PROGRESS_STATES = new Set(["Queued", "Running"]);
 const REVIEWING_STATES = new Set(["Reviewing", "Reviewed"]);
-const DONE_STATES = new Set(["Done", "Merged"]);
+const DONE_STATES = new Set(["Done", "Merged", "Cancelled"]);
 
 const COLUMN_BADGE = {
   Planning: "badge-info",
@@ -37,7 +37,6 @@ const COLUMN_BADGE = {
   "Reviewing": "badge-secondary",
   Blocked: "badge-error",
   Done: "badge-success",
-  Cancelled: "badge-neutral",
 };
 
 const COLUMN_ACCENT_STYLE = {
@@ -46,7 +45,6 @@ const COLUMN_ACCENT_STYLE = {
   "Reviewing": { borderTopColor: 'color-mix(in oklab, var(--color-secondary) 40%, transparent)' },
   Blocked: { borderTopColor: 'color-mix(in oklab, var(--color-error) 40%, transparent)' },
   Done: { borderTopColor: 'color-mix(in oklab, var(--color-success) 40%, transparent)' },
-  Cancelled: { borderTopColor: 'color-mix(in oklab, var(--color-base-content) 15%, transparent)' },
 };
 
 const COLUMN_HEADER_COLOR = {
@@ -55,7 +53,6 @@ const COLUMN_HEADER_COLOR = {
   "Reviewing": 'var(--color-secondary)',
   Blocked: 'var(--color-error)',
   Done: 'var(--color-success)',
-  Cancelled: undefined,
 };
 
 const COLUMN_DOT_COLOR = {
@@ -64,7 +61,6 @@ const COLUMN_DOT_COLOR = {
   "Reviewing": 'var(--color-secondary)',
   Blocked: 'var(--color-error)',
   Done: 'var(--color-success)',
-  Cancelled: 'color-mix(in oklab, var(--color-base-content) 30%, transparent)',
 };
 
 const EMPTY_CONFIG = {
@@ -73,7 +69,6 @@ const EMPTY_CONFIG = {
   "Reviewing": { icon: Eye, desc: "Awaiting review" },
   Blocked: { icon: AlertTriangle, desc: "Needs attention" },
   Done: { icon: CheckCircle, desc: "Completed" },
-  Cancelled: { icon: XCircle, desc: "Cancelled" },
 };
 
 function SkeletonCard({ delay = 0 }) {
@@ -195,7 +190,6 @@ function ColumnDots({ columns, activeIndex }) {
 // Default visible card limits for collapsible columns
 const COLLAPSE_LIMITS = {
   Done: 20,
-  Cancelled: 12,
 };
 
 function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColumn, getCardHandlers, onSelect, onCreateIssue, lastDroppedId, hasRunningAgents, totalIssues, onLongPress, selectedIds, onToggleSelect, hasSelection }) {
