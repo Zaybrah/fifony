@@ -582,31 +582,27 @@ export const Route = createLazyFileRoute("/analytics")({
   component: AnalyticsPage,
 });
 
-function AnalyticsPage() {
-  const { data: analytics, isLoading: analyticsLoading } = useTokenAnalytics();
-  const { data: linesData } = useCodeChurnAnalytics();
-  const { data: kpiData } = useKpiAnalytics();
+// ── Independent section loaders ─────────────────────────────────────────
 
-  if (analyticsLoading && !analytics) return <AnalyticsSkeleton />;
+function SectionSkeleton({ h = "h-28" }) {
+  return <div className={`skeleton-card ${h} w-full rounded-box`} />;
+}
+
+function OverviewSection() {
+  const { data: analytics } = useTokenAnalytics();
+  const { data: linesData } = useCodeChurnAnalytics();
 
   const overall = analytics?.overall;
   const totalTokens = overall?.totalTokens || 0;
   const byPhase = analytics?.byPhase || null;
-  const byModel = analytics?.byModel || {};
   const daily = fillDailyGaps(analytics?.daily, 32);
-  const topIssues = analytics?.topIssues || [];
-
-  // Today vs this week
   const today = new Date().toISOString().slice(0, 10);
   const todayEntry = daily.find((d) => d.date === today);
   const tokensToday = todayEntry?.totalTokens || 0;
   const tokensThisWeek = daily.reduce((sum, d) => sum + (d.totalTokens || 0), 0);
-
-  // Events aggregates (from EC-backed daily.events)
   const totalEvents = daily.reduce((sum, d) => sum + (d.events || 0), 0);
   const eventsToday = todayEntry?.events || 0;
 
-  // Code churn — fill daily gaps manually since fillDailyGaps uses token defaults
   const linesDaily = (() => {
     const byDate = new Map((linesData?.lines || []).filter((d) => d.date).map((d) => [d.date, d]));
     const result = [];
@@ -621,179 +617,171 @@ function AnalyticsPage() {
   const totalLinesAdded = linesDaily.reduce((s, d) => s + (d.linesAdded || 0), 0);
   const totalLinesRemoved = linesDaily.reduce((s, d) => s + (d.linesRemoved || 0), 0);
 
-  const kpis = kpiData?.ok ? kpiData : null;
+  if (!analytics) return <SectionSkeleton h="h-32" />;
 
   return (
+    <section>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
+        <div className="stat bg-base-200 rounded-box">
+          <div className="stat-figure text-primary"><Zap className="size-6" /></div>
+          <div className="stat-title">Total Tokens</div>
+          <div className="stat-value text-2xl"><AnimatedCount value={totalTokens} /></div>
+          <div className="stat-desc font-mono">{formatTokensFull(totalTokens)}</div>
+        </div>
+        <div className="stat bg-base-200 rounded-box">
+          <div className="stat-figure text-accent"><Clock className="size-6" /></div>
+          <div className="stat-title">Tokens Today</div>
+          <div className="stat-value text-2xl"><AnimatedCount value={tokensToday} /></div>
+          <div className="stat-desc">30d: {formatTokens(tokensThisWeek)}</div>
+        </div>
+        <div className="stat bg-base-200 rounded-box">
+          <div className="stat-figure text-secondary"><Activity className="size-6" /></div>
+          <div className="stat-title">Total Events</div>
+          <div className="stat-value text-2xl"><AnimatedCount value={totalEvents} format={(n) => String(n || 0)} /></div>
+          <div className="stat-desc">Today: {eventsToday}</div>
+        </div>
+        <div className="stat bg-base-200 rounded-box xl:col-span-2 overflow-hidden">
+          <div className="stat-figure text-info"><Layers className="size-6" /></div>
+          <div className="stat-title">Phase Split</div>
+          <div className="stat-value text-2xl p-0">
+            {byPhase ? <PhaseBreakdownLarge byPhase={byPhase} /> : <span className="opacity-30">-</span>}
+          </div>
+        </div>
+        <div className="stat bg-base-200 rounded-box">
+          <div className="stat-figure text-success"><GitMerge className="size-6" /></div>
+          <div className="stat-title">Lines Added</div>
+          <div className="stat-value text-2xl text-success">
+            <AnimatedCount value={totalLinesAdded} format={(n) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n || 0)} />
+          </div>
+          <div className="stat-desc">30d total</div>
+        </div>
+        <div className="stat bg-base-200 rounded-box">
+          <div className="stat-figure text-error"><GitMerge className="size-6" /></div>
+          <div className="stat-title">Lines Removed</div>
+          <div className="stat-value text-2xl text-error">
+            <AnimatedCount value={totalLinesRemoved} format={(n) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n || 0)} />
+          </div>
+          <div className="stat-desc">30d total</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DailyActivitySection() {
+  const { data: analytics } = useTokenAnalytics();
+  const { data: linesData } = useCodeChurnAnalytics();
+
+  const daily = fillDailyGaps(analytics?.daily, 32);
+  const linesDaily = (() => {
+    const byDate = new Map((linesData?.lines || []).filter((d) => d.date).map((d) => [d.date, d]));
+    const result = [];
+    for (let i = 31; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const date = d.toISOString().slice(0, 10);
+      result.push(byDate.get(date) ?? { date, linesAdded: 0, linesRemoved: 0, filesChanged: 0 });
+    }
+    return result;
+  })();
+
+  if (!analytics) return <SectionSkeleton h="h-52" />;
+
+  return (
+    <section className="bg-base-200 rounded-box p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <TrendingUp className="size-4 text-primary" />
+          Daily Activity
+        </h2>
+      </div>
+      <ActivityChart daily={daily} />
+      <div className="border-t border-base-300 my-5" />
+      <CodeChurnChart daily={linesDaily} />
+    </section>
+  );
+}
+
+function KpiSection() {
+  const { data: kpiData } = useKpiAnalytics();
+  const kpis = kpiData?.ok ? kpiData : null;
+
+  if (!kpiData) return <SectionSkeleton h="h-36" />;
+
+  return (
+    <section className="bg-base-200 rounded-box p-5">
+      <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">
+        <Timer className="size-4 text-warning" />
+        Engineering KPIs
+        {kpis?.sampleSize > 0 && (
+          <span className="text-xs font-normal opacity-40 ml-1">based on {kpis.sampleSize} completed issue{kpis.sampleSize !== 1 ? "s" : ""}</span>
+        )}
+      </h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiCard icon={Clock} iconClass="text-primary" title="Issue Cycle Time"
+          avg={kpis?.issueCycleTimeDays?.avg ?? null} median={kpis?.issueCycleTimeDays?.median ?? null}
+          n={kpis?.issueCycleTimeDays?.n ?? null} formatValue={fmtDays} />
+        <KpiCard icon={GitPullRequestArrow} iconClass="text-secondary" title="PR Cycle Time"
+          avg={kpis?.prCycleTimeDays?.avg ?? null} median={kpis?.prCycleTimeDays?.median ?? null}
+          n={kpis?.prCycleTimeDays?.n ?? null} formatValue={fmtDays} />
+        <KpiCard icon={Timer} iconClass="text-warning" title="Review Turnaround"
+          avg={kpis?.reviewTurnaroundDays?.avg ?? null} median={kpis?.reviewTurnaroundDays?.median ?? null}
+          n={kpis?.reviewTurnaroundDays?.n ?? null} formatValue={fmtDays} />
+        <KpiCard icon={GitMerge} iconClass="text-info" title="PR Size"
+          avg={kpis?.prSizeLines?.avg ?? null} median={kpis?.prSizeLines?.median ?? null}
+          n={kpis?.prSizeLines?.n ?? null} formatValue={fmtLines} unit="lines" />
+      </div>
+    </section>
+  );
+}
+
+function TopIssuesSection() {
+  const { data: analytics } = useTokenAnalytics();
+  const topIssues = analytics?.topIssues || [];
+
+  if (!analytics) return <SectionSkeleton h="h-40" />;
+  if (topIssues.length === 0) return null;
+
+  return (
+    <section className="bg-base-200 rounded-box p-5">
+      <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">
+        <Zap className="size-4 text-accent" />
+        Top Issues by Token Usage
+      </h2>
+      <TopIssuesTable topIssues={topIssues} />
+    </section>
+  );
+}
+
+function ModelBreakdownSection() {
+  const { data: analytics } = useTokenAnalytics();
+  const byModel = analytics?.byModel || {};
+
+  if (!analytics) return <SectionSkeleton h="h-40" />;
+  if (Object.keys(byModel).length === 0) return null;
+
+  return (
+    <section className="bg-base-200 rounded-box p-5">
+      <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">
+        <Cpu className="size-4 text-info" />
+        Model Breakdown
+      </h2>
+      <ModelBreakdown byModel={byModel} />
+    </section>
+  );
+}
+
+// ── Page component ───────────────────────────────────────────────────────
+
+function AnalyticsPage() {
+  return (
     <div className="flex-1 flex flex-col min-h-0 px-4 pb-4 pt-3 overflow-y-auto">
-      <div className="max-w-6xl w-full mx-auto space-y-6 stagger-children">
-
-        {/* Section 1: Overview stats */}
-        <section>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
-            {/* Total tokens */}
-            <div className="stat bg-base-200 rounded-box">
-              <div className="stat-figure text-primary">
-                <Zap className="size-6" />
-              </div>
-              <div className="stat-title">Total Tokens</div>
-              <div className="stat-value text-2xl">
-                <AnimatedCount value={totalTokens} />
-              </div>
-              <div className="stat-desc font-mono">{formatTokensFull(totalTokens)}</div>
-            </div>
-
-            {/* Tokens today */}
-            <div className="stat bg-base-200 rounded-box">
-              <div className="stat-figure text-accent">
-                <Clock className="size-6" />
-              </div>
-              <div className="stat-title">Tokens Today</div>
-              <div className="stat-value text-2xl">
-                <AnimatedCount value={tokensToday} />
-              </div>
-              <div className="stat-desc">
-                30d: {formatTokens(tokensThisWeek)}
-              </div>
-            </div>
-
-            {/* Total events */}
-            <div className="stat bg-base-200 rounded-box">
-              <div className="stat-figure text-secondary">
-                <Activity className="size-6" />
-              </div>
-              <div className="stat-title">Total Events</div>
-              <div className="stat-value text-2xl">
-                <AnimatedCount value={totalEvents} format={(n) => String(n || 0)} />
-              </div>
-              <div className="stat-desc">Today: {eventsToday}</div>
-            </div>
-
-            {/* Phase breakdown summary */}
-            <div className="stat bg-base-200 rounded-box xl:col-span-2 overflow-hidden">
-              <div className="stat-figure text-info">
-                <Layers className="size-6" />
-              </div>
-              <div className="stat-title">Phase Split</div>
-              <div className="stat-value text-2xl p-0">
-                {byPhase ? (
-                  <PhaseBreakdownLarge byPhase={byPhase} />
-                ) : (
-                  <span className="opacity-30">-</span>
-                )}
-              </div>
-            </div>
-
-            {/* Lines added */}
-            <div className="stat bg-base-200 rounded-box">
-              <div className="stat-figure text-success">
-                <GitMerge className="size-6" />
-              </div>
-              <div className="stat-title">Lines Added</div>
-              <div className="stat-value text-2xl text-success">
-                <AnimatedCount value={totalLinesAdded} format={(n) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n || 0)} />
-              </div>
-              <div className="stat-desc">30d total</div>
-            </div>
-
-            {/* Lines removed */}
-            <div className="stat bg-base-200 rounded-box">
-              <div className="stat-figure text-error">
-                <GitMerge className="size-6" />
-              </div>
-              <div className="stat-title">Lines Removed</div>
-              <div className="stat-value text-2xl text-error">
-                <AnimatedCount value={totalLinesRemoved} format={(n) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n || 0)} />
-              </div>
-              <div className="stat-desc">30d total</div>
-            </div>
-          </div>
-        </section>
-
-        {/* Section 2: Daily Activity Chart */}
-        <section className="bg-base-200 rounded-box p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <TrendingUp className="size-4 text-primary" />
-              Daily Activity
-            </h2>
-          </div>
-          <ActivityChart daily={daily} />
-          <div className="border-t border-base-300 my-5" />
-          <CodeChurnChart daily={linesDaily} />
-        </section>
-
-        {/* Section 4: Engineering KPIs */}
-        <section className="bg-base-200 rounded-box p-5">
-          <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">
-            <Timer className="size-4 text-warning" />
-            Engineering KPIs
-            {kpis?.sampleSize > 0 && (
-              <span className="text-xs font-normal opacity-40 ml-1">based on {kpis.sampleSize} completed issue{kpis.sampleSize !== 1 ? "s" : ""}</span>
-            )}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <KpiCard
-              icon={Clock}
-              iconClass="text-primary"
-              title="Issue Cycle Time"
-              avg={kpis?.issueCycleTimeDays?.avg ?? null}
-              median={kpis?.issueCycleTimeDays?.median ?? null}
-              n={kpis?.issueCycleTimeDays?.n ?? null}
-              formatValue={fmtDays}
-            />
-            <KpiCard
-              icon={GitPullRequestArrow}
-              iconClass="text-secondary"
-              title="PR Cycle Time"
-              avg={kpis?.prCycleTimeDays?.avg ?? null}
-              median={kpis?.prCycleTimeDays?.median ?? null}
-              n={kpis?.prCycleTimeDays?.n ?? null}
-              formatValue={fmtDays}
-            />
-            <KpiCard
-              icon={Timer}
-              iconClass="text-warning"
-              title="Review Turnaround"
-              avg={kpis?.reviewTurnaroundDays?.avg ?? null}
-              median={kpis?.reviewTurnaroundDays?.median ?? null}
-              n={kpis?.reviewTurnaroundDays?.n ?? null}
-              formatValue={fmtDays}
-            />
-            <KpiCard
-              icon={GitMerge}
-              iconClass="text-info"
-              title="PR Size"
-              avg={kpis?.prSizeLines?.avg ?? null}
-              median={kpis?.prSizeLines?.median ?? null}
-              n={kpis?.prSizeLines?.n ?? null}
-              formatValue={fmtLines}
-              unit="lines"
-            />
-          </div>
-        </section>
-
-        {/* Section 6: Top Issues */}
-        {topIssues.length > 0 && (
-          <section className="bg-base-200 rounded-box p-5">
-            <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">
-              <Zap className="size-4 text-accent" />
-              Top Issues by Token Usage
-            </h2>
-            <TopIssuesTable topIssues={topIssues} />
-          </section>
-        )}
-
-        {/* Section 7: Model Breakdown */}
-        {Object.keys(byModel).length > 0 && (
-          <section className="bg-base-200 rounded-box p-5">
-            <h2 className="text-sm font-semibold flex items-center gap-2 mb-4">
-              <Cpu className="size-4 text-info" />
-              Model Breakdown
-            </h2>
-            <ModelBreakdown byModel={byModel} />
-          </section>
-        )}
-
+      <div className="max-w-6xl w-full mx-auto space-y-6">
+        <OverviewSection />
+        <DailyActivitySection />
+        <KpiSection />
+        <TopIssuesSection />
+        <ModelBreakdownSection />
       </div>
     </div>
   );
