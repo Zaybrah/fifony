@@ -96,13 +96,14 @@ stateDiagram-v2
 
 | Step | Who | State | What happens |
 |------|-----|-------|-------------|
-| **Create** | You | → Planning | Describe what you want. Hit **Enhance** — AI rewrites your spec with acceptance criteria, edge cases, and labels. |
+| **Create** | You | → Planning | Describe what you want. Hit **Enhance** — AI rewrites your spec with acceptance criteria and edge cases. |
 | **Plan** | AI | Planning | The planner generates a structured execution plan: phases, steps, target files, complexity, risks. |
 | **Approve plan** | You | PendingApproval → Queued | You review the plan. Optionally refine with AI chat before approving. |
 | **Execute** | AI | Running | Agents run in an isolated git worktree. Live output streams to the dashboard. |
 | **Review** | AI | Reviewing | The reviewer inspects the diff — approves, requests rework, or blocks. |
 | **Decide** | You | PendingDecision → Approved | You confirm the review. Approve to merge, request rework, or replan. |
 | **Merge** | You | Approved → Merged | Merge the worktree into your project. Analytics capture lines added/removed. |
+| **Archive** | You | Merged/Cancelled → Archived | Soft-delete: issue disappears from all views but stays in the database. |
 
 **Retry operations** are semantically distinct — each has its own command, FSM path, and prompt context:
 
@@ -241,11 +242,11 @@ Add to `claude_desktop_config.json` or VS Code settings:
 }
 ```
 
-**Resources**: state summary, all issues, workflow config, runtime guide, per-issue detail
+**Resources**: `fifony://state/summary`, `fifony://issues`, `fifony://issue/{id}`, `fifony://issue/{id}/plan`, `fifony://issue/{id}/diff`, `fifony://issue/{id}/events`, `fifony://workflow/config`, `fifony://analytics`, `fifony://guide/overview`, `fifony://guide/runtime`, `fifony://guide/integration`, `fifony://integrations`, `fifony://capabilities`, `fifony://agents/catalog`, `fifony://skills/catalog`, `fifony://events/recent`
 
-**Tools**: `fifony.status`, `fifony.list_issues`, `fifony.create_issue`, `fifony.update_issue_state`, `fifony.integration_config`
+**Tools**: `fifony.status`, `fifony.list_issues`, `fifony.create_issue`, `fifony.get_issue`, `fifony.update_issue_state`, `fifony.cancel_issue`, `fifony.retry_issue`, `fifony.plan`, `fifony.refine`, `fifony.approve`, `fifony.merge`, `fifony.get_diff`, `fifony.get_live`, `fifony.get_events`, `fifony.enhance`, `fifony.analytics`, `fifony.resolve_capabilities`, `fifony.get_workflow`, `fifony.scan_project`, `fifony.install_agents`, `fifony.install_skills`, `fifony.integration_config`, `fifony.list_integrations`, `fifony.integration_snippet`
 
-**Prompts**: `fifony-integrate-client`, `fifony-plan-issue`, `fifony-review-workflow`
+**Prompts**: `fifony-integrate-client`, `fifony-plan-issue`, `fifony-route-task`, `fifony-use-integration`, `fifony-diagnose-blocked`, `fifony-weekly-summary`, `fifony-refine-plan`, `fifony-code-review`
 
 ---
 
@@ -284,7 +285,7 @@ FIFONY_LOG_FILE=0                     # set to 1 to also write .fifony/fifony-lo
 
 | Layer | How it works |
 |-------|-------------|
-| **State machine** | 10 states, 13 events. States named by actor: AI states (Planning, Running, Reviewing), Human states (PendingApproval, PendingDecision, Approved), terminal (Merged, Cancelled). Legacy names auto-migrated. |
+| **State machine** | 11 states, 14 events. States named by actor: AI (Planning, Running, Reviewing), Human (PendingApproval, PendingDecision, Approved), terminal (Merged, Cancelled, Archived). Archived = soft-delete, hidden from all views. |
 | **Unified queue** | Single work queue with phase ordering (review → execute → plan). Semaphore for concurrency. No scheduler loop — event-driven dispatch. Planning runs outside the semaphore. |
 | **Persistence** | s3db.js with SQLite backend. Issues, events, sessions, and settings are first-class resources. No external DB. |
 | **Analytics** | `EventualConsistencyPlugin` tracks token usage, code churn (lines added/removed), and event counts with daily cohort rollups. |
