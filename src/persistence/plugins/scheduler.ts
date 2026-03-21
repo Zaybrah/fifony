@@ -84,7 +84,7 @@ export function analyzeParallelizability(issues: IssueEntry[]): ParallelismAnaly
   }
 
   const getIssuePaths = (issue: IssueEntry): Set<string> =>
-    new Set([...(issue.paths ?? []), ...(issue.inferredPaths ?? [])]);
+    new Set([...(issue.paths ?? [])]);
 
   const hasPathOverlap = (a: IssueEntry, b: IssueEntry): boolean => {
     const pathsA = getIssuePaths(a);

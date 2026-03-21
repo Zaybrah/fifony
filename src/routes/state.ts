@@ -3,7 +3,7 @@ import { isoWeek, now, parseIssueState, toStringValue } from "../concerns/helper
 import { logger } from "../concerns/logger.ts";
 import { persistState } from "../persistence/store.ts";
 import { markIssueDirty } from "../persistence/dirty-tracker.ts";
-import { addEvent, computeCapabilityCounts, computeMetrics } from "../domains/issues.ts";
+import { addEvent, computeMetrics } from "../domains/issues.ts";
 import { ATTACHMENTS_ROOT, TERMINAL_STATES, TARGET_ROOT } from "../concerns/constants.ts";
 import { findIssue, mutateIssueState, parseIssue } from "../routes/helpers.ts";
 import { cleanWorkspace } from "../domains/workspace.ts";
@@ -28,7 +28,6 @@ import { transitionIssueCommand } from "../commands/transition-issue.command.ts"
 import { retryExecutionCommand } from "../commands/retry-execution.command.ts";
 
 type GetStateResult = RuntimeState & {
-  capabilities: Record<string, number>;
   metrics: RuntimeMetrics;
   _filter: "all" | "recent";
   _totalIssues: number;
@@ -56,7 +55,6 @@ function getStateQuery(
   return {
     ...state,
     issues,
-    capabilities: computeCapabilityCounts(issues),
     metrics: computeMetrics(issues),
     _filter: showAll ? "all" : "recent",
     _totalIssues: state.issues.length,

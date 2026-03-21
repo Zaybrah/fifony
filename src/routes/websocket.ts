@@ -1,6 +1,6 @@
 import { now } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
-import { computeCapabilityCounts, computeMetrics } from "../domains/metrics.ts";
+import { computeMetrics } from "../domains/metrics.ts";
 import type { RuntimeState } from "../types.ts";
 
 // ── WebSocket broadcast (same port via listeners) ────────────────────────────
@@ -60,7 +60,6 @@ export function broadcastToWebSocketClients(message: Record<string, unknown>): v
         type: "state:delta",
         seq: broadcastSeq,
         metrics: message.metrics,
-        capabilities: message.capabilities,
         updatedAt: message.updatedAt,
         issuesDelta: changedIssues,
         issuesRemoved: removedIds,
@@ -98,7 +97,6 @@ export function makeWebSocketConfig(state: RuntimeState) {
           seq: broadcastSeq,
           timestamp: now(),
           metrics: computeMetrics(state.issues),
-          capabilities: computeCapabilityCounts(state.issues),
           issues: state.issues,
           events: state.events.slice(0, 50),
         }));

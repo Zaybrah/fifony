@@ -16,7 +16,6 @@ import {
 } from "../concerns/constants.ts";
 import { now, debugBoot, fail } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
-import { computeCapabilityCounts } from "../domains/metrics.ts";
 import { getMetrics } from "./metrics-cache.ts";
 import { clearApiRuntimeContext } from "../persistence/plugins/api-runtime-context.ts";
 import { broadcastToWebSocketClients } from "../persistence/plugins/api-server.ts";
@@ -366,7 +365,6 @@ export async function persistState(state: RuntimeState): Promise<void> {
   broadcastToWebSocketClients({
     type: "state:update",
     metrics: state.metrics,
-    capabilities: computeCapabilityCounts(state.issues),
     issues: state.issues,
     events: state.events.slice(0, 50),
     updatedAt: state.updatedAt,

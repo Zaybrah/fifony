@@ -3,10 +3,6 @@ You are integrating with fifony as the {{role}} using {{provider}}.
 Issue ID: {{id}}
 Title: {{title}}
 State: {{state}}
-Capability category: {{capabilityCategory}}
-{{#if overlays.length}}
-Overlays: {{overlays | join ", "}}
-{{/if}}
 {{#if paths.length}}
 Paths: {{paths | join ", "}}
 {{/if}}

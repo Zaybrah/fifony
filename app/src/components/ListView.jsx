@@ -3,7 +3,7 @@ import { IssueCard } from "./IssueCard.jsx";
 import { EmptyState } from "./EmptyState.jsx";
 import { StatusIndicator } from "./StatusIndicator.jsx";
 import {
-  ListChecks, Zap, Clock, RotateCcw, Layers, Timer, Hourglass,
+  ListChecks, Zap, Clock, RotateCcw, Timer, Hourglass,
   FileDiff, FileCode, ArrowRight, Coins,
 } from "lucide-react";
 import { timeAgo, formatDuration } from "../utils.js";
@@ -90,15 +90,6 @@ function GridIssueCard({ issue, onSelect }) {
             <p className="text-xs opacity-50 leading-relaxed line-clamp-2 mt-1">{description}</p>
           )}
         </div>
-
-        {/* Capability */}
-        {issue.capabilityCategory && (
-          <div className="flex flex-wrap gap-1">
-            <span className="badge badge-xs badge-outline">
-              <Layers className="size-2.5 mr-0.5" />{issue.capabilityCategory}
-            </span>
-          </div>
-        )}
 
         {/* Live status indicator for active states */}
         {["Planning", "PendingApproval", "Queued", "Running", "Reviewing", "PendingDecision", "Blocked"].includes(issue.state) && (

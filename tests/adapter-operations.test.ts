@@ -1,8 +1,7 @@
 /**
- * All 6 operations × 3 CLIs = 18 combinations.
+ * All operations × 3 CLIs combinations.
  *
  * Tests the full adapter pipeline for each operation:
- *   enhance  → capability routing (pre-CLI, provider-agnostic)
  *   plan     → plan command flags differ from execution (noToolAccess, readOnly, json-schema)
  *   replan   → refine prompt includes current plan + feedback (learning from errors)
  *   execute  → full compilation with effort, dirs, hooks, payload
@@ -20,7 +19,6 @@ import { join } from "node:path";
 import { compileExecution, compileReview } from "../src/agents/adapters/index.ts";
 import { getPlanCommand, buildPlanPrompt, buildRefinePrompt } from "../src/agents/planning/planning-prompts.ts";
 import { buildRetryContext, buildTurnPrompt } from "../src/agents/prompt-builder.ts";
-import { resolveTaskCapabilities } from "../src/routing/capability-resolver.ts";
 import { extractFailureInsights } from "../src/agents/failure-analyzer.ts";
 import { readAgentDirective, extractTokenUsage, normalizeAgentDirectiveStatus } from "../src/agents/directive-parser.ts";
 import { parsePlanOutput } from "../src/agents/planning/planning-parser.ts";
@@ -118,44 +116,7 @@ function makeProvider(provider: string, role: string, overrides: Partial<AgentPr
 
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 1. ENHANCE — capability resolution (provider-agnostic, pre-CLI)
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe("operation: enhance (capability routing)", () => {
-  it("routes backend task to correct category", () => {
-    const issue = makeIssue({ title: "Optimize database queries", description: "PostgreSQL slow query optimization" });
-    const resolution = resolveTaskCapabilities(issue);
-    assert.equal(resolution.category, "backend");
-    assert.ok(resolution.providers.length >= 2, "has planner + executor suggestions");
-  });
-
-  it("routes frontend task to correct category", () => {
-    const issue = makeIssue({ title: "Build React dashboard", description: "Responsive UI with Tailwind charts" });
-    const resolution = resolveTaskCapabilities(issue);
-    assert.equal(resolution.category, "frontend-ui");
-  });
-
-  it("routes security task to correct category", () => {
-    const issue = makeIssue({ title: "Add JWT authentication", description: "Token validation middleware" });
-    const resolution = resolveTaskCapabilities(issue);
-    assert.equal(resolution.category, "security");
-  });
-
-  it("provides provider suggestions with roles for all categories", () => {
-    for (const title of ["Fix auth bug", "Build React form", "Deploy Kubernetes"]) {
-      const issue = makeIssue({ title, description: "test" });
-      const resolution = resolveTaskCapabilities(issue);
-      const planner = resolution.providers.find(p => p.role === "planner");
-      const executor = resolution.providers.find(p => p.role === "executor");
-      assert.ok(planner, `${title}: should have planner`);
-      assert.ok(executor, `${title}: should have executor`);
-    }
-  });
-});
-
-
-// ══════════════════════════════════════════════════════════════════════════════
-// 2. PLAN — plan command flags differ from execution
+// 1. PLAN — plan command flags differ from execution
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe("operation: plan — command per CLI", () => {

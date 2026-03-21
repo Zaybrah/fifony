@@ -3,7 +3,6 @@
  *
  * Tests the end-to-end compilation pipeline:
  *   title + description
- *     → enhance (capability resolution)
  *     → plan (mocked IssuePlan object)
  *     → compile execution (prompt + command string)
  *     → compile review (prompt + command string)
@@ -14,7 +13,6 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveTaskCapabilities } from "../src/routing/capability-resolver.ts";
 import { compileExecution, compileReview } from "../src/agents/adapters/index.ts";
 import type {
   IssueEntry,
@@ -102,30 +100,7 @@ describe("claude chain", () => {
   const title = "Add JWT authentication to the REST API";
   const description = "Implement JWT token validation middleware for all protected endpoints";
 
-  it("step 1 — enhance: resolves to 'security' category", () => {
-    const issue = makeIssue(title, description);
-    const resolution = resolveTaskCapabilities(issue);
-
-    assert.equal(resolution.category, "security", "JWT auth maps to security category");
-    assert.ok(resolution.providers.length > 0, "has provider suggestions");
-    assert.ok(resolution.overlays.includes("security-review"), "has security overlay");
-  });
-
-  it("step 1 — enhance: recommends claude as planner", () => {
-    const issue = makeIssue(title, description);
-    const resolution = resolveTaskCapabilities(issue);
-    const planner = resolution.providers.find((p) => p.role === "planner");
-    assert.equal(planner?.provider, "claude", "claude is planner for security tasks");
-  });
-
-  it("step 1 — enhance: recommends codex as executor", () => {
-    const issue = makeIssue(title, description);
-    const resolution = resolveTaskCapabilities(issue);
-    const executor = resolution.providers.find((p) => p.role === "executor");
-    assert.equal(executor?.provider, "codex", "codex is executor for security tasks");
-  });
-
-  it("step 2 — plan: IssuePlan contains required fields", () => {
+  it("step 1 — plan: IssuePlan contains required fields", () => {
     const plan = makePlan({
       summary: "Implement JWT auth middleware with RS256 validation",
       estimatedComplexity: "medium",
@@ -270,23 +245,7 @@ describe("codex chain", () => {
   const title = "Build a React dashboard for real-time metrics";
   const description = "Create a responsive dashboard with charts and live WebSocket data using React and Tailwind";
 
-  it("step 1 — enhance: resolves to 'frontend-ui' category", () => {
-    const issue = makeIssue(title, description);
-    const resolution = resolveTaskCapabilities(issue);
-
-    assert.equal(resolution.category, "frontend-ui", "React dashboard maps to frontend-ui");
-    assert.ok(resolution.overlays.includes("impeccable"), "has impeccable overlay");
-    assert.ok(resolution.overlays.includes("frontend-design"), "has frontend-design overlay");
-  });
-
-  it("step 1 — enhance: recommends codex as executor for frontend tasks", () => {
-    const issue = makeIssue(title, description);
-    const resolution = resolveTaskCapabilities(issue);
-    const executor = resolution.providers.find((p) => p.role === "executor");
-    assert.equal(executor?.provider, "codex", "codex executes frontend tasks");
-  });
-
-  it("step 2 — plan: IssuePlan with frontend paths", () => {
+  it("step 1 — plan: IssuePlan with frontend paths", () => {
     const plan = makePlan({
       suggestedPaths: ["app/src/components/Dashboard.tsx", "app/src/hooks/useMetrics.ts"],
       suggestedEffort: { executor: "high" },
@@ -478,12 +437,6 @@ describe("codex chain", () => {
 describe("mixed chain: claude-planner + codex-executor + claude-reviewer", () => {
   const title = "Refactor database query layer to use connection pooling";
   const description = "Replace direct DB calls with pooled connections for better performance";
-
-  it("enhance: resolves to 'backend' category", () => {
-    const issue = makeIssue(title, description);
-    const resolution = resolveTaskCapabilities(issue);
-    assert.equal(resolution.category, "backend", "DB refactor maps to backend");
-  });
 
   it("compile execution for codex executor with backend plan", async () => {
     const plan = makePlan({

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { discoverIntegrations, buildIntegrationSnippet } from "../../agents/integrations/catalog.js";
-import { inferCapabilityPaths, resolveTaskCapabilities } from "../../routing/capability-resolver.js";
 import {
   initDatabase,
   getResources,
@@ -29,10 +28,7 @@ export async function callTool(name: string, args: Record<string, unknown> = {})
 
   if (name === "fifony.list_issues") {
     const stateFilter = typeof args.state === "string" && args.state.trim() ? args.state.trim() : "";
-    const capabilityCategory = typeof args.capabilityCategory === "string" && args.capabilityCategory.trim()
-      ? args.capabilityCategory.trim()
-      : typeof args.category === "string" && args.category.trim() ? args.category.trim() : "";
-    return toolText(JSON.stringify(await listIssues({ state: stateFilter || undefined, capabilityCategory: capabilityCategory || undefined }), null, 2));
+    return toolText(JSON.stringify(await listIssues({ state: stateFilter || undefined }), null, 2));
   }
 
   if (name === "fifony.create_issue") {
@@ -46,18 +42,15 @@ export async function callTool(name: string, args: Record<string, unknown> = {})
     const description = typeof args.description === "string" ? args.description : "";
     const state = parseIssueState(args.state) ?? "Planning";
     const paths = Array.isArray(args.paths) ? args.paths.filter((value): value is string => typeof value === "string") : [];
-    const inferredPaths = inferCapabilityPaths({ id: issueId, identifier: issueId, title, description, labels: [], paths });
-    const resolution = resolveTaskCapabilities({ id: issueId, identifier: issueId, title, description, labels: [], paths });
-    const labels = [...new Set([resolution.category ? `capability:${resolution.category}` : "", ...resolution.overlays.map((overlay) => `overlay:${overlay}`)].filter(Boolean))];
+    const labels: string[] = [];
 
     const record = await issueResource?.insert({
-      id: issueId, identifier: issueId, title, description, state, labels, paths, inferredPaths,
-      capabilityCategory: resolution.category, capabilityOverlays: resolution.overlays, capabilityRationale: resolution.rationale,
+      id: issueId, identifier: issueId, title, description, state, labels, paths,
       blockedBy: [], assignedToWorker: false, createdAt: nowIso(), url: `fifony://local/${issueId}`,
       updatedAt: nowIso(), history: [`[${nowIso()}] Issue created via MCP.`], attempts: 0, maxAttempts: 3,
     });
 
-    await appendEvent("info", `Issue ${issueId} created through MCP.`, { title, state, labels, paths, inferredPaths, capabilityCategory: resolution.category }, issueId);
+    await appendEvent("info", `Issue ${issueId} created through MCP.`, { title, state, labels, paths }, issueId);
     return toolText(JSON.stringify(record ?? { id: issueId }, null, 2));
   }
 
@@ -168,13 +161,6 @@ export async function callTool(name: string, args: Record<string, unknown> = {})
   if (name === "fifony.integration_snippet") {
     const integration = typeof args.integration === "string" ? args.integration : "";
     return toolText(await buildIntegrationSnippet(integration, WORKSPACE_ROOT));
-  }
-
-  if (name === "fifony.resolve_capabilities") {
-    const title = typeof args.title === "string" ? args.title : "";
-    const description = typeof args.description === "string" ? args.description : "";
-    const paths = Array.isArray(args.paths) ? args.paths.filter((value): value is string => typeof value === "string") : [];
-    return toolText(JSON.stringify({ inferredPaths: inferCapabilityPaths({ title, description, labels: [], paths }), resolution: resolveTaskCapabilities({ title, description, labels: [], paths }) }, null, 2));
   }
 
   if (name === "fifony.get_issue") {

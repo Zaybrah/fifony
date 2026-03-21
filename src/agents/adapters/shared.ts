@@ -200,7 +200,6 @@ export type ExecutionPayload = {
     role: AgentProviderRole;
     model: string;
     effort: string;
-    capabilityCategory: string;
     overlays: string[];
   };
 
@@ -334,7 +333,6 @@ export function buildExecutionPayload(
       role: provider.role,
       model: provider.model || "default",
       effort: provider.reasoningEffort || "medium",
-      capabilityCategory: provider.capabilityCategory || "",
       overlays: provider.overlays || [],
     },
 

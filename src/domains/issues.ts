@@ -34,15 +34,10 @@ import {
   withRetryBackoff,
 } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
-import {
-  getCapabilityRoutingOptions,
-  applyCapabilityMetadata,
-} from "../agents/providers.ts";
-import { resolveTaskCapabilities } from "../routing/capability-resolver.ts";
 import { parseEffortConfig } from "./config.ts";
 import { computeMetrics as _computeMetrics } from "./metrics.ts";
 
-export { computeMetrics, computeCapabilityCounts } from "./metrics.ts";
+export { computeMetrics } from "./metrics.ts";
 export { deriveConfig, applyWorkflowConfig, validateConfig } from "./config.ts";
 
 export function normalizeIssue(
@@ -64,10 +59,6 @@ export function normalizeIssue(
     assigneeId: toStringValue(raw.assigneeId),
     labels: toStringArray(raw.labels),
     paths: toStringArray(raw.paths),
-    inferredPaths: toStringArray(raw.inferredPaths),
-    capabilityCategory: toStringValue(raw.capabilityCategory),
-    capabilityOverlays: toStringArray(raw.capabilityOverlays),
-    capabilityRationale: toStringArray(raw.capabilityRationale),
     blockedBy: toStringArray(raw.blockedBy),
     assignedToWorker: toBooleanValue(raw.assignedToWorker, true),
     createdAt,
@@ -81,17 +72,6 @@ export function normalizeIssue(
     reviewAttempt: 0,
     planHistory: [],
   };
-
-  if (!issue.capabilityCategory) {
-    applyCapabilityMetadata(issue, resolveTaskCapabilities({
-      id: issue.id,
-      identifier: issue.identifier,
-      title: issue.title,
-      description: issue.description,
-      labels: issue.labels,
-      paths: issue.paths,
-    }, getCapabilityRoutingOptions()));
-  }
 
   return issue;
 }
@@ -133,10 +113,6 @@ export function createIssueFromPayload(
     assigneeId: toStringValue(payload.assigneeId),
     labels: toStringArray(payload.labels),
     paths,
-    inferredPaths: [],
-    capabilityCategory: "",
-    capabilityOverlays: [],
-    capabilityRationale: [],
     blockedBy,
     assignedToWorker: true,
     createdAt,
@@ -164,15 +140,6 @@ export function createIssueFromPayload(
       issue.effort = issue.plan.suggestedEffort;
     }
   }
-
-  applyCapabilityMetadata(issue, resolveTaskCapabilities({
-    id: issue.id,
-    identifier: issue.identifier,
-    title: issue.title,
-    description: issue.description,
-    labels: issue.labels,
-    paths: issue.paths,
-  }, getCapabilityRoutingOptions()));
 
   return issue;
 }
@@ -207,10 +174,7 @@ export function buildRuntimeState(
         description: toStringValue(existing.description, ""),
         state: normalizeState(existing.state, existing.plan ? "PendingApproval" : "Planning"),
         paths: toStringArray(existing.paths),
-        inferredPaths: toStringArray(existing.inferredPaths),
         labels: toStringArray(existing.labels),
-        capabilityOverlays: toStringArray(existing.capabilityOverlays),
-        capabilityRationale: toStringArray(existing.capabilityRationale),
         blockedBy: toStringArray(existing.blockedBy),
         history: Array.isArray(existing.history) ? existing.history : [],
         attempts: clamp(toNumberValue(existing.attempts, 0), 0, config.maxAttemptsDefault),

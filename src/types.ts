@@ -44,10 +44,6 @@ export type IssueEntry = {
   assigneeId?: string;
   labels: string[];
   paths?: string[];
-  inferredPaths?: string[];
-  capabilityCategory?: string;
-  capabilityOverlays?: string[];
-  capabilityRationale?: string[];
   blockedBy: string[];
   assignedToWorker: boolean;
   createdAt: string;
@@ -312,7 +308,6 @@ export type AgentProviderDefinition = {
   profileInstructions: string;
   selectionReason?: string;
   overlays?: string[];
-  capabilityCategory?: string;
   reasoningEffort?: ReasoningEffort;
 };
 

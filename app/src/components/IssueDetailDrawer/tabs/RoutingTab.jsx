@@ -1,7 +1,7 @@
 import React from "react";
-import { GitBranch, Gauge, Folder, ArrowRight, Circle } from "lucide-react";
+import { GitBranch, Folder, ArrowRight, Circle } from "lucide-react";
 import { STATES, ISSUE_STATE_MACHINE } from "../../../utils.js";
-import { Section, Field } from "../shared.jsx";
+import { Section } from "../shared.jsx";
 import { STATE_ICON, STATE_COLOR, STATE_BG } from "../constants.js";
 import { getStateMachineOrder } from "../constants.js";
 
@@ -17,10 +17,6 @@ export function filterPaths(arr) {
 
 export function RoutingTab({ issue }) {
   const paths = filterPaths(issue.paths);
-  const explicitSet = new Set(paths);
-  const inferredPaths = filterPaths(issue.inferredPaths).filter((p) => !explicitSet.has(p));
-  const overlays = Array.isArray(issue.capabilityOverlays) ? issue.capabilityOverlays : [];
-  const rationale = Array.isArray(issue.capabilityRationale) ? issue.capabilityRationale : [];
 
   return (
     <div className="space-y-5">
@@ -54,48 +50,12 @@ export function RoutingTab({ issue }) {
         </div>
       </Section>
 
-      {/* Capability */}
-      <Section title="Capability Routing" icon={Gauge}>
-        <div className="space-y-2">
-          <Field label="Category" value={issue.capabilityCategory || "default"} />
-          {overlays.length > 0 && (
-            <div>
-              <div className="text-xs opacity-50 mb-1">Overlays</div>
-              <div className="flex flex-wrap gap-1">
-                {overlays.map((o) => <span key={o} className="badge badge-xs badge-outline">{o}</span>)}
-              </div>
-            </div>
-          )}
-          {rationale.length > 0 && (
-            <div>
-              <div className="text-xs opacity-50 mb-1">Rationale</div>
-              <ul className="text-xs opacity-70 list-disc ml-4 space-y-0.5">
-                {rationale.map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-      </Section>
-
       {/* Paths */}
-      {(paths.length > 0 || inferredPaths.length > 0) && (
-        <Section title="Paths" icon={Folder} badge={paths.length + inferredPaths.length}>
-          {paths.length > 0 && (
-            <div className="mb-2">
-              <div className="text-xs opacity-50 mb-1">Explicit</div>
-              <div className="space-y-0.5">
-                {paths.map((p) => <div key={p} className="font-mono text-xs truncate">{p}</div>)}
-              </div>
-            </div>
-          )}
-          {inferredPaths.length > 0 && (
-            <div>
-              <div className="text-xs opacity-50 mb-1">Inferred</div>
-              <div className="space-y-0.5">
-                {inferredPaths.map((p) => <div key={p} className="font-mono text-xs truncate opacity-60">{p}</div>)}
-              </div>
-            </div>
-          )}
+      {paths.length > 0 && (
+        <Section title="Paths" icon={Folder} badge={paths.length}>
+          <div className="space-y-0.5">
+            {paths.map((p) => <div key={p} className="font-mono text-xs truncate">{p}</div>)}
+          </div>
         </Section>
       )}
     </div>

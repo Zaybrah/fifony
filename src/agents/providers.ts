@@ -23,11 +23,6 @@ import {
   getNestedString,
 } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
-import {
-  resolveTaskCapabilities,
-  mergeCapabilityProviders,
-  type CapabilityResolverOptions,
-} from "../routing/capability-resolver.ts";
 
 export function resolveAgentProfile(name: string): { profilePath: string; instructions: string } {
   const normalized = name.trim();
@@ -259,52 +254,6 @@ export function getBaseAgentProviders(
   ];
 }
 
-export function getCapabilityRoutingOptions(): CapabilityResolverOptions {
-  // Provider/model/effort overrides from user settings are applied via
-  // applyWorkflowConfigToProviders after capability classification.
-  return { enabled: true, overrides: [] };
-}
-
-export function getCapabilityPriorityMap(): Record<string, number> {
-  return {
-    security: 0,
-    bugfix: 1,
-    backend: 2,
-    devops: 3,
-    "frontend-ui": 4,
-    architecture: 5,
-    documentation: 6,
-    default: 7,
-    "workflow-disabled": 8,
-  };
-}
-
-export function getIssueCapabilityPriority(
-  issue: IssueEntry,
-  _workflowDefinition: null,
-): number {
-  const category = issue.capabilityCategory?.trim() || "default";
-  const priorities = getCapabilityPriorityMap();
-  return priorities[category] ?? 100;
-}
-
-export function applyCapabilityMetadata(
-  issue: IssueEntry,
-  resolution: ReturnType<typeof resolveTaskCapabilities>,
-): void {
-  issue.capabilityCategory = resolution.category;
-  issue.capabilityOverlays = [...resolution.overlays];
-  issue.capabilityRationale = [...resolution.rationale];
-
-  const baseLabels = (issue.labels ?? []).filter((label) => !label.startsWith("capability:") && !label.startsWith("overlay:"));
-  const derivedLabels = [
-    resolution.category ? `capability:${resolution.category}` : "",
-    ...resolution.overlays.map((overlay) => `overlay:${overlay}`),
-  ].filter(Boolean);
-
-  issue.labels = [...new Set([...baseLabels, ...derivedLabels])];
-}
-
 /** Map AgentProviderRole to WorkflowConfig stage key */
 function roleToStageKey(role: AgentProviderRole): keyof WorkflowConfig {
   switch (role) {
@@ -353,42 +302,15 @@ export function getEffectiveAgentProviders(
   workflowConfig?: WorkflowConfig | null,
 ): AgentProviderDefinition[] {
   const baseProviders = getBaseAgentProviders(state);
-  const resolution = resolveTaskCapabilities(
-    {
-      id: issue.id,
-      identifier: issue.identifier,
-      title: issue.title,
-      description: issue.description,
-      labels: issue.labels,
-      paths: issue.paths,
-    },
-    getCapabilityRoutingOptions(),
-  );
-  applyCapabilityMetadata(issue, resolution);
 
-  const merged = mergeCapabilityProviders(baseProviders, resolution).map((provider) => {
-    const resolvedProfile = resolveAgentProfile(provider.profile ?? "");
-    const suggestion = resolution.providers.find(
-      (entry) => entry.provider === provider.provider && entry.role === provider.role,
-    );
-
+  const providers = baseProviders.map((provider) => {
     const effort = resolveEffort(provider.role, issue.effort, state.config.defaultEffort);
-
-    // Keep existing command (effort is metadata, not a CLI flag)
-    const command = provider.command;
-
     return {
       ...provider,
-      command,
-      profilePath: resolvedProfile.profilePath,
-      profileInstructions: resolvedProfile.instructions,
-      selectionReason: suggestion?.reason ?? resolution.rationale.join(" "),
-      overlays: resolution.overlays,
-      capabilityCategory: resolution.category,
       reasoningEffort: effort,
     };
   });
 
   // Apply user's WorkflowConfig overrides (Settings → Workflow)
-  return applyWorkflowConfigToProviders(merged, workflowConfig ?? null);
+  return applyWorkflowConfigToProviders(providers, workflowConfig ?? null);
 }

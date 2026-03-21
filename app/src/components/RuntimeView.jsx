@@ -143,7 +143,6 @@ function AgentSlot({ index, issue, total, workflow }) {
       <div className="text-sm font-medium">{issue.title}</div>
 
       <div className="flex flex-wrap gap-2 text-xs opacity-60">
-        {issue.capabilityCategory && <span className="badge badge-xs badge-ghost">{issue.capabilityCategory}</span>}
         <span>Attempt {(issue.attempts || 0) + 1}/{issue.maxAttempts}</span>
         {issue.startedAt && <span>started {timeAgo(issue.startedAt)}</span>}
       </div>

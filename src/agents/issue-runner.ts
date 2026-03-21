@@ -23,9 +23,8 @@ import { addTokenUsage } from "./directive-parser.ts";
 import { runAgentSession, runAgentPipeline } from "./agent-pipeline.ts";
 import { computeDiffStats } from "../domains/workspace.ts";
 import { runValidationGate } from "../domains/validation.ts";
-import { ensureWorktreeCommitted, hydrateIssuePathsFromWorkspace, describeRoutingSignals } from "../domains/workspace.ts";
+import { ensureWorktreeCommitted, hydrateIssuePathsFromWorkspace } from "../domains/workspace.ts";
 import { prepareWorkspace } from "../domains/workspace.ts";
-import { inferCapabilityPaths } from "../routing/capability-resolver.ts";
 import { getWorkflowConfig, loadRuntimeSettings } from "../persistence/settings.ts";
 import { getContainer } from "../persistence/container.ts";
 import { transitionIssueCommand } from "../commands/transition-issue.command.ts";
@@ -231,12 +230,7 @@ async function handleExecutionStage(
   container.issueRepository.markDirty(issue.id);
 
   container.eventStore.addEvent(issue.id, "info",
-    `Capability routing selected ${routedProviders.map((p) => `${p.role}:${p.provider}${p.model ? `/${p.model}` : ""}${p.profile ? `:${p.profile}` : ""}${p.reasoningEffort ? ` [${p.reasoningEffort}]` : ""}`).join(", ")}.`);
-
-  const routingSignals = describeRoutingSignals(issue, workspaceDerivedPaths);
-  if (routingSignals) {
-    container.eventStore.addEvent(issue.id, "info", `Capability routing signals: ${routingSignals}.`);
-  }
+    `Agent providers: ${routedProviders.map((p) => `${p.role}:${p.provider}${p.model ? `/${p.model}` : ""}${p.reasoningEffort ? ` [${p.reasoningEffort}]` : ""}`).join(", ")}.`);
 
   const runResult = await runAgentPipeline(state, issue, workspacePath, promptText, promptFile, workflowConfig);
 
@@ -351,16 +345,6 @@ export async function runIssueOnce(
 
   try {
     const workspaceDerivedPaths = hydrateIssuePathsFromWorkspace(issue);
-    if ((issue.paths ?? []).length > 0) {
-      issue.inferredPaths = [...new Set([...(issue.inferredPaths ?? []), ...inferCapabilityPaths({
-        id: issue.id,
-        identifier: issue.identifier,
-        title: issue.title,
-        description: issue.description,
-        labels: issue.labels,
-        paths: issue.paths,
-      })])];
-    }
 
     const { workspacePath, promptText, promptFile } = await prepareWorkspace(issue, state, state.config.defaultBranch);
     container.issueRepository.markDirty(issue.id);

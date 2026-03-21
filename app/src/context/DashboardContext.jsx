@@ -14,7 +14,6 @@ import {
   useUiSetting,
   getSettingsList,
   SETTING_ID_UI_ISSUES_STATE_FILTER,
-  SETTING_ID_UI_ISSUES_CATEGORY_FILTER,
   SETTING_ID_UI_ISSUES_COMPLETION_FILTER,
   SETTING_ID_UI_EVENTS_KIND,
   SETTING_ID_UI_EVENTS_ISSUE_ID,
@@ -41,11 +40,8 @@ export function DashboardProvider({ children }) {
     "all",
     { normalize: (value) => (value === "all" || STATES.includes(value) ? value : "all") },
   );
-  const [categoryFilter, setCategoryFilter] = useUiSetting(
-    SETTING_ID_UI_ISSUES_CATEGORY_FILTER,
-    "all",
-    { normalize: (value) => (typeof value === "string" && value.trim() ? value : "all") },
-  );
+  const categoryFilter = "all";
+  const setCategoryFilter = () => {};
   const [completionFilter, setCompletionFilter] = useUiSetting(
     SETTING_ID_UI_ISSUES_COMPLETION_FILTER,
     "recent",
@@ -113,24 +109,14 @@ export function DashboardProvider({ children }) {
     const q = query.toLowerCase();
     return issues.filter((i) => {
       if (stateFilter !== "all" && i.state !== stateFilter) return false;
-      if (categoryFilter !== "all" && (i.capabilityCategory || "default") !== categoryFilter) return false;
       if (q && !`${i.identifier} ${i.title} ${i.description || ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [issues, stateFilter, categoryFilter, query]);
+  }, [issues, stateFilter, query]);
 
-  const categoryOptions = useMemo(() => {
-    const cats = new Set(issues.map((i) => i.capabilityCategory).filter(Boolean));
-    return ["all", ...[...cats].sort()];
-  }, [issues]);
+  const categoryOptions = useMemo(() => ["all"], []);
 
   const issueOptions = useMemo(() => [...new Set(issues.map((i) => i.id))].sort(), [issues]);
-
-  useEffect(() => {
-    if (categoryFilter !== "all" && !categoryOptions.includes(categoryFilter)) {
-      setCategoryFilter("all");
-    }
-  }, [categoryFilter, categoryOptions, setCategoryFilter]);
 
   useEffect(() => {
     if (eventIssueId !== "all" && !issueOptions.includes(eventIssueId)) {

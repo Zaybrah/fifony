@@ -161,10 +161,6 @@ export default {
     assigneeId: "string|optional",
     labels: "json|required",
     paths: "json|optional",
-    inferredPaths: "json|optional",
-    capabilityCategory: "string|optional",
-    capabilityOverlays: "json|optional",
-    capabilityRationale: "json|optional",
     blockedBy: "json|required",
     assignedToWorker: "boolean|required",
     createdAt: "datetime|required",
@@ -212,10 +208,6 @@ export default {
   },
   partitions: {
     byState: { fields: { state: "string" } },
-    byCapabilityCategory: { fields: { capabilityCategory: "string" } },
-    byStateAndCapability: {
-      fields: { state: "string", capabilityCategory: "string" },
-    },
     byTerminalWeek: { fields: { terminalWeek: "string" } },
   },
   asyncPartitions: true,

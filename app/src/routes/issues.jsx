@@ -62,7 +62,7 @@ function IssuesPage() {
     });
   };
 
-  const hasFilters = activeStates.size > 0 || ctx.categoryFilter !== "all" || ctx.completionFilter !== "recent" || ctx.query.length > 0;
+  const hasFilters = activeStates.size > 0 || ctx.completionFilter !== "recent" || ctx.query.length > 0;
   const hiddenCount = (ctx.data._totalIssues ?? 0) - (ctx.issues.length ?? 0);
 
   const stateCounts = {};
@@ -76,14 +76,13 @@ function IssuesPage() {
     return ctx.issues.filter((i) => {
       if (i.state === "Archived") return false;
       if (activeStates.size > 0 && !activeStates.has(i.state)) return false;
-      if (ctx.categoryFilter !== "all" && (i.capabilityCategory || "default") !== ctx.categoryFilter) return false;
       if (q) {
-        const haystack = `${i.identifier} ${i.title} ${i.description || ""} ${i.issueType || ""} ${i.capabilityCategory || ""}`.toLowerCase();
+        const haystack = `${i.identifier} ${i.title} ${i.description || ""} ${i.issueType || ""}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
     });
-  }, [ctx.issues, activeStates, ctx.categoryFilter, ctx.query]);
+  }, [ctx.issues, activeStates, ctx.query]);
 
   // Sort
   const sortedIssues = useMemo(() => {
@@ -105,12 +104,11 @@ function IssuesPage() {
   const clearAll = () => {
     ctx.setQuery("");
     setActiveStates(new Set());
-    ctx.setCategoryFilter("all");
     ctx.setCompletionFilter("recent");
     setSortBy("updated");
   };
 
-  const activeFilterCount = (activeStates.size > 0 ? 1 : 0) + (ctx.categoryFilter !== "all" ? 1 : 0) + (ctx.completionFilter !== "recent" ? 1 : 0);
+  const activeFilterCount = (activeStates.size > 0 ? 1 : 0) + (ctx.completionFilter !== "recent" ? 1 : 0);
 
   // Jira CSV state mapping
   const JIRA_STATE = {
@@ -258,23 +256,8 @@ function IssuesPage() {
               </div>
             </div>
 
-            {/* Category + Completion row */}
+            {/* Completion row */}
             <div className="flex flex-wrap gap-4">
-              {ctx.categoryOptions.length > 2 && (
-                <div>
-                  <div className="text-xs font-semibold opacity-50 mb-1.5">Capability</div>
-                  <select
-                    className="select select-bordered select-sm"
-                    value={ctx.categoryFilter}
-                    onChange={(e) => ctx.setCategoryFilter(e.target.value)}
-                  >
-                    {ctx.categoryOptions.map((c) => (
-                      <option key={c} value={c}>{c === "all" ? "All capabilities" : c}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
               <div>
                 <div className="text-xs font-semibold opacity-50 mb-1.5">Show</div>
                 <select
@@ -308,12 +291,6 @@ function IssuesPage() {
               <span className="badge badge-sm badge-primary gap-1">
                 {activeStates.size} state{activeStates.size > 1 ? "s" : ""}
                 <button className="ml-0.5" onClick={() => setActiveStates(new Set())}><X className="size-2.5" /></button>
-              </span>
-            )}
-            {ctx.categoryFilter !== "all" && (
-              <span className="badge badge-sm badge-outline gap-1">
-                {ctx.categoryFilter}
-                <button className="ml-0.5" onClick={() => ctx.setCategoryFilter("all")}><X className="size-2.5" /></button>
               </span>
             )}
             {ctx.completionFilter !== "recent" && (

@@ -89,11 +89,3 @@ export function computeMetrics(issues: IssueEntry[]): RuntimeMetrics {
     slowestCompletionMs: sortedCompletionTimes[sortedCompletionTimes.length - 1]!,
   };
 }
-
-export function computeCapabilityCounts(issues: IssueEntry[]): Record<string, number> {
-  return issues.reduce<Record<string, number>>((accumulator, issue) => {
-    const key = issue.capabilityCategory?.trim() || "default";
-    accumulator[key] = (accumulator[key] ?? 0) + 1;
-    return accumulator;
-  }, {});
-}

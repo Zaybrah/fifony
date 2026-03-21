@@ -1,6 +1,5 @@
 import { renderPrompt } from "../../agents/prompting.js";
 import { buildIntegrationSnippet } from "../../agents/integrations/catalog.js";
-import { resolveTaskCapabilities } from "../../routing/capability-resolver.js";
 import { getIssue, getIssues, listEvents, WORKSPACE_ROOT } from "../database.js";
 import { apiGet, apiPost } from "../api-client.js";
 import { buildIntegrationGuide, buildIssuePrompt } from "../resources/resource-builder.js";
@@ -44,25 +43,6 @@ export async function getPrompt(name: string, args: Record<string, unknown> = {}
       messages: [{
         role: "user",
         content: { type: "text", text: await buildIntegrationSnippet(integration, WORKSPACE_ROOT) },
-      }],
-    };
-  }
-
-  if (name === "fifony-route-task") {
-    const title = typeof args.title === "string" ? args.title : "";
-    const description = typeof args.description === "string" ? args.description : "";
-    const paths = typeof args.paths === "string" ? args.paths.split(",").map((value) => value.trim()).filter(Boolean) : [];
-    const resolution = resolveTaskCapabilities({ title, description, labels: [], paths });
-    return {
-      description: "Task routing prompt produced by the Fifony capability resolver.",
-      messages: [{
-        role: "user",
-        content: {
-          type: "text",
-          text: await renderPrompt("mcp-route-task", {
-            resolutionJson: JSON.stringify(resolution, null, 2),
-          }),
-        },
       }],
     };
   }

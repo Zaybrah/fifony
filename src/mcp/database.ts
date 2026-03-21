@@ -159,10 +159,6 @@ export async function initDatabase(): Promise<S3dbDatabase> {
       branchName: "string|optional",
       labels: "json|required",
       paths: "json|optional",
-      inferredPaths: "json|optional",
-      capabilityCategory: "string|optional",
-      capabilityOverlays: "json|optional",
-      capabilityRationale: "json|optional",
       blockedBy: "json|required",
       assignedToWorker: "boolean|required",
       createdAt: "datetime|required",
@@ -184,10 +180,6 @@ export async function initDatabase(): Promise<S3dbDatabase> {
     },
     partitions: {
       byState: { fields: { state: "string" } },
-      byCapabilityCategory: { fields: { capabilityCategory: "string" } },
-      byStateAndCapability: {
-        fields: { state: "string", capabilityCategory: "string" },
-      },
     },
     asyncPartitions: true,
   });
@@ -262,22 +254,14 @@ export async function listRecords(resource: S3dbResource | null, limit: number =
   return await resource.list({ limit });
 }
 
-export async function listIssues(filters: { state?: string; capabilityCategory?: string } = {}): Promise<IssueRecord[]> {
+export async function listIssues(filters: { state?: string } = {}): Promise<IssueRecord[]> {
   await initDatabase();
-  const { state, capabilityCategory } = filters;
+  const { state } = filters;
 
   if (!issueResource) return [];
 
-  const partition = state && capabilityCategory
-    ? "byStateAndCapability"
-    : state ? "byState"
-    : capabilityCategory ? "byCapabilityCategory"
-    : null;
-  const partitionValues = state && capabilityCategory
-    ? { state, capabilityCategory }
-    : state ? { state }
-    : capabilityCategory ? { capabilityCategory }
-    : {};
+  const partition = state ? "byState" : null;
+  const partitionValues = state ? { state } : {};
 
   const records = await issueResource.list({ partition, partitionValues, limit: 500 });
   return records.map((record) => record as IssueRecord);

@@ -25,7 +25,6 @@ import {
 import { logger } from "../concerns/logger.ts";
 import { runHook } from "../agents/command-executor.ts";
 import { buildPrompt } from "../agents/prompt-builder.ts";
-import { inferCapabilityPaths } from "../routing/capability-resolver.ts";
 
 // ── Source bootstrap ────────────────────────────────────────────────────────
 
@@ -647,25 +646,7 @@ export function hydrateIssuePathsFromWorkspace(issue: IssueEntry): string[] {
   const inferredPaths = inferChangedWorkspacePaths(issue.workspacePath ?? "", 32, issue);
   if (inferredPaths.length === 0) return [];
   issue.paths = [...new Set([...(issue.paths ?? []), ...inferredPaths])];
-  issue.inferredPaths = [...new Set([...(issue.inferredPaths ?? []), ...inferredPaths])];
   return inferredPaths;
-}
-
-export function describeRoutingSignals(issue: IssueEntry, workspaceDerivedPaths: string[]): string {
-  const explicitPaths = issue.paths ?? [];
-  const textDerivedPaths = inferCapabilityPaths({
-    id: issue.id,
-    identifier: issue.identifier,
-    title: issue.title,
-    description: issue.description,
-    labels: issue.labels,
-  }).filter((path) => !explicitPaths.includes(path));
-
-  const parts: string[] = [];
-  if (explicitPaths.length > 0) parts.push(`payload paths=${explicitPaths.join(", ")}`);
-  if (textDerivedPaths.length > 0) parts.push(`text hints=${textDerivedPaths.join(", ")}`);
-  if (workspaceDerivedPaths.length > 0) parts.push(`workspace diff=${workspaceDerivedPaths.join(", ")}`);
-  return parts.join(" | ");
 }
 
 /** Write versioned review artifacts to workspace (also used for execute artifacts). */

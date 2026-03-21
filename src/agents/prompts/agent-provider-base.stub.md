@@ -43,14 +43,6 @@ Prefer stronger hierarchy, spacing, and readability decisions over generic imple
 {{skillContext}}
 {{/if}}
 
-{{#if capabilityCategory}}
-Capability routing: {{capabilityCategory}}.
-Selection reason: {{selectionReason}}
-{{#if overlays.length}}
-Overlays: {{overlays | join ", "}}.
-{{/if}}
-{{/if}}
-
 {{#if targetPaths.length}}
 Target paths: {{targetPaths | join ", "}}
 {{/if}}
