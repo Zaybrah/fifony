@@ -69,13 +69,16 @@ stateDiagram-v2
     Blocked --> Planning: REPLAN
 
     Merged --> Planning: REOPEN
+    Merged --> Archived: ARCHIVE
 
     Planning --> Cancelled: CANCEL
     PendingApproval --> Cancelled: CANCEL
     PendingDecision --> Cancelled: CANCEL
     Blocked --> Cancelled: CANCEL
     Cancelled --> Planning: REOPEN
+    Cancelled --> Archived: ARCHIVE
 
+    Archived --> [*]
     Merged --> [*]
     Cancelled --> [*]
 
@@ -88,6 +91,7 @@ stateDiagram-v2
     class Merged merged
     class Blocked blocked
     class Cancelled cancelled
+    class Archived cancelled
 ```
 
 | Step | Who | State | What happens |

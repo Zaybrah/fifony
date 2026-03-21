@@ -103,12 +103,13 @@ export const ALLOWED_STATES: IssueState[] = [
   "Approved",
   "Merged",
   "Cancelled",
+  "Archived",
 ];
 
 /** Truly final — workspace can be cleaned, no more work expected. */
-export const TERMINAL_STATES = new Set<IssueState>(["Merged", "Cancelled"]);
+export const TERMINAL_STATES = new Set<IssueState>(["Merged", "Cancelled", "Archived"]);
 /** Approved or final — no more automated work, but merge may still be pending. */
-export const COMPLETED_STATES = new Set<IssueState>(["Approved", "Merged", "Cancelled"]);
+export const COMPLETED_STATES = new Set<IssueState>(["Approved", "Merged", "Cancelled", "Archived"]);
 export const EXECUTING_STATES = new Set<IssueState>(["Running", "Reviewing"]);
 export const PERSIST_EVENTS_MAX = 500;
 

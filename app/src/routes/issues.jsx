@@ -74,6 +74,7 @@ function IssuesPage() {
   const filtered = useMemo(() => {
     const q = ctx.query.toLowerCase();
     return ctx.issues.filter((i) => {
+      if (i.state === "Archived") return false;
       if (activeStates.size > 0 && !activeStates.has(i.state)) return false;
       if (ctx.categoryFilter !== "all" && (i.capabilityCategory || "default") !== ctx.categoryFilter) return false;
       if (q) {

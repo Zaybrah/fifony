@@ -31,6 +31,7 @@ const PLANNING_STATES = new Set(["Planning"]);
 const NEEDS_APPROVAL_STATES = new Set(["PendingApproval", "PendingDecision"]);
 const IN_PROGRESS_STATES = new Set(["Queued", "Running", "Reviewing"]);
 const DONE_STATES = new Set(["Approved", "Merged", "Cancelled"]);
+const HIDDEN_STATES = new Set(["Archived"]);
 
 const COLUMN_BADGE = {
   Planning: "badge-info",
@@ -431,6 +432,7 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, 
   const grouped = useMemo(() => {
     const buckets = Object.fromEntries(COLUMNS.map((c) => [c, []]));
     for (const issue of issues) {
+      if (HIDDEN_STATES.has(issue.state)) continue;
       let col;
       if (PLANNING_STATES.has(issue.state)) col = "Planning";
       else if (NEEDS_APPROVAL_STATES.has(issue.state)) col = "Needs Approval";

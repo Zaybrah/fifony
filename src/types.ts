@@ -10,7 +10,8 @@ export type IssueState =
   | "Blocked"
   | "Approved"
   | "Merged"
-  | "Cancelled";
+  | "Cancelled"
+  | "Archived";
 
 export type RuntimeEventType =
   | "info"

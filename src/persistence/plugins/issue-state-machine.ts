@@ -125,14 +125,19 @@ export const issueStateMachineConfig = {
           entry: "onEnterApproved",
         },
         Merged: {
-          on: { REOPEN: "Planning" },
+          on: { ARCHIVE: "Archived", REOPEN: "Planning" },
           type: "final" as const,
           entry: "onEnterMerged",
         },
         Cancelled: {
-          on: { REOPEN: "Planning" },
+          on: { ARCHIVE: "Archived", REOPEN: "Planning" },
           type: "final" as const,
           entry: "onEnterCancelled",
+        },
+        Archived: {
+          on: {},
+          type: "final" as const,
+          entry: "onEnterArchived",
         },
       },
     },
@@ -330,6 +335,13 @@ export const issueStateMachineConfig = {
         }).catch(() => {});
       }
     },
+
+    onEnterArchived: async (context: Record<string, unknown>, _event: string, _machine: Machine) => {
+      const issue = resolveIssue(context);
+      if (issue) {
+        emitFsmEvent(issue.id, "state", `${issue.identifier} archived.`);
+      }
+    },
   },
 
   // ── Guards: (context, event, machine) ───────────────────────────────────
@@ -357,6 +369,7 @@ const EVENT_TO_STATE: Record<string, IssueState> = {
   REPLAN: "Planning",
   REQUEUE: "Queued",
   REOPEN: "Planning",
+  ARCHIVE: "Archived",
 };
 
 export function eventToTargetState(event: string): IssueState | undefined {
