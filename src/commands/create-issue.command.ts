@@ -1,6 +1,7 @@
 import type { IssueEntry, JsonRecord, RuntimeState } from "../types.ts";
-import type { IIssueRepository, IQueuePort, IEventStore, IPersistencePort } from "../ports/index.ts";
+import type { IIssueRepository, IEventStore, IPersistencePort } from "../ports/index.ts";
 import { createIssueFromPayload } from "../domains/issues.ts";
+import { enqueue } from "../persistence/plugins/queue-workers.ts";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import { ATTACHMENTS_ROOT } from "../concerns/constants.ts";
@@ -19,7 +20,6 @@ export async function createIssueCommand(
   deps: {
     issueRepository: IIssueRepository;
     eventStore: IEventStore;
-    queuePort: IQueuePort;
     persistencePort: IPersistencePort;
   },
 ): Promise<CreateIssueResult> {
@@ -54,11 +54,11 @@ export async function createIssueCommand(
 
   // Enqueue based on initial state
   if (issue.state === "Planning") {
-    deps.queuePort.enqueue(issue, "plan").catch(() => {});
+    enqueue(issue, "plan").catch(() => {});
   } else if (issue.state === "Queued" || issue.state === "Running") {
-    deps.queuePort.enqueue(issue, "execute").catch(() => {});
+    enqueue(issue, "execute").catch(() => {});
   } else if (issue.state === "Reviewing") {
-    deps.queuePort.enqueue(issue, "review").catch(() => {});
+    enqueue(issue, "review").catch(() => {});
   }
 
   return { issue };

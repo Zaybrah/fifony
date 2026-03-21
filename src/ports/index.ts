@@ -1,4 +1,5 @@
-import type { IssueEntry, RuntimeEvent, RuntimeEventType, RuntimeState } from "../types.ts";
+import type { RuntimeEvent, RuntimeEventType, RuntimeState } from "../types.ts";
+import type { IssueEntry } from "../types.ts";
 
 export type IIssueRepository = {
   findById(id: string): IssueEntry | undefined;
@@ -10,13 +11,6 @@ export type IIssueRepository = {
 export type IEventStore = {
   addEvent(issueId: string | undefined, kind: RuntimeEventType, message: string): void;
   listEvents(filters?: { issueId?: string; kind?: string; since?: string }): Promise<RuntimeEvent[]>;
-};
-
-export type JobType = "plan" | "execute" | "review";
-
-export type IQueuePort = {
-  enqueue(issue: IssueEntry, job: JobType): Promise<void>;
-  isActive(): boolean;
 };
 
 export type IPersistencePort = {
