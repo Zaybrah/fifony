@@ -297,24 +297,25 @@ export const issueStateMachineConfig = {
       }
       const res = issueResource(machine);
       if (res) {
-        res.patch(machine.entityId, {
+        // EC tracks diff stats via patch interception. To ensure the EC sees a real
+        // delta (not 0→0 if dirty flush already persisted the same values), we first
+        // reset the churn fields to 0, then patch with the real values.
+        const churnAdded = issue?.linesAdded ?? 0;
+        const churnRemoved = issue?.linesRemoved ?? 0;
+        const churnFiles = issue?.filesChanged ?? 0;
+        if (churnAdded || churnRemoved || churnFiles) {
+          await res.patch(machine.entityId, { linesAdded: 0, linesRemoved: 0, filesChanged: 0 }).catch(() => {});
+        }
+
+        await res.patch(machine.entityId, {
           completedAt: ts, terminalWeek: week, mergedAt: issue?.mergedAt ?? ts,
           nextRetryAt: undefined, lastError: undefined,
-          linesAdded: issue?.linesAdded, linesRemoved: issue?.linesRemoved, filesChanged: issue?.filesChanged,
+          linesAdded: churnAdded, linesRemoved: churnRemoved, filesChanged: churnFiles,
           branchName: issue?.branchName, workspacePath: issue?.workspacePath, worktreePath: issue?.worktreePath,
         }).catch(() => {});
 
-        // EC: add() raw diff stats at merge time (the moment code churn is finalized)
-        const add = (res as any).add;
-        if (typeof add === "function" && issue) {
-          try {
-            if (issue.linesAdded)   await add.call(res, machine.entityId, "linesAdded", issue.linesAdded);
-            if (issue.linesRemoved) await add.call(res, machine.entityId, "linesRemoved", issue.linesRemoved);
-            if (issue.filesChanged) await add.call(res, machine.entityId, "filesChanged", issue.filesChanged);
-            logger.info({ issueId: issue.id, linesAdded: issue.linesAdded, linesRemoved: issue.linesRemoved, filesChanged: issue.filesChanged }, "[FSM] EC add() for diff stats on merge");
-          } catch (err) {
-            logger.warn({ err: String(err), issueId: issue?.id }, "[FSM] EC add() failed for diff stats");
-          }
+        if (churnAdded || churnRemoved || churnFiles) {
+          logger.info({ issueId: issue?.id, linesAdded: churnAdded, linesRemoved: churnRemoved, filesChanged: churnFiles }, "[FSM] EC diff stats patched on merge (reset→set for delta tracking)");
         }
       }
     },

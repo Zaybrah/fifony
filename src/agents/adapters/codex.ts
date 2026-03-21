@@ -26,7 +26,7 @@ Return a JSON object with this exact schema when finished:
 // ── Command builder ───────────────────────────────────────────────────────────
 
 export function buildCodexCommand(options: ProviderCommandOptions): string {
-  const parts = ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"];
+  const parts = ["codex", "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox"];
 
   if (options.model && options.model !== "codex") {
     parts.push(`--model ${options.model}`);
