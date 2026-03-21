@@ -65,9 +65,8 @@ export async function runPlanningJob(
     markIssuePlanDirty(issue.id);
     issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
 
-    // Apply plan suggestions (paths, labels, effort)
+    // Apply plan suggestions (paths, effort)
     if (plan.suggestedPaths?.length && !(issue.paths?.length)) issue.paths = plan.suggestedPaths;
-    if (plan.suggestedLabels?.length && !issue.labels?.length) issue.labels = plan.suggestedLabels;
     if (plan.suggestedEffort && !issue.effort) issue.effort = plan.suggestedEffort;
 
     // Apply token usage

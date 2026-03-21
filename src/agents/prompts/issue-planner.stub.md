@@ -35,7 +35,6 @@ Quality rules:
 - Identify assumptions, constraints, unknowns, and risks.
 - For unknowns, specify what question needs answering and how to resolve it.
 - Suggest file paths that are likely relevant to the changes.
-- Suggest labels: bug, feature, frontend, backend, docs, refactor, security, performance, etc.
 
 Complexity estimation:
 - trivial: < 5 min, single-file cosmetic change

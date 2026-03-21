@@ -57,7 +57,6 @@ function GridIssueCard({ issue, onSelect }) {
   const isRunning = issue.state === "Running";
   const tokenDisplay = formatTokens(issue.tokenUsage?.totalTokens);
   const description = issue.description || "";
-  const labels = (issue.labels || []).filter((l) => !l.startsWith("capability:") && !l.startsWith("overlay:"));
   const { leadTimeMs, cycleTimeMs, waitTimeMs } = computeMetrics(issue);
   const isDone = issue.state === "Approved" || issue.state === "Cancelled";
 
@@ -92,18 +91,12 @@ function GridIssueCard({ issue, onSelect }) {
           )}
         </div>
 
-        {/* Labels */}
-        {(labels.length > 0 || issue.capabilityCategory) && (
+        {/* Capability */}
+        {issue.capabilityCategory && (
           <div className="flex flex-wrap gap-1">
-            {issue.capabilityCategory && (
-              <span className="badge badge-xs badge-outline">
-                <Layers className="size-2.5 mr-0.5" />{issue.capabilityCategory}
-              </span>
-            )}
-            {labels.slice(0, 3).map((label) => (
-              <span key={label} className="badge badge-xs badge-ghost">{label}</span>
-            ))}
-            {labels.length > 3 && <span className="badge badge-xs badge-ghost opacity-40">+{labels.length - 3}</span>}
+            <span className="badge badge-xs badge-outline">
+              <Layers className="size-2.5 mr-0.5" />{issue.capabilityCategory}
+            </span>
           </div>
         )}
 

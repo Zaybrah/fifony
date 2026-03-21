@@ -1,11 +1,10 @@
 import React from "react";
-import { Tag, Ban, Layers, Wrench, RotateCcw, XCircle, Circle, GitMerge, AlertOctagon } from "lucide-react";
+import { Ban, Layers, Wrench, RotateCcw, XCircle, Circle, GitMerge, AlertOctagon } from "lucide-react";
 import { getIssueTransitions, formatDate, formatDuration } from "../../../utils.js";
 import { Section, Field } from "../shared.jsx";
 import { STATE_ICON, STATE_BTN } from "../constants.js";
 
 export function OverviewTab({ issue, onStateChange, onRetry, onCancel }) {
-  const labels = Array.isArray(issue.labels) ? issue.labels : [];
   const blockedBy = Array.isArray(issue.blockedBy) ? issue.blockedBy : [];
   const transitions = getIssueTransitions(issue.state);
   const nextStates = transitions.filter((s) => s !== issue.state);
@@ -53,15 +52,6 @@ export function OverviewTab({ issue, onStateChange, onRetry, onCancel }) {
           )}
         </div>
       </Section>
-
-      {/* Labels */}
-      {labels.length > 0 && (
-        <Section title="Labels" icon={Tag} badge={labels.length}>
-          <div className="flex flex-wrap gap-1.5">
-            {labels.map((l) => <span key={l} className="badge badge-sm badge-outline">{l}</span>)}
-          </div>
-        </Section>
-      )}
 
       {/* Dependencies */}
       {blockedBy.length > 0 && (

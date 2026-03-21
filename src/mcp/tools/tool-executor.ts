@@ -45,11 +45,10 @@ export async function callTool(name: string, args: Record<string, unknown> = {})
     const issueId = explicitId || `LOCAL-${hashInput(`${title}:${nowIso()}`)}`.toUpperCase();
     const description = typeof args.description === "string" ? args.description : "";
     const state = parseIssueState(args.state) ?? "Planning";
-    const baseLabels = Array.isArray(args.labels) ? args.labels.filter((value): value is string => typeof value === "string") : ["fifony", "mcp"];
     const paths = Array.isArray(args.paths) ? args.paths.filter((value): value is string => typeof value === "string") : [];
-    const inferredPaths = inferCapabilityPaths({ id: issueId, identifier: issueId, title, description, labels: baseLabels, paths });
-    const resolution = resolveTaskCapabilities({ id: issueId, identifier: issueId, title, description, labels: baseLabels, paths });
-    const labels = [...new Set([...baseLabels, resolution.category ? `capability:${resolution.category}` : "", ...resolution.overlays.map((overlay) => `overlay:${overlay}`)].filter(Boolean))];
+    const inferredPaths = inferCapabilityPaths({ id: issueId, identifier: issueId, title, description, labels: [], paths });
+    const resolution = resolveTaskCapabilities({ id: issueId, identifier: issueId, title, description, labels: [], paths });
+    const labels = [...new Set([resolution.category ? `capability:${resolution.category}` : "", ...resolution.overlays.map((overlay) => `overlay:${overlay}`)].filter(Boolean))];
 
     const record = await issueResource?.insert({
       id: issueId, identifier: issueId, title, description, state, labels, paths, inferredPaths,
@@ -174,9 +173,8 @@ export async function callTool(name: string, args: Record<string, unknown> = {})
   if (name === "fifony.resolve_capabilities") {
     const title = typeof args.title === "string" ? args.title : "";
     const description = typeof args.description === "string" ? args.description : "";
-    const labels = Array.isArray(args.labels) ? args.labels.filter((value): value is string => typeof value === "string") : [];
     const paths = Array.isArray(args.paths) ? args.paths.filter((value): value is string => typeof value === "string") : [];
-    return toolText(JSON.stringify({ inferredPaths: inferCapabilityPaths({ title, description, labels, paths }), resolution: resolveTaskCapabilities({ title, description, labels, paths }) }, null, 2));
+    return toolText(JSON.stringify({ inferredPaths: inferCapabilityPaths({ title, description, labels: [], paths }), resolution: resolveTaskCapabilities({ title, description, labels: [], paths }) }, null, 2));
   }
 
   if (name === "fifony.get_issue") {

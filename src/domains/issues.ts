@@ -160,9 +160,6 @@ export function createIssueFromPayload(
     if (issue.plan.suggestedPaths?.length && !issue.paths?.length) {
       issue.paths = issue.plan.suggestedPaths;
     }
-    if (issue.plan.suggestedLabels?.length && !issue.labels?.length) {
-      issue.labels = issue.plan.suggestedLabels;
-    }
     if (issue.plan.suggestedEffort && !issue.effort) {
       issue.effort = issue.plan.suggestedEffort;
     }

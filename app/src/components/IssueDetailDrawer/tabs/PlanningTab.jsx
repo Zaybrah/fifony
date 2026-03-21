@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   AlertTriangle, RotateCcw, Zap, Loader, MessageSquare, SlidersHorizontal,
-  CheckCircle2, Info, Layers, ListOrdered, Folder, Tag, ChevronDown,
+  CheckCircle2, Info, Layers, ListOrdered, Folder, ChevronDown,
 } from "lucide-react";
 import { api } from "../../../api.js";
 import { timeAgo, formatDuration } from "../../../utils.js";
@@ -345,15 +345,6 @@ export function PlanningTab({ issue, onStateChange, workflowConfig }) {
         <Section title="Suggested Paths" icon={Folder}>
           <div className="flex flex-wrap gap-1">
             {plan.suggestedPaths.map((p) => <span key={p} className="badge badge-sm badge-ghost font-mono">{p}</span>)}
-          </div>
-        </Section>
-      )}
-
-      {/* Suggested labels */}
-      {plan.suggestedLabels?.length > 0 && (
-        <Section title="Suggested Labels" icon={Tag}>
-          <div className="flex flex-wrap gap-1">
-            {plan.suggestedLabels.map((l) => <span key={l} className="badge badge-sm badge-outline">{l}</span>)}
           </div>
         </Section>
       )}

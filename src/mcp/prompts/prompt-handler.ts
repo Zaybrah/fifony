@@ -51,9 +51,8 @@ export async function getPrompt(name: string, args: Record<string, unknown> = {}
   if (name === "fifony-route-task") {
     const title = typeof args.title === "string" ? args.title : "";
     const description = typeof args.description === "string" ? args.description : "";
-    const labels = typeof args.labels === "string" ? args.labels.split(",").map((label) => label.trim()).filter(Boolean) : [];
     const paths = typeof args.paths === "string" ? args.paths.split(",").map((value) => value.trim()).filter(Boolean) : [];
-    const resolution = resolveTaskCapabilities({ title, description, labels, paths });
+    const resolution = resolveTaskCapabilities({ title, description, labels: [], paths });
     return {
       description: "Task routing prompt produced by the Fifony capability resolver.",
       messages: [{

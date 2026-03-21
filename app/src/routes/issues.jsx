@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useDashboard } from "../context/DashboardContext";
 import ListView from "../components/ListView";
-import { Search, X, Filter, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Search, X, Filter, SlidersHorizontal, Download } from "lucide-react";
+import { useMemo, useState, useCallback } from "react";
 
 const STATE_GROUPS = [
   { label: "Active", states: ["Planning", "PendingApproval", "Queued", "Running"] },
@@ -78,7 +78,7 @@ function IssuesPage() {
       if (activeStates.size > 0 && !activeStates.has(i.state)) return false;
       if (ctx.categoryFilter !== "all" && (i.capabilityCategory || "default") !== ctx.categoryFilter) return false;
       if (q) {
-        const haystack = `${i.identifier} ${i.title} ${i.description || ""} ${(i.labels || []).join(" ")} ${i.issueType || ""} ${i.capabilityCategory || ""}`.toLowerCase();
+        const haystack = `${i.identifier} ${i.title} ${i.description || ""} ${i.issueType || ""} ${i.capabilityCategory || ""}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
@@ -112,6 +112,44 @@ function IssuesPage() {
 
   const activeFilterCount = (activeStates.size > 0 ? 1 : 0) + (ctx.categoryFilter !== "all" ? 1 : 0) + (ctx.completionFilter !== "recent" ? 1 : 0);
 
+  // Jira CSV state mapping
+  const JIRA_STATE = {
+    Planning: "To Do", PendingApproval: "To Do", Queued: "To Do",
+    Running: "In Progress", Reviewing: "In Progress",
+    PendingDecision: "In Review", Blocked: "Blocked",
+    Approved: "Done", Merged: "Done", Cancelled: "Cancelled",
+  };
+
+  const JIRA_TYPE = {
+    bug: "Bug", feature: "Story", refactor: "Task", docs: "Task", chore: "Task",
+  };
+
+  const exportCsv = useCallback(() => {
+    const esc = (v) => {
+      const s = String(v ?? "").replace(/"/g, '""');
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s}"` : s;
+    };
+
+    const headers = ["Summary", "Issue Type", "Status", "Description", "Created", "Updated"];
+    const rows = sortedIssues.map((i) => [
+      esc(i.title),
+      esc(JIRA_TYPE[i.issueType] || "Task"),
+      esc(JIRA_STATE[i.state] || "To Do"),
+      esc(i.description),
+      esc(i.createdAt?.slice(0, 10)),
+      esc(i.updatedAt?.slice(0, 10)),
+    ]);
+
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fifony-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [sortedIssues]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0 px-4 pb-4">
       {/* Sticky toolbar */}
@@ -123,7 +161,7 @@ function IssuesPage() {
             <input
               type="text"
               className="grow"
-              placeholder="Search title, ID, labels, type..."
+              placeholder="Search title, ID, type..."
               value={ctx.query}
               onChange={(e) => ctx.setQuery(e.target.value)}
             />
@@ -144,6 +182,14 @@ function IssuesPage() {
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
+
+          <button
+            className="btn btn-sm btn-ghost btn-square"
+            onClick={exportCsv}
+            title="Export to Jira CSV"
+          >
+            <Download className="size-4" />
+          </button>
 
           <button
             className={`btn btn-sm btn-square ${filtersOpen ? "btn-primary" : "btn-ghost"}`}

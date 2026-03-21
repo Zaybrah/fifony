@@ -119,7 +119,6 @@ export function registerPlanRoutes(
         applyUsage: (iss, usage) => applyPlanUsage(iss, usage),
         applySuggestions: (iss, plan) => {
           if (plan.suggestedPaths?.length) iss.paths = plan.suggestedPaths;
-          if (plan.suggestedLabels?.length) iss.labels = plan.suggestedLabels;
           if (plan.suggestedEffort) iss.effort = plan.suggestedEffort;
         },
       });

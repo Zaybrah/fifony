@@ -79,10 +79,9 @@ export function applyPlanUsage(issue: IssueEntry, usage: PlanningSessionUsage): 
   issue.usage.tokens[model] = (issue.usage.tokens[model] || 0) + usage.totalTokens;
 }
 
-/** Apply plan suggestions to issue (paths, labels, effort) */
+/** Apply plan suggestions to issue (paths, effort) */
 export function applyPlanSuggestions(issue: IssueEntry, plan: import("../types.ts").IssuePlan): void {
   if (plan.suggestedPaths?.length && !(issue.paths?.length)) issue.paths = plan.suggestedPaths;
-  if (plan.suggestedLabels?.length && !issue.labels?.length) issue.labels = plan.suggestedLabels;
   if (plan.suggestedEffort && !issue.effort) issue.effort = plan.suggestedEffort;
 }
 
