@@ -164,7 +164,7 @@ function DrawerFooter({ issue, onStateChange, onRetry, onMerge, onPush, mergeBus
 
 // ── IssueDetailDrawer ─────────────────────────────────────────────────────────
 
-export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCancel, events, mergeMode }) {
+export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCancel, events, mergeMode, tabRef }) {
   const [tab, setTab] = useState("overview");
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -204,6 +204,13 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
       setTab(getDefaultIssueDrawerTab(issue.state));
     }
   }, [issue?.id]);
+
+  // Expose tab get/set to parent via ref for keyboard shortcuts
+  useEffect(() => {
+    if (tabRef) {
+      tabRef.current = { get: () => tab, set: (t) => setTab(t) };
+    }
+  }, [tabRef, tab]);
 
   useEffect(() => {
     setMergeBusy(false);
@@ -254,16 +261,6 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
       setMergeBusy(false);
     }
   }, [issue?.id, mergeBusy]);
-
-  // Close drawer on Escape key
-  useEffect(() => {
-    if (!issue || !visible) return;
-    const handler = (e) => {
-      if (e.key === "Escape") handleClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [issue?.id, visible, handleClose]);
 
   // Auto-scroll active tab into view
   useEffect(() => {

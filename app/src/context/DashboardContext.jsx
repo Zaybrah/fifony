@@ -6,7 +6,6 @@ import {
   useRuntimeEvents,
   useProviders,
   useParallelism,
-  useProvidersUsage,
   useSettings,
   useRuntimeWebSocket,
   useTheme,
@@ -82,7 +81,6 @@ export function DashboardProvider({ children }) {
   const events = useRuntimeEvents(eventKind, eventIssueId, liveMode ? 3000 : 2500);
   const providers = useProviders();
   const parallelism = useParallelism();
-  const providersUsage = useProvidersUsage();
 
   const data = runtime.data || {};
   const issues = Array.isArray(data.issues) ? data.issues : [];
@@ -232,7 +230,7 @@ export function DashboardProvider({ children }) {
     // Connection
     status, wsStatus, liveMode,
     // Data
-    data, issues, filtered, metrics, eventsData, providers, parallelism, providersUsage,
+    data, issues, filtered, metrics, eventsData, providers, parallelism,
     projectName: projectMeta.projectName,
     queueTitle: projectMeta.queueTitle,
     categoryOptions, issueOptions,
@@ -268,7 +266,7 @@ export function DashboardProvider({ children }) {
     confetti, showConfetti, clearConfetti,
   }), [
     theme, status, wsStatus, liveMode, data, issues, filtered, metrics, eventsData,
-    providers, parallelism, providersUsage, categoryOptions, issueOptions, runtime,
+    providers, parallelism, categoryOptions, issueOptions, runtime,
     projectMeta,
     query, stateFilter, categoryFilter, completionFilter,
     isEventsOpen, eventKind, eventIssueId,

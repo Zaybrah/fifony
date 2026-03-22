@@ -6,6 +6,15 @@ import type { ProviderAdapter, ProviderCommandOptions } from "./registry.ts";
 import { renderPrompt } from "../prompting.ts";
 import { buildFullPlanPrompt, resolveEffortForProvider, extractValidationCommands, buildImagePromptSection } from "./shared.ts";
 import { REVIEW_RESULT_SCHEMA, extractPlanDirs } from "./commands.ts";
+import {
+  collectProviderUsageSnapshotFromCli,
+  type ProviderUsageSnapshot,
+  parseGeminiUsageFromStatus,
+} from "./usage.ts";
+
+export const GEMINI_USAGE_COMMAND = "/stats session";
+export const collectGeminiUsageFromCli = (): Promise<ProviderUsageSnapshot | null> =>
+  collectProviderUsageSnapshotFromCli("gemini", GEMINI_USAGE_COMMAND, parseGeminiUsageFromStatus);
 
 // ── Result contract (embedded in prompt — Gemini CLI has no --json-schema flag) ─
 
@@ -38,6 +47,9 @@ export function buildGeminiCommand(options: ProviderCommandOptions): string {
   if (options.model) {
     parts.push(`--model ${options.model}`);
   }
+
+  // screen-reader mode reduces terminal UI noise and is friendlier for text-only flows
+  parts.push("--screen-reader");
 
   // JSON output enables structured parsing and token tracking
   parts.push("--output-format json");

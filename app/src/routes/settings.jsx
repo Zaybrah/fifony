@@ -7,6 +7,7 @@ import {
   SlidersHorizontal,
   Cpu,
   Settings,
+  Keyboard,
 } from "lucide-react";
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { to: "/settings/general", label: "System", icon: Settings },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/providers", label: "Providers", icon: SlidersHorizontal },
+  { to: "/settings/hotkeys", label: "Hotkeys", icon: Keyboard },
 ];
 
 export const Route = createFileRoute("/settings")({

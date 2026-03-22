@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, CheckCircle, Loader2, Search, Zap, Sparkles, Package } from "lucide-react";
 import { api } from "../../api";
+import { useDashboard } from "../../context/DashboardContext";
+import { ConcurrencySection } from "../../components/SettingsView";
 import AgentsSkillsStep from "../../components/OnboardingWizard/steps/AgentsSkillsStep";
 
 export const Route = createFileRoute("/settings/agents")({
@@ -9,6 +11,7 @@ export const Route = createFileRoute("/settings/agents")({
 });
 
 function AgentsSettings() {
+  const ctx = useDashboard();
   const [selectedAgents, setSelectedAgents] = useState([]);
   const [selectedSkills, setSelectedSkills] = useState([]);
 
@@ -134,6 +137,13 @@ function AgentsSettings() {
 
   return (
     <div className="space-y-4">
+      <ConcurrencySection
+        concurrency={ctx.concurrency}
+        setConcurrency={ctx.setConcurrency}
+        saveConcurrency={ctx.saveConcurrency}
+        savePending={ctx.saveConcPending}
+      />
+
       <div className="card bg-base-200">
         <div className="card-body gap-4 p-6">
           <div className="flex items-center gap-2">

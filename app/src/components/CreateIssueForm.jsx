@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Lightbulb, Loader2, Sparkles, FileText, Bug, RefreshCw, BookOpen, Wrench, Paperclip, ImageIcon } from "lucide-react";
+import { X, Lightbulb, Loader2, Sparkles, FileText, Bug, RefreshCw, BookOpen, Wrench, Paperclip, ImageIcon, Mic, MicOff } from "lucide-react";
 import { useSwipeToDismiss } from "../hooks/useSwipeToDismiss.js";
 import { api } from "../api.js";
+import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 
 const ISSUE_TEMPLATES = [
   { id: "blank",    label: "Blank",         icon: FileText,  activeColor: "border-base-content/30 bg-base-content/5 text-base-content",         title: "",            description: "" },
@@ -19,9 +20,56 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
   const [enhancing, setEnhancing] = useState({ title: false, description: false });
   const [images, setImages] = useState([]); // [{ name, preview, path }]
   const [uploading, setUploading] = useState(false);
+  const [voiceTarget, setVoiceTarget] = useState(null); // "title" | "description" | null
   const titleRef = useRef(null);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // ── Speech-to-text ──────────────────────────────────────────────────
+  const {
+    transcript,
+    listening,
+    resetTranscript,
+    browserSupportsSpeechRecognition,
+    interimTranscript,
+    finalTranscript,
+  } = useSpeechRecognition();
+
+  // Snapshot of field value when recording started — append only new text
+  const voiceBaseRef = useRef("");
+
+  const toggleVoice = useCallback((field) => {
+    if (listening && voiceTarget === field) {
+      // Stop
+      SpeechRecognition.stopListening();
+      setVoiceTarget(null);
+      return;
+    }
+    // Start (or switch field)
+    if (listening) SpeechRecognition.stopListening();
+    resetTranscript();
+    voiceBaseRef.current = field === "title" ? title : description;
+    setVoiceTarget(field);
+    SpeechRecognition.startListening({ continuous: true, language: "pt-BR" });
+  }, [listening, voiceTarget, title, description, resetTranscript]);
+
+  // Append transcript to the active field as it comes in
+  useEffect(() => {
+    if (!voiceTarget || !transcript) return;
+    const combined = voiceBaseRef.current
+      ? `${voiceBaseRef.current} ${transcript}`
+      : transcript;
+    if (voiceTarget === "title") setTitle(combined);
+    else setDescription(combined);
+  }, [transcript, voiceTarget]);
+
+  // Stop listening when drawer closes
+  useEffect(() => {
+    if (!open && listening) {
+      SpeechRecognition.stopListening();
+      setVoiceTarget(null);
+    }
+  }, [open, listening]);
 
   const applyTemplate = useCallback((templateId) => {
     const tpl = ISSUE_TEMPLATES.find((t) => t.id === templateId);
@@ -178,15 +226,27 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
             <div className="form-control">
               <label className="label justify-between gap-2">
                 <span className="label-text font-medium">What needs to be done?</span>
-                <button
-                  type="button"
-                  className="btn btn-xs btn-soft btn-secondary gap-1"
-                  onClick={() => handleEnhance("title")}
-                  disabled={enhancing.title || isLoading || !title.trim()}
-                >
-                  {enhancing.title ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
-                  Enhance
-                </button>
+                <div className="flex items-center gap-1">
+                  {browserSupportsSpeechRecognition && (
+                    <button
+                      type="button"
+                      className={`btn btn-xs btn-circle ${listening && voiceTarget === "title" ? "btn-error animate-pulse" : "btn-ghost opacity-50 hover:opacity-100"}`}
+                      onClick={() => toggleVoice("title")}
+                      title={listening && voiceTarget === "title" ? "Stop dictation" : "Dictate title"}
+                    >
+                      {listening && voiceTarget === "title" ? <MicOff className="size-3" /> : <Mic className="size-3" />}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-soft btn-secondary gap-1"
+                    onClick={() => handleEnhance("title")}
+                    disabled={enhancing.title || isLoading || !title.trim()}
+                  >
+                    {enhancing.title ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                    Enhance
+                  </button>
+                </div>
               </label>
               <input
                 ref={titleRef}
@@ -201,22 +261,41 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
             <div className="form-control flex-1 flex flex-col min-h-0">
               <label className="label justify-between gap-2">
                 <span className="label-text font-medium">Context & details</span>
-                <button
-                  type="button"
-                  className="btn btn-xs btn-soft btn-secondary gap-1"
-                  onClick={() => handleEnhance("description")}
-                  disabled={enhancing.description || isLoading || !title.trim()}
-                >
-                  {enhancing.description ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
-                  Enhance
-                </button>
+                <div className="flex items-center gap-1">
+                  {browserSupportsSpeechRecognition && (
+                    <button
+                      type="button"
+                      className={`btn btn-xs btn-circle ${listening && voiceTarget === "description" ? "btn-error animate-pulse" : "btn-ghost opacity-50 hover:opacity-100"}`}
+                      onClick={() => toggleVoice("description")}
+                      title={listening && voiceTarget === "description" ? "Stop dictation" : "Dictate description"}
+                    >
+                      {listening && voiceTarget === "description" ? <MicOff className="size-3" /> : <Mic className="size-3" />}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-soft btn-secondary gap-1"
+                    onClick={() => handleEnhance("description")}
+                    disabled={enhancing.description || isLoading || !title.trim()}
+                  >
+                    {enhancing.description ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                    Enhance
+                  </button>
+                </div>
               </label>
-              <textarea
-                className="textarea textarea-bordered w-full flex-1 min-h-40 resize-none"
-                placeholder="Describe the problem, expected behavior, acceptance criteria..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
+              <div className="relative flex-1 flex flex-col min-h-0">
+                <textarea
+                  className={`textarea textarea-bordered w-full flex-1 min-h-40 resize-none ${listening && voiceTarget === "description" ? "border-error/50 bg-error/5" : ""}`}
+                  placeholder={listening && voiceTarget === "description" ? "Listening... speak now" : "Describe the problem, expected behavior, acceptance criteria..."}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+                {listening && voiceTarget === "description" && interimTranscript && (
+                  <div className="absolute bottom-2 left-3 right-3 text-xs text-error/60 italic truncate pointer-events-none">
+                    {interimTranscript}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="form-control">

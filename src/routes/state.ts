@@ -10,7 +10,10 @@ import { cleanWorkspace } from "../domains/workspace.ts";
 import { detectAvailableProviders } from "../agents/providers.ts";
 import { analyzeParallelizability } from "../persistence/plugins/scheduler.ts";
 import { enqueue } from "../persistence/plugins/queue-workers.ts";
-import { collectProvidersUsage } from "../agents/providers-usage.ts";
+import {
+  collectProviderUsage,
+  collectProvidersUsage,
+} from "../agents/providers-usage.ts";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
@@ -105,6 +108,22 @@ export function registerStateRoutes(
     return c.json(analyzeParallelizability(state.issues));
   });
 
+  // RESTful: /api/providers/:slug/usage
+  app.get("/api/providers/:slug/usage", async (c: any) => {
+    const provider = c.req.param("slug") || "";
+    try {
+      const usage = await collectProviderUsage(provider);
+      return c.json({
+        providers: usage ? [usage] : [],
+        collectedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error({ err: error, provider }, "Failed to collect provider usage");
+      return c.json({ providers: [] }, 500);
+    }
+  });
+
+  // Aggregate: /api/providers/usage (all providers)
   app.get("/api/providers/usage", async (c: any) => {
     try {
       const usage = await collectProvidersUsage();

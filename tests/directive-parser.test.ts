@@ -625,6 +625,7 @@ describe("buildGeminiCommand", () => {
     const cmd = buildGeminiCommand({});
     assert.ok(cmd.startsWith("gemini"), "starts with 'gemini'");
     assert.ok(cmd.includes("--yolo"), "has --yolo flag");
+    assert.ok(cmd.includes("--screen-reader"), "has --screen-reader flag");
     assert.ok(cmd.includes('-p ""'), "has -p for headless mode");
     assert.ok(cmd.endsWith('< "$FIFONY_PROMPT_FILE"'), "ends with stdin redirection");
   });

@@ -6,6 +6,17 @@ import type { ProviderAdapter, ProviderCommandOptions } from "./registry.ts";
 import { renderPrompt } from "../prompting.ts";
 import { buildFullPlanPrompt, resolveEffortForProvider, extractValidationCommands } from "./shared.ts";
 import { REVIEW_RESULT_SCHEMA, extractPlanDirs } from "./commands.ts";
+import {
+  collectProviderUsageSnapshotFromCli,
+  type ProviderUsageSnapshot,
+  parseCodexUsageFromStatus,
+} from "./usage.ts";
+
+export const CODEX_USAGE_COMMAND = "/status";
+export const collectCodexUsageFromCli = (): Promise<ProviderUsageSnapshot | null> =>
+  collectProviderUsageSnapshotFromCli("codex", CODEX_USAGE_COMMAND, parseCodexUsageFromStatus, [
+    "--dangerously-bypass-approvals-and-sandbox",
+  ]);
 
 // ── Result contract (embedded in prompt — no --json-schema flag in codex) ────
 
@@ -26,7 +37,13 @@ Return a JSON object with this exact schema when finished:
 // ── Command builder ───────────────────────────────────────────────────────────
 
 export function buildCodexCommand(options: ProviderCommandOptions): string {
-  const parts = ["codex", "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox"];
+  const parts = [
+    "codex",
+    "exec",
+    "--skip-git-repo-check",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--no-alt-screen",
+  ];
 
   if (options.model && options.model !== "codex") {
     parts.push(`--model ${options.model}`);

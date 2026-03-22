@@ -1,6 +1,6 @@
 import type { AttemptSummary, IssueEntry, IssueState } from "../../types.ts";
 import { S3DB_ISSUE_RESOURCE, TERMINAL_STATES } from "../../concerns/constants.ts";
-import { computeDiffStats } from "../../domains/workspace.ts";
+import { computeDiffStats, syncIssueDiffStatsToStore } from "../../domains/workspace.ts";
 import { extractFailureInsights } from "../../agents/failure-analyzer.ts";
 import { invalidateMetrics } from "../metrics-cache.ts";
 import { markIssueDirty } from "../dirty-tracker.ts";
@@ -266,10 +266,15 @@ export const issueStateMachineConfig = {
         // Approved = waiting for merge. Not terminal yet.
         issue.nextRetryAt = undefined;
         issue.lastError = undefined;
-        // Pre-compute diff stats for display (but EC add() happens only on Merged)
+        // Compute diff stats if not already set (fallback for issues that skipped execution)
         if (!issue.linesAdded && !issue.linesRemoved && issue.baseBranch && issue.branchName) {
           computeDiffStats(issue);
         }
+        // Sync diff stats to EC plugin via resource.add()/sub() — the correct EC API.
+        // This must happen at approval time (values are stable post-execution).
+        await syncIssueDiffStatsToStore(issue).catch((err) => {
+          logger.warn({ err, issueId: issue.id }, "[FSM] Failed to sync diff stats to EC on approval");
+        });
         emitFsmEvent(issue.id, "state", `${issue.identifier} approved — waiting for merge.`);
       }
     },
@@ -292,27 +297,14 @@ export const issueStateMachineConfig = {
       }
       const res = issueResource(machine);
       if (res) {
-        // EC tracks diff stats via patch interception. To ensure the EC sees a real
-        // delta (not 0→0 if dirty flush already persisted the same values), we first
-        // reset the churn fields to 0, then patch with the real values.
-        const churnAdded = issue?.linesAdded ?? 0;
-        const churnRemoved = issue?.linesRemoved ?? 0;
-        const churnFiles = issue?.filesChanged ?? 0;
-        if (churnAdded || churnRemoved || churnFiles) {
-          await res.patch(machine.entityId, { linesAdded: 0, linesRemoved: 0, filesChanged: 0 }).catch(() => {});
-        }
-
+        // EC diff stats are already tracked at approval time via syncIssueDiffStatsToStore().
+        // Here we only persist terminal fields (completedAt, mergedAt, etc).
         await res.patch(machine.entityId, {
           completedAt: ts, terminalWeek: week, mergedAt: issue?.mergedAt ?? ts,
           nextRetryAt: undefined, lastError: undefined,
-          linesAdded: churnAdded, linesRemoved: churnRemoved, filesChanged: churnFiles,
           branchName: issue?.branchName, workspacePath: issue?.workspacePath, worktreePath: issue?.worktreePath,
           mergedReason: issue?.mergedReason,
         }).catch(() => {});
-
-        if (churnAdded || churnRemoved || churnFiles) {
-          logger.info({ issueId: issue?.id, linesAdded: churnAdded, linesRemoved: churnRemoved, filesChanged: churnFiles }, "[FSM] EC diff stats patched on merge (reset→set for delta tracking)");
-        }
       }
     },
 

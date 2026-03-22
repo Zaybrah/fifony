@@ -6,11 +6,22 @@ import type { ProviderAdapter, ProviderCommandOptions } from "./registry.ts";
 import { renderPrompt } from "../prompting.ts";
 import { buildFullPlanPrompt, resolveEffortForProvider, extractValidationCommands, buildImagePromptSection } from "./shared.ts";
 import { CLAUDE_RESULT_SCHEMA, REVIEW_RESULT_SCHEMA, extractPlanDirs } from "./commands.ts";
+import {
+  collectProviderUsageSnapshotFromCli,
+  type ProviderUsageSnapshot,
+  parseClaudeUsageFromStatus,
+} from "./usage.ts";
+
+export const CLAUDE_USAGE_COMMAND = "/usage";
+export const collectClaudeUsageFromCli = (): Promise<ProviderUsageSnapshot | null> =>
+  collectProviderUsageSnapshotFromCli("claude", CLAUDE_USAGE_COMMAND, parseClaudeUsageFromStatus, [
+    "--dangerously-skip-permissions",
+  ]);
 
 // ── Command builder ───────────────────────────────────────────────────────────
 
 export function buildClaudeCommand(options: ProviderCommandOptions): string {
-  const parts = ["claude", "--print"];
+  const parts = ["claude", "--print", "--bare"];
 
   if (options.readOnly) {
     // Read-only mode: no file edits, no tool access — safe for planning/review

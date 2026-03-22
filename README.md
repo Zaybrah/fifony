@@ -174,13 +174,14 @@ Install as a desktop app. Works offline. Desktop notifications when issues chang
 
 ## Agents, Skills & Reference Repositories
 
-fifony pulls agents and skills from three open-source reference repositories during onboarding:
+fifony pulls agents and skills from four open-source reference repositories during onboarding:
 
 | Repository | What it provides |
 |------------|-----------------|
 | **[LerianStudio/ring](https://github.com/LerianStudio/ring)** | 80+ specialist agents, skills, engineering standards, review commands, and prompt libraries for full-stack development. |
 | **[msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents)** | Focused agent set for frontend, backend, QA, and review roles. |
 | **[pbakaus/impeccable](https://github.com/pbakaus/impeccable)** | Frontend polish skills — design system enforcement, accessibility audits, and visual quality workflows. |
+| **[affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code)** | Curated collection of Claude Code agents, workflows, and prompt engineering patterns. |
 
 Repositories are cloned to `~/.fifony/repositories/` and synced on demand. During onboarding, fifony scans them and recommends agents/skills matching your project's domain. You pick what to install.
 

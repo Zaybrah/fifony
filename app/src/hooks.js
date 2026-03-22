@@ -142,11 +142,69 @@ export function useParallelism() {
   });
 }
 
+const PROVIDER_USAGE_PROVIDERS = ["claude", "codex", "gemini"];
+
+function normalizeProvidersUsageResponse(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  if (!Array.isArray(payload.providers)) return null;
+  const collectedAt = typeof payload.collectedAt === "string" ? payload.collectedAt : null;
+  return { providers: payload.providers, collectedAt };
+}
+
 /** Fetch providers usage data. */
 export function useProvidersUsage() {
   return useQuery({
     queryKey: ["providers-usage"],
-    queryFn: () => api.get("/providers/usage"),
+    queryFn: async () => {
+      const responses = await Promise.allSettled(
+        PROVIDER_USAGE_PROVIDERS.map((provider) => api.get(`/providers/${provider}/usage`)),
+      );
+      let providers = [];
+      const collectedAt = [];
+
+      for (const response of responses) {
+        if (response.status !== "fulfilled") continue;
+        const normalized = normalizeProvidersUsageResponse(response.value);
+        if (!normalized) continue;
+        providers.push(...normalized.providers);
+        if (normalized.collectedAt) collectedAt.push(normalized.collectedAt);
+      }
+
+      if (providers.length > 0) {
+        const latestCollectedAt = collectedAt
+          .map((value) => new Date(value).getTime())
+          .filter((ts) => Number.isFinite(ts))
+          .reduce((maxTs, ts) => Math.max(maxTs, ts), 0);
+
+        return {
+          providers,
+          collectedAt: latestCollectedAt ? new Date(latestCollectedAt).toISOString() : new Date().toISOString(),
+        };
+      }
+
+      // Backward-compatible fallback: if every provider endpoint failed, use the
+      // aggregate endpoint once to avoid a blank "No providers detected" screen.
+      try {
+        const fallbackPayload = await api.get("/providers/usage");
+        const fallback = normalizeProvidersUsageResponse(fallbackPayload);
+        if (fallback) {
+          providers = fallback.providers;
+          if (fallback.collectedAt) collectedAt.push(fallback.collectedAt);
+        }
+      } catch {
+        // Ignore fallback failures to avoid blocking the settings page.
+      }
+
+      const latestCollectedAt = collectedAt
+        .map((value) => new Date(value).getTime())
+        .filter((ts) => Number.isFinite(ts))
+        .reduce((maxTs, ts) => Math.max(maxTs, ts), 0);
+
+      return {
+        providers,
+        collectedAt: latestCollectedAt ? new Date(latestCollectedAt).toISOString() : new Date().toISOString(),
+      };
+    },
     refetchInterval: 30000,
   });
 }

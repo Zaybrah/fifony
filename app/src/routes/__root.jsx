@@ -2,7 +2,7 @@ import { createRootRoute, Outlet, useRouterState, useNavigate } from "@tanstack/
 import mascotUrl from "/dinofffaur.webp?url";
 import { DashboardProvider, useDashboard } from "../context/DashboardContext";
 import { useSettings, getSettingsList, getSettingValue } from "../hooks";
-import { lazy, Suspense, useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import Header from "../components/Header";
 import Fab from "../components/Fab";
 import MobileDock from "../components/MobileDock";
@@ -10,10 +10,13 @@ import CreateIssueDrawer from "../components/CreateIssueForm";
 import IssueDetailDrawer from "../components/IssueDetailDrawer";
 import PwaBanner from "../components/PwaBanner";
 import Confetti from "../components/Confetti";
-import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { ISSUE_DRAWER_TABS } from "../components/IssueDetailDrawer/constants.js";
 import { CheckCircle, AlertTriangle, Info, RotateCcw, ChevronDown } from "lucide-react";
+import { useHotkeys } from "react-hotkeys-hook";
+import { HotkeysProvider } from "react-hotkeys-hook";
 
 const KeyboardShortcutsHelp = lazy(() => import("../components/KeyboardShortcutsHelp"));
+const CommandPalette = lazy(() => import("../components/CommandPalette"));
 
 function ViewTransition({ children }) {
   const routerState = useRouterState();
@@ -57,36 +60,103 @@ function ViewTransition({ children }) {
 function RootLayout() {
   const ctx = useDashboard();
   const navigate = useNavigate();
+  const routerState = useRouterState();
+  const pathname = routerState.location.pathname;
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  // Drawer tab state — lifted here so keyboard shortcuts can switch tabs
+  const drawerTabRef = useRef(null);
+  const [, forceDrawerTab] = useState(0); // trigger for tab change from shortcut
 
   useEffect(() => {
     document.title = ctx.queueTitle || "fifony";
   }, [ctx.queueTitle]);
 
-  const closeAllDrawers = useCallback(() => {
-    ctx.setIsCreateOpen(false);
-    ctx.setSelectedIssue(null);
-    setShortcutsHelpOpen(false);
+  const hasDrawer = !!ctx.selectedIssue;
+  const hasCreate = ctx.isCreateOpen;
+  const hasPalette = commandPaletteOpen;
+  const hasHelp = shortcutsHelpOpen;
+
+  const closeTopmost = useCallback(() => {
+    if (hasPalette) { setCommandPaletteOpen(false); return; }
+    if (hasHelp) { setShortcutsHelpOpen(false); return; }
+    if (hasCreate) { ctx.setIsCreateOpen(false); return; }
+    if (hasDrawer) { ctx.setSelectedIssue(null); return; }
+  }, [hasPalette, hasHelp, hasCreate, hasDrawer, ctx]);
+
+  // Navigate to next/prev issue while drawer is open
+  const navigateIssue = useCallback((direction) => {
+    if (!ctx.selectedIssue) return;
+    const list = ctx.issues;
+    const idx = list.findIndex((i) => i.id === ctx.selectedIssue.id);
+    if (idx < 0) return;
+    const next = idx + direction;
+    if (next >= 0 && next < list.length) {
+      ctx.setSelectedIssue(list[next]);
+    }
   }, [ctx]);
 
-  const shortcuts = useMemo(() => ({
-    n: () => ctx.setIsCreateOpen(true),
-    Escape: closeAllDrawers,
-    "?": () => setShortcutsHelpOpen((v) => !v),
-    k: () => navigate({ to: "/kanban" }),
-    i: () => navigate({ to: "/issues" }),
-    a: () => navigate({ to: "/agents" }),
-    t: () => navigate({ to: "/analytics" }),
-    s: () => navigate({ to: "/settings" }),
-    1: () => {}, // column nav – wired for future use
-    2: () => {},
-    3: () => {},
-    4: () => {},
-    5: () => {},
-    6: () => {},
-  }), [ctx, navigate, closeAllDrawers]);
+  // Switch drawer tab
+  const switchDrawerTab = useCallback((direction) => {
+    if (!drawerTabRef.current) return;
+    const tabs = ISSUE_DRAWER_TABS.map((t) => t.id);
+    const curIdx = tabs.indexOf(drawerTabRef.current.get());
+    if (curIdx < 0) return;
+    const next = curIdx + direction;
+    if (next >= 0 && next < tabs.length) {
+      drawerTabRef.current.set(tabs[next]);
+      forceDrawerTab((v) => v + 1);
+    }
+  }, []);
 
-  useKeyboardShortcuts(shortcuts);
+  // Primary action: Execute / Approve / Merge depending on issue state
+  const primaryAction = useCallback(() => {
+    const issue = ctx.selectedIssue;
+    if (!issue) return;
+    const s = issue.state;
+    if (s === "PendingApproval") {
+      // Execute
+      import("../api.js").then(({ api }) => api.post(`/issues/${encodeURIComponent(issue.id)}/execute`));
+    } else if (s === "Reviewing" || s === "PendingDecision") {
+      // Approve
+      ctx.updateState(issue.id, "Approved");
+    } else if (s === "Approved" && !issue.mergedAt) {
+      // Merge
+      import("../api.js").then(({ api }) => api.post(`/issues/${encodeURIComponent(issue.id)}/merge`));
+    }
+  }, [ctx]);
+
+  const noDrawer = !hasDrawer;
+  const issueState = ctx.selectedIssue?.state;
+  const canApprove = issueState === "Reviewing" || issueState === "PendingDecision";
+  const canMerge = issueState === "Approved" && !ctx.selectedIssue?.mergedAt;
+  const canReplan = !!ctx.selectedIssue?.plan && !["Running", "Reviewing", "Queued", "Planning"].includes(issueState);
+
+  // ── Global ──────────────────────────────────────────────────────────
+  useHotkeys("escape", closeTopmost, { description: "Close drawer / modal", metadata: { group: "global" } }, [closeTopmost]);
+  useHotkeys("shift+/", () => setShortcutsHelpOpen((v) => !v), { description: "Keyboard shortcuts help", metadata: { group: "global" } });
+  useHotkeys("mod+k", () => setCommandPaletteOpen((v) => !v), { preventDefault: true, enableOnFormTags: true, description: "Command palette", metadata: { group: "palette" } });
+  useHotkeys("r", () => ctx.refresh(), { enabled: noDrawer, description: "Refresh", metadata: { group: "global" } }, [ctx, noDrawer]);
+  useHotkeys("e", () => ctx.toggleEvents(), { enabled: noDrawer, description: "Toggle events", metadata: { group: "global" } }, [ctx, noDrawer]);
+
+  // ── Navigation ──────────────────────────────────────────────────────
+  useHotkeys("n", () => ctx.setIsCreateOpen(true), { enabled: noDrawer, description: "New issue", metadata: { group: "navigation" } }, [ctx, noDrawer]);
+  useHotkeys("k", () => navigate({ to: "/kanban" }), { enabled: noDrawer && pathname !== "/kanban", description: "Go to Kanban", metadata: { group: "navigation" } }, [navigate, noDrawer, pathname]);
+  useHotkeys("i", () => navigate({ to: "/issues" }), { enabled: noDrawer && pathname !== "/issues", description: "Go to Issues", metadata: { group: "navigation" } }, [navigate, noDrawer, pathname]);
+  useHotkeys("a", () => navigate({ to: "/agents" }), { enabled: noDrawer, description: "Go to Agents", metadata: { group: "navigation" } }, [navigate, noDrawer]);
+  useHotkeys("t", () => navigate({ to: "/analytics" }), { enabled: noDrawer, description: "Go to Analytics", metadata: { group: "navigation" } }, [navigate, noDrawer]);
+  useHotkeys("s", () => navigate({ to: "/settings" }), { enabled: noDrawer, description: "Go to Settings", metadata: { group: "navigation" } }, [navigate, noDrawer]);
+
+  // ── Drawer ──────────────────────────────────────────────────────────
+  useHotkeys("]", () => switchDrawerTab(1), { enabled: hasDrawer, description: "Next tab", metadata: { group: "drawer" } }, [switchDrawerTab, hasDrawer]);
+  useHotkeys("[", () => switchDrawerTab(-1), { enabled: hasDrawer, description: "Previous tab", metadata: { group: "drawer" } }, [switchDrawerTab, hasDrawer]);
+  useHotkeys("j", () => navigateIssue(1), { enabled: hasDrawer, description: "Next issue", metadata: { group: "drawer" } }, [navigateIssue, hasDrawer]);
+  useHotkeys("k", () => navigateIssue(-1), { enabled: hasDrawer, description: "Previous issue", metadata: { group: "drawer" } }, [navigateIssue, hasDrawer]);
+  useHotkeys("mod+enter", primaryAction, { enabled: hasDrawer, enableOnFormTags: true, preventDefault: true, description: "Primary action (Execute / Approve / Merge)", metadata: { group: "drawer" } }, [primaryAction, hasDrawer]);
+  useHotkeys("mod+a", () => ctx.updateState(ctx.selectedIssue.id, "Approved"), { enabled: canApprove, enableOnFormTags: true, preventDefault: true, description: "Approve issue", metadata: { group: "drawer" } }, [ctx, canApprove]);
+  useHotkeys("mod+m", () => import("../api.js").then(({ api }) => api.post(`/issues/${encodeURIComponent(ctx.selectedIssue.id)}/merge`)), { enabled: canMerge, enableOnFormTags: true, preventDefault: true, description: "Merge issue", metadata: { group: "drawer" } }, [ctx, canMerge]);
+  useHotkeys("mod+w", () => ctx.retryIssue(ctx.selectedIssue.id), { enabled: canApprove, enableOnFormTags: true, preventDefault: true, description: "Rework issue", metadata: { group: "drawer" } }, [ctx, canApprove]);
+  useHotkeys("mod+p", () => import("../api.js").then(({ api }) => api.post(`/issues/${encodeURIComponent(ctx.selectedIssue.id)}/replan`)), { enabled: canReplan, enableOnFormTags: true, preventDefault: true, description: "Replan issue", metadata: { group: "drawer" } }, [ctx, canReplan]);
 
   // Splash screen with minimum duration so it doesn't flash
   const [splashDone, setSplashDone] = useState(false);
@@ -119,70 +189,82 @@ function RootLayout() {
   const toastMessage = typeof ctx.toast === "string" ? ctx.toast : ctx.toast?.message;
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {ctx.toast && (
-        <div className="toast toast-end toast-top z-50">
-          <div className={`alert text-sm shadow-lg ${toastType === "success" ? "alert-success" : toastType === "error" ? "alert-error" : "alert-info"} ${ctx.toastExiting ? "animate-toast-out" : "animate-toast-in"}`}>
-            {toastType === "success" ? <CheckCircle className="size-4" /> : toastType === "error" ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
-            <span>{toastMessage}</span>
-            <div className="toast-progress" />
-          </div>
-        </div>
-      )}
-      {ctx.confetti && (
-        <Confetti x={ctx.confetti.x} y={ctx.confetti.y} count={ctx.confetti.count} active onDone={() => ctx.clearConfetti?.()} />
-      )}
-
-      <Header
-        issueCount={ctx.issues.length}
-        queueTitle={ctx.queueTitle}
-        sourceRepo={ctx.data.sourceRepoUrl}
-        updatedAt={ctx.data.updatedAt}
-        wsStatus={ctx.wsStatus}
-        notifications={ctx.notifications}
-        issues={ctx.issues}
-      />
-      <PwaBanner pwa={ctx.pwa} />
-
-      <div className="flex-1 flex flex-col min-h-0">
-        <ViewTransition>
-          <Outlet />
-        </ViewTransition>
-
-        {ctx.runtime.isError && (
-          <div className="px-4 pb-4">
-            <div className="alert alert-error">{String(ctx.runtime.error?.message || "Runtime unavailable")}</div>
+      <div className="min-h-screen flex flex-col">
+        {ctx.toast && (
+          <div className="toast toast-end toast-top z-50">
+            <div className={`alert text-sm shadow-lg ${toastType === "success" ? "alert-success" : toastType === "error" ? "alert-error" : "alert-info"} ${ctx.toastExiting ? "animate-toast-out" : "animate-toast-in"}`}>
+              {toastType === "success" ? <CheckCircle className="size-4" /> : toastType === "error" ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
+              <span>{toastMessage}</span>
+              <div className="toast-progress" />
+            </div>
           </div>
         )}
-      </div>
+        {ctx.confetti && (
+          <Confetti x={ctx.confetti.x} y={ctx.confetti.y} count={ctx.confetti.count} active onDone={() => ctx.clearConfetti?.()} />
+        )}
 
-      <Fab onClick={() => ctx.setIsCreateOpen(true)} />
-      <MobileDock />
-      <CreateIssueDrawer
-        open={ctx.isCreateOpen}
-        onClose={() => ctx.setIsCreateOpen(false)}
-        onSubmit={(p) => ctx.createIssue.mutate(p)}
-        isLoading={ctx.createIssue.isPending}
-        onToast={ctx.showToast}
-      />
-      <IssueDetailDrawer
-        issue={ctx.selectedIssue}
-        onClose={() => ctx.setSelectedIssue(null)}
-        onStateChange={ctx.updateState}
-        onRetry={ctx.retryIssue}
-        onCancel={ctx.cancelIssue}
-        events={ctx.eventsData}
-        mergeMode={ctx.data?.config?.mergeMode ?? "local"}
-      />
-      {shortcutsHelpOpen && (
-        <Suspense fallback={null}>
-          <KeyboardShortcutsHelp
-            open={shortcutsHelpOpen}
-            onClose={() => setShortcutsHelpOpen(false)}
-          />
-        </Suspense>
-      )}
-    </div>
+        <Header
+          issueCount={ctx.issues.length}
+          queueTitle={ctx.queueTitle}
+          sourceRepo={ctx.data.sourceRepoUrl}
+          updatedAt={ctx.data.updatedAt}
+          wsStatus={ctx.wsStatus}
+          notifications={ctx.notifications}
+          issues={ctx.issues}
+        />
+        <PwaBanner pwa={ctx.pwa} />
+
+        <div className="flex-1 flex flex-col min-h-0">
+          <ViewTransition>
+            <Outlet />
+          </ViewTransition>
+
+          {ctx.runtime.isError && (
+            <div className="px-4 pb-4">
+              <div className="alert alert-error">{String(ctx.runtime.error?.message || "Runtime unavailable")}</div>
+            </div>
+          )}
+        </div>
+
+        <Fab onClick={() => ctx.setIsCreateOpen(true)} />
+        <MobileDock />
+        <CreateIssueDrawer
+          open={ctx.isCreateOpen}
+          onClose={() => ctx.setIsCreateOpen(false)}
+          onSubmit={(p) => ctx.createIssue.mutate(p)}
+          isLoading={ctx.createIssue.isPending}
+          onToast={ctx.showToast}
+        />
+        <IssueDetailDrawer
+          issue={ctx.selectedIssue}
+          onClose={() => ctx.setSelectedIssue(null)}
+          onStateChange={ctx.updateState}
+          onRetry={ctx.retryIssue}
+          onCancel={ctx.cancelIssue}
+          events={ctx.eventsData}
+          mergeMode={ctx.data?.config?.mergeMode ?? "local"}
+          tabRef={drawerTabRef}
+        />
+        {shortcutsHelpOpen && (
+          <Suspense fallback={null}>
+            <KeyboardShortcutsHelp
+              open={shortcutsHelpOpen}
+              onClose={() => setShortcutsHelpOpen(false)}
+            />
+          </Suspense>
+        )}
+        {commandPaletteOpen && (
+          <Suspense fallback={null}>
+            <CommandPalette
+              issues={ctx.issues}
+              onSelect={(issue) => { ctx.setSelectedIssue(issue); setCommandPaletteOpen(false); }}
+              onNavigate={(to) => { navigate({ to }); setCommandPaletteOpen(false); }}
+              onAction={(fn) => { fn(); setCommandPaletteOpen(false); }}
+              onClose={() => setCommandPaletteOpen(false)}
+            />
+          </Suspense>
+        )}
+      </div>
   );
 }
 
@@ -279,11 +361,13 @@ function RootComponent() {
   }
 
   return (
-    <OnboardingGate>
-      <DashboardProvider>
-        <RootLayout />
-      </DashboardProvider>
-    </OnboardingGate>
+    <HotkeysProvider>
+      <OnboardingGate>
+        <DashboardProvider>
+          <RootLayout />
+        </DashboardProvider>
+      </OnboardingGate>
+    </HotkeysProvider>
   );
 }
 
