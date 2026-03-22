@@ -360,7 +360,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
                 <a
                   key={id}
                   role="tab"
-                  className={`tab gap-1 text-xs whitespace-nowrap ${tab === id ? "tab-active" : ""} ${id === "review" ? "text-secondary font-semibold" : ""}`}
+                  className={`tab gap-1 text-xs whitespace-nowrap ${tab === id ? "tab-active" : ""}`}
                   onClick={() => setTab(id)}
                 >
                   <Icon className="size-3" />
