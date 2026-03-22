@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useDashboard } from "../../context/DashboardContext";
-import { ConnectionSection, PwaSection, SetupWizardSection } from "../../components/SettingsView";
+import { ConnectionSection, PwaSection, SetupWizardSection, ThemeSection } from "../../components/SettingsView";
 
 export const Route = createFileRoute("/settings/general")({
   component: GeneralSettings,
@@ -11,6 +11,7 @@ function GeneralSettings() {
 
   return (
     <div className="space-y-5">
+      <ThemeSection theme={ctx.theme} onThemeChange={ctx.setTheme} />
       <ConnectionSection status={ctx.status} wsStatus={ctx.wsStatus} />
       <PwaSection pwa={ctx.pwa} />
       <SetupWizardSection />

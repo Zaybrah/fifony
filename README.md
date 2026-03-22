@@ -98,7 +98,7 @@ stateDiagram-v2
 
 | Step | Who | State | What happens |
 |------|-----|-------|-------------|
-| **Create** | You | → Planning | Describe what you want. Hit **Enhance** — AI rewrites your spec with acceptance criteria and edge cases. |
+| **Create** | You | → Planning | Describe what you want — type or **dictate by voice**. Hit **Enhance** — AI rewrites your spec with acceptance criteria and edge cases. |
 | **Plan** | AI | Planning | The planner generates a structured execution plan: phases, steps, target files, complexity, risks. |
 | **Approve plan** | You | PendingApproval → Queued | You review the plan. Optionally refine with AI chat before approving. |
 | **Execute** | AI | Running | Agents run in an isolated git worktree. Live output streams to the dashboard. |
@@ -154,7 +154,7 @@ The Setup step blocks execution until the workspace is a git repository with at 
 | `/issues` | Searchable list with multi-state filters, sort options, and capability filters. |
 | `/agents` | Live cockpit: worker slots, queue depth, real-time log tail, token sparklines per agent. |
 | `/analytics` | Token usage trends, daily and weekly rollups, top issues by cost, per-model breakdown. |
-| `/settings` | General, Workflow pipeline config, Notifications, Providers. |
+| `/settings` | General, Workflow pipeline config, Notifications, Providers, Hotkeys reference. |
 
 The **Issue Detail Drawer** shows the full plan (phases and steps), all execution sessions, the workspace diff, and a per-phase token breakdown — Plan / Execute / Review — with input and output counts per model.
 
@@ -165,6 +165,38 @@ The **Issue Detail Drawer** shows the full plan (phases and steps), all executio
 <img src="docs/ss-05.webp" alt="Analytics dashboard" width="720" />
 <br><sub>Analytics — token trends, code churn, engineering KPIs, model breakdown</sub>
 </div>
+
+### Keyboard Shortcuts
+
+Every frequent action is one or two keystrokes away. The full map is available via **Shift+/** or at `/settings/hotkeys`.
+
+| Key | Context | Action |
+|-----|---------|--------|
+| <kbd>Ctrl</kbd>+<kbd>K</kbd> | Anywhere | Command palette — fuzzy-search issues, navigate, run actions |
+| <kbd>N</kbd> | Global | New issue |
+| <kbd>K</kbd> <kbd>I</kbd> <kbd>A</kbd> <kbd>T</kbd> <kbd>S</kbd> | Global | Navigate to Kanban / Issues / Agents / Analytics / Settings |
+| <kbd>R</kbd> | Global | Refresh runtime state |
+| <kbd>1</kbd>–<kbd>5</kbd> | Kanban | Jump to column |
+| <kbd>J</kbd> / <kbd>K</kbd> | Kanban, Issues, Drawer | Navigate cards / issues (vim-style) |
+| <kbd>Enter</kbd> | Kanban, Issues | Open focused card |
+| <kbd>/</kbd> | Issues | Focus search |
+| <kbd>]</kbd> / <kbd>[</kbd> | Drawer | Next / previous tab |
+| <kbd>Ctrl</kbd>+<kbd>Enter</kbd> | Drawer | Primary action — Execute, Approve, or Merge depending on state |
+| <kbd>Ctrl</kbd>+<kbd>A</kbd> | Drawer | Approve issue |
+| <kbd>Ctrl</kbd>+<kbd>M</kbd> | Drawer | Merge issue |
+| <kbd>Ctrl</kbd>+<kbd>W</kbd> | Drawer | Rework issue |
+| <kbd>Esc</kbd> | Anywhere | Close topmost overlay |
+
+Shortcuts are context-aware: drawer shortcuts only fire when an issue is open, kanban/issues shortcuts only on their page. Modifier combos (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>) work even inside input fields.
+
+### Voice Input (Speech-to-Text)
+
+Dictate issue titles and descriptions by voice. Click the microphone button next to any text field in the **New Issue** drawer — recording starts in continuous mode with a live waveform visualizer and elapsed timer. Speech is inserted at the cursor position, so you can dictate into the middle of existing text.
+
+- **Browser-native** — uses the Web Speech API via `react-speech-recognition`, no external service
+- **Cursor-aware** — inserts at caret position, not just appending
+- **Visual feedback** — pulsing mic, frequency waveform bars, recording timer, and a Stop button
+- **Graceful degradation** — mic button only appears in supported browsers (Chrome, Edge, Safari)
 
 ### PWA
 

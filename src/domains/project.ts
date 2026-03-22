@@ -683,6 +683,7 @@ const REFERENCE_REPOSITORY_PARSERS: Record<string, ReferenceArtifactCollector> =
   ring: collectStandardArtifacts,
   "agency-agents": collectAgencyArtifacts,
   impeccable: collectImpeccableArtifacts,
+  "everything-claude-code": collectStandardArtifacts,
 };
 
 function runGit(args: string[], cwd?: string): string {

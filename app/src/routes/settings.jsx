@@ -5,7 +5,6 @@ import {
   Bell,
   Users,
   SlidersHorizontal,
-  Cpu,
   Settings,
   Keyboard,
 } from "lucide-react";
@@ -14,7 +13,6 @@ const TABS = [
   { to: "/settings/project", label: "Project", icon: FolderRoot },
   { to: "/settings/workflow", label: "Execution", icon: Workflow },
   { to: "/settings/agents", label: "Agents", icon: Users },
-  { to: "/settings/preferences", label: "Preferences", icon: Cpu },
   { to: "/settings/general", label: "System", icon: Settings },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/providers", label: "Providers", icon: SlidersHorizontal },

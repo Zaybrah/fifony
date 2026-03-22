@@ -80,7 +80,34 @@ export function loadAgentCatalog(): AgentCatalogEntry[] {
 }
 
 export function loadSkillCatalog(): SkillCatalogEntry[] {
-  return [];
+  const entries: SkillCatalogEntry[] = [];
+  try {
+    const repos = listReferenceRepositories();
+    for (const repo of repos) {
+      if (!repo.present || !repo.synced) continue;
+      const artifacts = collectArtifacts(repo.path, repo.id).filter((a) => a.kind === "skill");
+      for (const artifact of artifacts) {
+        try {
+          const content = readFileSync(artifact.sourcePath, "utf8");
+          const fm = parseFrontmatter(content);
+          entries.push({
+            name: artifact.targetName,
+            displayName: fm.name || artifact.targetName,
+            description: fm.description || "",
+            domains: fm.domains ? fm.domains.split(",").map((d) => d.trim()).filter(Boolean) : [],
+            source: repo.id,
+            installType: "bundled",
+            content,
+          });
+        } catch (err) {
+          logger.warn({ err, path: artifact.sourcePath }, "Failed to read skill file");
+        }
+      }
+    }
+  } catch (error) {
+    logger.error({ err: error }, "Failed to load skill catalog from repositories");
+  }
+  return entries;
 }
 
 // ── Filter by domains ────────────────────────────────────────────────────────

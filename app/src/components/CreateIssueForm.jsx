@@ -3,6 +3,7 @@ import { X, Lightbulb, Loader2, Sparkles, FileText, Bug, RefreshCw, BookOpen, Wr
 import { useSwipeToDismiss } from "../hooks/useSwipeToDismiss.js";
 import { api } from "../api.js";
 import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
+import { VoiceWaveform } from "./VoiceWaveform.jsx";
 
 const ISSUE_TEMPLATES = [
   { id: "blank",    label: "Blank",         icon: FileText,  activeColor: "border-base-content/30 bg-base-content/5 text-base-content",         title: "",            description: "" },
@@ -22,6 +23,7 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
   const [uploading, setUploading] = useState(false);
   const [voiceTarget, setVoiceTarget] = useState(null); // "title" | "description" | null
   const titleRef = useRef(null);
+  const descRef = useRef(null);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -35,30 +37,37 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
     finalTranscript,
   } = useSpeechRecognition();
 
-  // Snapshot of field value when recording started — append only new text
-  const voiceBaseRef = useRef("");
+  // Cursor position + text before/after cursor when recording started
+  const voiceInsertRef = useRef({ before: "", after: "" });
 
   const toggleVoice = useCallback((field) => {
     if (listening && voiceTarget === field) {
-      // Stop
       SpeechRecognition.stopListening();
       setVoiceTarget(null);
       return;
     }
-    // Start (or switch field)
     if (listening) SpeechRecognition.stopListening();
     resetTranscript();
-    voiceBaseRef.current = field === "title" ? title : description;
+
+    // Capture cursor position at the moment recording starts
+    const el = field === "title" ? titleRef.current : descRef.current;
+    const value = field === "title" ? title : description;
+    const pos = el?.selectionStart ?? value.length;
+    voiceInsertRef.current = {
+      before: value.slice(0, pos),
+      after: value.slice(pos),
+    };
+
     setVoiceTarget(field);
     SpeechRecognition.startListening({ continuous: true, language: "pt-BR" });
   }, [listening, voiceTarget, title, description, resetTranscript]);
 
-  // Append transcript to the active field as it comes in
+  // Insert transcript at cursor position as it comes in
   useEffect(() => {
     if (!voiceTarget || !transcript) return;
-    const combined = voiceBaseRef.current
-      ? `${voiceBaseRef.current} ${transcript}`
-      : transcript;
+    const { before, after } = voiceInsertRef.current;
+    const space = before.length > 0 && !before.endsWith(" ") && !before.endsWith("\n") ? " " : "";
+    const combined = `${before}${space}${transcript}${after ? (after.startsWith(" ") || after.startsWith("\n") ? "" : " ") + after : ""}`;
     if (voiceTarget === "title") setTitle(combined);
     else setDescription(combined);
   }, [transcript, voiceTarget]);
@@ -250,12 +259,13 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
               </label>
               <input
                 ref={titleRef}
-                className="input input-bordered w-full"
-                placeholder="Fix the login redirect bug"
+                className={`input input-bordered w-full ${listening && voiceTarget === "title" ? "border-error/50 bg-error/5" : ""}`}
+                placeholder={listening && voiceTarget === "title" ? "Listening... speak now" : "Fix the login redirect bug"}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
               />
+              <VoiceWaveform active={listening && voiceTarget === "title"} onStop={() => toggleVoice("title")} />
             </div>
 
             <div className="form-control flex-1 flex flex-col min-h-0">
@@ -283,18 +293,15 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
                   </button>
                 </div>
               </label>
-              <div className="relative flex-1 flex flex-col min-h-0">
+              <div className="relative flex-1 flex flex-col min-h-0 gap-2">
                 <textarea
+                  ref={descRef}
                   className={`textarea textarea-bordered w-full flex-1 min-h-40 resize-none ${listening && voiceTarget === "description" ? "border-error/50 bg-error/5" : ""}`}
                   placeholder={listening && voiceTarget === "description" ? "Listening... speak now" : "Describe the problem, expected behavior, acceptance criteria..."}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
-                {listening && voiceTarget === "description" && interimTranscript && (
-                  <div className="absolute bottom-2 left-3 right-3 text-xs text-error/60 italic truncate pointer-events-none">
-                    {interimTranscript}
-                  </div>
-                )}
+                <VoiceWaveform active={listening && voiceTarget === "description"} onStop={() => toggleVoice("description")} />
               </div>
             </div>
 

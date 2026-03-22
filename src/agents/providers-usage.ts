@@ -199,6 +199,16 @@ const CLAUDE_PLAN_LIMITS: Record<string, number> = {
   max5x: 675_000_000,   // ~675M tokens/week (Max 5x plan)
 };
 
+/** Map display names from CLI banner (e.g. "Claude Max") to plan keys. */
+function resolveClaudePlanKey(displayName: string): string | null {
+  const lower = displayName.toLowerCase().trim();
+  if (/max\s*5x/i.test(lower)) return "max5x";
+  if (/max/i.test(lower)) return "max";
+  if (/pro/i.test(lower)) return "pro";
+  if (/free/i.test(lower)) return null;
+  return null;
+}
+
 // ── Claude usage (from JSONL session files) ──────────────────────────────────
 
 async function collectClaudeUsage(): Promise<ProviderUsage | null> {
@@ -317,9 +327,9 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
 
   // Claude models (known models for Claude Code)
   const models: ModelInfo[] = [
-    { slug: "claude-opus-4-6", displayName: "Claude Opus 4.6", description: "Most capable model for complex tasks" },
-    { slug: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6", description: "Balanced performance and speed" },
-    { slug: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", description: "Fast and efficient model" },
+    { slug: "claude-opus-4-6", displayName: "claude opus 4.6", description: "Most capable model for complex tasks" },
+    { slug: "claude-sonnet-4-6", displayName: "claude sonnet 4.6", description: "Balanced performance and speed" },
+    { slug: "claude-haiku-4-5", displayName: "claude haiku 4.5", description: "Fast and efficient model" },
   ];
 
   // Detect subscription type and configured model from settings
@@ -349,6 +359,14 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
   if (statusUsage) {
     if (statusUsage.currentModel) {
       currentModel = statusUsage.currentModel;
+    }
+    // Map CLI plan name (e.g. "Claude Max") → plan key → weekly limit
+    if (statusUsage.plan) {
+      const planKey = resolveClaudePlanKey(statusUsage.plan);
+      if (planKey && CLAUDE_PLAN_LIMITS[planKey]) {
+        plan = planKey;
+        weeklyLimit = CLAUDE_PLAN_LIMITS[planKey];
+      }
     }
     if (statusUsage.weeklyLimitEstimate !== null) {
       weeklyLimit = statusUsage.weeklyLimitEstimate;
@@ -523,7 +541,7 @@ async function collectCodexUsage(): Promise<ProviderUsage | null> {
       for (const m of cache.models || []) {
         models.push({
           slug: m.slug,
-          displayName: m.display_name || m.slug,
+          displayName: (m.display_name || m.slug).toLowerCase(),
           description: (m.description || "").slice(0, 80),
         });
       }
@@ -879,6 +897,26 @@ async function collectGeminiUsage(): Promise<ProviderUsage | null> {
   const available = await whichExists("gemini");
   if (!available) return null;
 
+  // Version: `gemini --version` (non-interactive, no PTY needed)
+  let version: string | null = null;
+  try {
+    const { stdout } = await execFileAsync("gemini", ["--version"], { encoding: "utf8", timeout: 5000 });
+    const trimmed = stdout.trim();
+    if (/^\d+\.\d+/.test(trimmed)) version = trimmed;
+  } catch {}
+
+  // Account: from local google_accounts.json
+  let account: string | null = null;
+  const accountsPath = join(homedir(), ".gemini", "google_accounts.json");
+  if (existsSync(accountsPath)) {
+    try {
+      const data = JSON.parse(readFileSync(accountsPath, "utf8"));
+      if (typeof data.active === "string" && data.active.includes("@")) {
+        account = data.active;
+      }
+    } catch {}
+  }
+
   const todayStart = computeTodayStart();
   const weekStart = computeWeekStart();
   let nextResetAt = computeNextMonday().toISOString();
@@ -1012,9 +1050,9 @@ async function collectGeminiUsage(): Promise<ProviderUsage | null> {
     nextResetAt,
     weeklyLimitEstimate: null,
     percentUsed: statusUsage?.weeklyPercentUsed ?? null,
-    version: statusUsage?.version ?? null,
+    version: statusUsage?.version ?? version,
     plan: statusUsage?.plan ?? null,
-    account: statusUsage?.account ?? null,
+    account: statusUsage?.account ?? account,
     effort: null, // Gemini has no effort/reasoning concept
     rateLimits: statusUsage?.rateLimits ?? [],
   };
