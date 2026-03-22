@@ -11,6 +11,7 @@ dist/
 app/dist/
 app/src/routeTree.gen.ts
 CLAUDE.md
+.mcp.json
 AGENTS.md
 .gemini
 openspec
