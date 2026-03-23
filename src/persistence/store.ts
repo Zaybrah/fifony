@@ -259,10 +259,13 @@ async function recoverStateFromIssueResource(): Promise<RuntimeState | null> {
       for (const issue of issues) {
         try {
           const planRecord = await issuePlanResource.get(issue.id) as Record<string, unknown> | null | undefined;
-          if (planRecord?.plan) issue.plan = planRecord.plan as IssueEntry["plan"];
+          if (planRecord?.plan) {
+            issue.plan = planRecord.plan as IssueEntry["plan"];
+            logger.debug({ issueId: issue.id, hasSteps: !!(issue.plan as any)?.steps?.length }, "[Recovery] Hydrated plan from issue_plans resource");
+          }
           if (planRecord?.planHistory) issue.planHistory = planRecord.planHistory as IssueEntry["planHistory"];
-        } catch {
-          // plan may not exist yet — ok
+        } catch (err) {
+          logger.warn({ issueId: issue.id, err: String(err) }, "[Recovery] Failed to load plan from issue_plans resource");
         }
       }
     }

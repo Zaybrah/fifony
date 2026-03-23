@@ -61,8 +61,25 @@ export async function runPlanningJob(
     );
 
     issue.plan = plan;
-    markIssuePlanDirty(issue.id);
     issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
+    markIssuePlanDirty(issue.id);
+
+    // Flush plan to issue_plans resource immediately (don't wait for persist cycle)
+    try {
+      const { getIssuePlanResource } = await import("../persistence/store.ts");
+      const planRes = getIssuePlanResource();
+      if (planRes) {
+        await (planRes as any).replace(issue.id, {
+          id: issue.id,
+          plan: issue.plan,
+          planHistory: issue.planHistory,
+          planVersion: issue.planVersion,
+        });
+        logger.debug({ issueId: issue.id, planVersion: issue.planVersion }, "[Agent] Plan flushed to issue_plans resource");
+      }
+    } catch (flushErr) {
+      logger.warn({ err: String(flushErr), issueId: issue.id }, "[Agent] Failed to flush plan to issue_plans resource");
+    }
 
     // Apply plan suggestions (paths, effort)
     if (plan.suggestedPaths?.length && !(issue.paths?.length)) issue.paths = plan.suggestedPaths;

@@ -40,6 +40,7 @@ export function generatePlanInBackground(
   generatePlan(issue.title, issue.description, config, null, { fast })
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
+      issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
       markIssuePlanDirty(issue.id);
       issue.planningStatus = "idle";
       issue.planningStartedAt = undefined;
@@ -48,6 +49,17 @@ export function generatePlanInBackground(
 
       applyUsage(issue, usage);
       applySuggestions(issue, plan);
+
+      // Flush plan immediately to issue_plans resource
+      try {
+        const { getIssuePlanResource } = await import("../../persistence/store.ts");
+        const planRes = getIssuePlanResource();
+        if (planRes) {
+          await (planRes as any).replace(issue.id, {
+            id: issue.id, plan: issue.plan, planHistory: issue.planHistory, planVersion: issue.planVersion,
+          });
+        }
+      } catch { /* non-critical — persist cycle will catch it */ }
 
       addEvent(issue.id, "progress", `${fast ? "Fast plan" : "Plan"} generated for ${issue.identifier}: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.`);
       if (usage.totalTokens > 0) {
@@ -90,6 +102,7 @@ export function refinePlanInBackground(
   refinePlan(issue, feedback, config, null)
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
+      issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
       markIssuePlanDirty(issue.id);
       issue.planningStatus = "idle";
       issue.planningStartedAt = undefined;
@@ -98,6 +111,17 @@ export function refinePlanInBackground(
 
       applyUsage(issue, usage);
       applySuggestions(issue, plan);
+
+      // Flush plan immediately
+      try {
+        const { getIssuePlanResource } = await import("../../persistence/store.ts");
+        const planRes = getIssuePlanResource();
+        if (planRes) {
+          await (planRes as any).replace(issue.id, {
+            id: issue.id, plan: issue.plan, planHistory: issue.planHistory, planVersion: issue.planVersion,
+          });
+        }
+      } catch { /* non-critical */ }
 
       const feedbackPreview = feedback.length > 80 ? `${feedback.slice(0, 77)}...` : feedback;
       addEvent(issue.id, "progress", `Plan refined for ${issue.identifier}: "${feedbackPreview}" → ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.`);
