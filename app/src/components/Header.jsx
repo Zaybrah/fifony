@@ -119,9 +119,6 @@ export function Header({ issueCount, sourceRepo, queueTitle, updatedAt, onToggle
                   >
                     <Icon className="size-4" />
                     {label}
-                    {to === "/issues" && issueCount > 0 && (
-                      <AnimatedBadge count={issueCount} />
-                    )}
                   </Link>
                 </li>
               );
