@@ -53,6 +53,7 @@ export function PreviewModal({ issue, onClose }) {
 
   const [showCmds, setShowCmds] = useState(false);
   const [mergePreview, setMergePreview] = useState(null);
+  const [gitClean, setGitClean] = useState(null); // null = loading, true = clean, false = dirty
 
   const fetchMergePreview = useCallback(async () => {
     try {
@@ -64,6 +65,7 @@ export function PreviewModal({ issue, onClose }) {
   }, [issue.id]);
 
   useEffect(() => { fetchMergePreview(); }, [fetchMergePreview]);
+  useEffect(() => { api.get("/git/status").then((s) => setGitClean(s.isClean !== false)).catch(() => setGitClean(null)); }, []);
 
   const fetchDiff = useCallback(async () => {
     setLoading(true);
@@ -181,6 +183,14 @@ export function PreviewModal({ issue, onClose }) {
             <GitMerge className="size-3.5 opacity-40 shrink-0" />
             <span className="font-mono text-xs bg-base-200 px-2 py-0.5 rounded">{baseBranch}</span>
           </div>
+
+          {/* Dirty working tree warning */}
+          {gitClean === false && (
+            <div className="alert alert-warning text-xs py-2 gap-1.5">
+              <AlertTriangle className="size-3.5 shrink-0" />
+              <span>Project has uncommitted changes — Test Live and Merge will fail. Commit or stash them first.</span>
+            </div>
+          )}
 
           {/* Pre-merge conflict detection */}
           {mergePreview?.willConflict && (
@@ -342,8 +352,8 @@ export function PreviewModal({ issue, onClose }) {
                 <button
                   className="btn btn-sm btn-info btn-soft gap-1.5 w-full"
                   onClick={handleTryLive}
-                  disabled={actionBusy || !issue.branchName}
-                  title="Run git merge --squash on your workspace to test with hot reload without committing"
+                  disabled={actionBusy || !issue.branchName || gitClean === false}
+                  title={gitClean === false ? "Cannot test — working tree has uncommitted changes" : "Run git merge --squash on your workspace to test with hot reload without committing"}
                 >
                 {actionBusy ? <Loader className="size-3.5 animate-spin" /> : <FlaskConical className="size-3.5" />}
                 Test Live
