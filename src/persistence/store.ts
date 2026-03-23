@@ -288,6 +288,19 @@ export async function loadPersistedState(): Promise<RuntimeState | null> {
     if (record?.state && typeof record.state === "object") {
       const state = record.state as RuntimeState;
       if (Array.isArray(state.issues) && state.issues.length > 0) {
+        // Hydrate current plans from the 1:N issue_plans resource
+        // Plans are stored separately and excluded from issue records,
+        // so the blob may have stale/missing plan data after restarts.
+        for (const issue of state.issues) {
+          try {
+            const current = await getCurrentPlanForIssue(issue.id);
+            if (current) {
+              issue.plan = current.plan as IssueEntry["plan"];
+            }
+          } catch (err) {
+            logger.warn({ issueId: issue.id, err: String(err) }, "[Store] Failed to hydrate plan on load");
+          }
+        }
         return state;
       }
       // State blob has no issues — try recovering from individual issue records
