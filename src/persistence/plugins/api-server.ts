@@ -128,7 +128,7 @@ export async function startApiServer(
   const apiPlugin = new ApiPlugin({
     port,
     host: "0.0.0.0",
-    tls: options?.tls ?? false,
+    tls: false,
     versionPrefix: false,
     metrics: {
       logLevel: 'info'

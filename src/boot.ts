@@ -145,13 +145,12 @@ async function main() {
   debugBoot("main:container-early-init");
 
   if (dashboardPort) {
-    const useTls = !args.includes("--no-tls");
-    await startApiServer(apiState, dashboardPort, { tls: useTls });
+    await startApiServer(apiState, dashboardPort);
     debugBoot("main:api-server-early-start");
 
     if (devMode) {
       const devPort = dashboardPort + 1;
-      await startDevFrontend(dashboardPort, devPort, { tls: useTls });
+      await startDevFrontend(dashboardPort, devPort);
     }
   }
 
