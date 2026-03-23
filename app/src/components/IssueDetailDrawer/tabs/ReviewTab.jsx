@@ -115,7 +115,6 @@ export function ReviewTab({ issue, issueId, onStateChange, onRetry }) {
   }, [issueId]);
 
   useEffect(() => {
-    if (!isInReview) return;
     const handlePaste = (e) => {
       const pastedFiles = Array.from(e.clipboardData?.items ?? [])
         .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
@@ -125,7 +124,7 @@ export function ReviewTab({ issue, issueId, onStateChange, onRetry }) {
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [isInReview, uploadReviewImages]);
+  }, [uploadReviewImages]);
 
   // ── Diff parsing ────────────────────────────────────────────────────────────
   const files = diffData?.files || [];

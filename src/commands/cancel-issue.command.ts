@@ -1,8 +1,9 @@
-import type { IssueEntry } from "../types.ts";
+import type { IssueEntry, RuntimeState } from "../types.ts";
 import type { IIssueRepository, IEventStore } from "../ports/index.ts";
 import { transitionIssueCommand } from "./transition-issue.command.ts";
 import { readAgentPid } from "../agents/pid-manager.ts";
 import { logger } from "../concerns/logger.ts";
+import { cleanWorkspace } from "../domains/workspace.ts";
 
 export type CancelIssueInput = {
   issue: IssueEntry;
@@ -13,6 +14,7 @@ export async function cancelIssueCommand(
   deps: {
     issueRepository: IIssueRepository;
     eventStore: IEventStore;
+    state?: RuntimeState;
   },
 ): Promise<void> {
   const { issue } = input;
@@ -34,6 +36,16 @@ export async function cancelIssueCommand(
     { issue, target: "Cancelled", note: "Manual cancel requested." },
     deps,
   );
+
+  if (deps.state) {
+    try {
+      await cleanWorkspace(issue.id, issue, deps.state);
+      issue.workspacePath = undefined as any;
+      issue.worktreePath = undefined as any;
+    } catch (error) {
+      logger.warn({ issueId: issue.id, err: String(error) }, "[Command] Failed to clean workspace during cancel");
+    }
+  }
 
   deps.eventStore.addEvent(issue.id, "manual", `Manual cancel requested for ${issue.id}.`);
 }

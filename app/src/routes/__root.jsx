@@ -128,7 +128,8 @@ function RootLayout() {
 
   const noDrawer = !hasDrawer;
   const issueState = ctx.selectedIssue?.state;
-  const canApprove = issueState === "Reviewing" || issueState === "PendingDecision";
+  const canApproveOnly = issueState === "PendingDecision";
+  const canRework = issueState === "Reviewing" || issueState === "PendingDecision";
   const canMerge = issueState === "Approved" && !ctx.selectedIssue?.mergedAt;
   const canReplan = !!ctx.selectedIssue?.plan && !["Running", "Reviewing", "Queued", "Planning"].includes(issueState);
 
@@ -153,9 +154,9 @@ function RootLayout() {
   useHotkeys("j", () => navigateIssue(1), { enabled: hasDrawer, description: "Next issue", metadata: { group: "drawer" } }, [navigateIssue, hasDrawer]);
   useHotkeys("k", () => navigateIssue(-1), { enabled: hasDrawer, description: "Previous issue", metadata: { group: "drawer" } }, [navigateIssue, hasDrawer]);
   useHotkeys("mod+enter", primaryAction, { enabled: hasDrawer, enableOnFormTags: true, preventDefault: true, description: "Primary action (Execute / Approve / Merge)", metadata: { group: "drawer" } }, [primaryAction, hasDrawer]);
-  useHotkeys("mod+a", () => ctx.updateState(ctx.selectedIssue.id, "Approved"), { enabled: canApprove, enableOnFormTags: true, preventDefault: true, description: "Approve issue", metadata: { group: "drawer" } }, [ctx, canApprove]);
+  useHotkeys("mod+a", () => ctx.updateState(ctx.selectedIssue.id, "Approved"), { enabled: canApproveOnly, enableOnFormTags: true, preventDefault: true, description: "Approve issue", metadata: { group: "drawer" } }, [ctx, canApproveOnly]);
   useHotkeys("mod+m", () => import("../api.js").then(({ api }) => api.post(`/issues/${encodeURIComponent(ctx.selectedIssue.id)}/merge`)), { enabled: canMerge, enableOnFormTags: true, preventDefault: true, description: "Merge issue", metadata: { group: "drawer" } }, [ctx, canMerge]);
-  useHotkeys("mod+w", () => ctx.retryIssue(ctx.selectedIssue.id), { enabled: canApprove, enableOnFormTags: true, preventDefault: true, description: "Rework issue", metadata: { group: "drawer" } }, [ctx, canApprove]);
+  useHotkeys("mod+w", () => ctx.retryIssue(ctx.selectedIssue.id), { enabled: canRework, enableOnFormTags: true, preventDefault: true, description: "Rework issue", metadata: { group: "drawer" } }, [ctx, canRework]);
   useHotkeys("mod+p", () => import("../api.js").then(({ api }) => api.post(`/issues/${encodeURIComponent(ctx.selectedIssue.id)}/replan`)), { enabled: canReplan, enableOnFormTags: true, preventDefault: true, description: "Replan issue", metadata: { group: "drawer" } }, [ctx, canReplan]);
 
   // Splash screen with minimum duration so it doesn't flash

@@ -201,7 +201,7 @@ function ColumnDots({ columns, activeIndex }) {
 
 // Default visible card limits for collapsible columns
 const COLLAPSE_LIMITS = {
-  Done: 20,
+  Done: 3,
 };
 
 function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColumn, getCardHandlers, onSelect, onCreateIssue, lastDroppedId, hasRunningAgents, totalIssues, onLongPress, selectedIds, onToggleSelect, hasSelection, focusedIssueId }) {

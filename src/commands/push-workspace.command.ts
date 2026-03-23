@@ -82,6 +82,19 @@ export async function pushWorkspaceCommand(
   ensureGitRepoReadyForWorktrees(TARGET_ROOT, "push issue branches");
   assertIssueHasGitWorktree(issue, "push");
 
+  if (issue.testApplied) {
+    try {
+      execSync("git reset --hard HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+      execSync("git clean -fd", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+      issue.testApplied = false;
+      deps.eventStore.addEvent(issue.id, "info", "Auto-reverted test squash before push.");
+      logger.info({ issueId: issue.id }, "[Push] Auto-reverted test squash before push");
+    } catch (err: any) {
+      const msg = err.stderr || err.stdout || String(err);
+      throw new Error(`Failed to revert test squash before push: ${msg}`);
+    }
+  }
+
   // Auto-transition to Approved if still in review
   if (issue.state === "Reviewing" || issue.state === "PendingDecision") {
     await transitionIssueCommand(
