@@ -3,6 +3,7 @@ import {
   X, AlertTriangle, Loader, RotateCcw, PlayCircle, GitMerge,
   GitPullRequest,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api.js";
 import { useSwipeToDismiss } from "../../hooks/useSwipeToDismiss.js";
 import { useWorkflowConfig } from "../../hooks/useWorkflowConfig.js";
@@ -145,6 +146,7 @@ function DrawerFooter({ issue, onStateChange, onRetry, onMerge, onPush, mergeBus
 // ── IssueDetailDrawer ─────────────────────────────────────────────────────────
 
 export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCancel, events, mergeMode, tabRef }) {
+  const qc = useQueryClient();
   const [tab, setTab] = useState("overview");
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -213,13 +215,14 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
         setMergeError(`Merge aborted — ${conflicts} conflict${conflicts !== 1 ? "s" : ""}: ${conflictNames.join(", ")}`);
       } else {
         setMergeNotice(`Merged ${mergedFiles} file${mergedFiles !== 1 ? "s" : ""} into the project.`);
+        qc.invalidateQueries({ queryKey: ["runtime-state"] });
       }
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : String(err));
     } finally {
       setMergeBusy(false);
     }
-  }, [issue?.id, mergeBusy]);
+  }, [issue?.id, mergeBusy, qc]);
 
   const handlePush = useCallback(async () => {
     if (!issue?.id || mergeBusy) return;
@@ -235,6 +238,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
       } else {
         setMergeNotice("Branch pushed to origin.");
       }
+      qc.invalidateQueries({ queryKey: ["runtime-state"] });
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : String(err));
     } finally {
