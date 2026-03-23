@@ -1,15 +1,14 @@
 import type { IssueEntry, RuntimeMetrics, RuntimeState } from "../types.ts";
-import { isoWeek, now, parseIssueState, toStringValue } from "../concerns/helpers.ts";
+import { isoWeek, now, toStringValue } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
 import { persistState } from "../persistence/store.ts";
 import { markIssueDirty } from "../persistence/dirty-tracker.ts";
 import { addEvent, computeMetrics } from "../domains/issues.ts";
-import { ATTACHMENTS_ROOT, TERMINAL_STATES, TARGET_ROOT } from "../concerns/constants.ts";
+import { ATTACHMENTS_ROOT, TARGET_ROOT } from "../concerns/constants.ts";
 import { findIssue, mutateIssueState, parseIssue } from "../routes/helpers.ts";
 import { cleanWorkspace } from "../domains/workspace.ts";
 import { detectAvailableProviders } from "../agents/providers.ts";
 import { analyzeParallelizability } from "../persistence/plugins/scheduler.ts";
-import { enqueue } from "../persistence/plugins/queue-workers.ts";
 import {
   collectProviderUsage,
   collectProvidersUsage,
@@ -21,16 +20,12 @@ import { basename, extname, join } from "node:path";
 
 // Hexagonal architecture
 import { getContainer } from "../persistence/container.ts";
-import { createIssueCommand } from "../commands/create-issue.command.ts";
-import { cancelIssueCommand } from "../commands/cancel-issue.command.ts";
 import { approvePlanCommand } from "../commands/approve-plan.command.ts";
 import { executeIssueCommand } from "../commands/execute-issue.command.ts";
 import { replanIssueCommand } from "../commands/replan-issue.command.ts";
-import { requestReworkCommand } from "../commands/request-rework.command.ts";
 import { mergeWorkspaceCommand } from "../commands/merge-workspace.command.ts";
 import { pushWorkspaceCommand } from "../commands/push-workspace.command.ts";
 import { transitionIssueCommand } from "../commands/transition-issue.command.ts";
-import { retryExecutionCommand } from "../commands/retry-execution.command.ts";
 
 type GetStateResult = RuntimeState & {
   metrics: RuntimeMetrics;
@@ -134,146 +129,8 @@ export function registerStateRoutes(
     }
   });
 
-  app.post("/api/issues/create", async (c: any) => {
-    try {
-      const payload = await c.req.json();
-      logger.info({ title: (payload.title ?? "").toString().slice(0, 80) }, "[API] POST /api/issues/create");
-      const container = getContainer();
-      const result = await createIssueCommand({ payload, state }, container);
-      return c.json({ ok: true, issue: result.issue }, 201);
-    } catch (error) {
-      return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
-    }
-  });
-
-  app.post("/api/issues/:id/state", async (c: any) => {
-    const issueId = parseIssue(c);
-    if (!issueId) {
-      return c.json({ ok: false, error: "Issue id is required." }, 400);
-    }
-
-    const issue = findIssue(state, issueId);
-    if (!issue) {
-      return c.json({ ok: false, error: "Issue not found" }, 404);
-    }
-
-    try {
-      const payload = await c.req.json();
-      logger.info({ issueId, identifier: issue.identifier, targetState: payload.state }, "[API] POST /api/issues/:id/state");
-      const nextState = parseIssueState(payload.state);
-      if (!nextState) {
-        throw new Error(`Unsupported state: ${String(payload.state)}`);
-      }
-      if (nextState === "Running" && issue.state !== "Queued") {
-        return c.json({ ok: false, error: "Manual transition to Running is only supported from Queued." }, 400);
-      }
-      const container = getContainer();
-      await transitionIssueCommand({ issue, target: nextState, note: `Manual state update: ${nextState}` }, container);
-      if (nextState === "Running") {
-        await enqueue(issue, "execute");
-      }
-      // nextRetryAt/lastError are now handled by FSM entry actions
-      if (nextState === "Cancelled" && payload.reason) {
-        issue.lastError = toStringValue(payload.reason);
-      }
-      await persistState(state);
-      return c.json({ ok: true, issue });
-    } catch (error) {
-      return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
-    }
-  });
-
-  app.post("/api/issues/:id/retry", async (c: any) => {
-    logger.info({ issueId: parseIssue(c) }, "[API] POST /api/issues/:id/retry");
-    // Extract optional rework feedback from request body
-    let feedback: string | undefined;
-    try {
-      const body = await c.req.json();
-      if (body?.feedback) feedback = toStringValue(body.feedback);
-    } catch { /* no body or invalid JSON — fine */ }
-
-    return mutateIssueState(state, c, async (issue) => {
-      const container = getContainer();
-      if (TERMINAL_STATES.has(issue.state)) {
-        // Terminal → REOPEN → Planning, then if plan exists → Planned → Queued
-        await transitionIssueCommand(
-          { issue, target: "Planning", note: "Manual retry — reopened." },
-          container,
-        );
-        if (issue.plan?.steps?.length) {
-          await transitionIssueCommand(
-            { issue, target: "PendingApproval", note: "Existing plan found." },
-            container,
-          );
-          await transitionIssueCommand(
-            { issue, target: "Queued", note: "Auto-queued after plan approval." },
-            container,
-          );
-        }
-      } else if (issue.state === "Blocked") {
-        if (issue.lastFailedPhase === "review") {
-          // Execution was fine, only review failed — skip re-execution
-          issue.lastError = undefined;
-          issue.lastFailedPhase = undefined;
-          await transitionIssueCommand(
-            { issue, target: "Reviewing", note: "Retrying review (execution was already successful)." },
-            container,
-          );
-        } else {
-          await retryExecutionCommand(
-            { issue, note: "Manual retry from Blocked." },
-            container,
-          );
-        }
-      } else if (issue.state === "Approved") {
-        // Done → reopen for rework (e.g. after merge conflicts)
-        issue.attempts += 1;
-        await transitionIssueCommand(
-          { issue, target: "Planning", note: "Requeued for rework after merge conflicts." },
-          container,
-        );
-        if (issue.plan?.steps?.length) {
-          await transitionIssueCommand(
-            { issue, target: "PendingApproval", note: "Existing plan found." },
-            container,
-          );
-          await transitionIssueCommand(
-            { issue, target: "Queued", note: "Auto-queued for rework." },
-            container,
-          );
-        }
-      } else if (issue.state === "Reviewing" || issue.state === "PendingDecision") {
-        await requestReworkCommand(
-          {
-            issue,
-            reviewerFeedback: feedback || issue.lastError || "Manual rework request.",
-            note: feedback
-              ? `Rework requested for ${issue.identifier}: ${feedback.slice(0, 200)}`
-              : `Manual rework requested for ${issue.identifier}.`,
-          },
-          container,
-        );
-      } else if (issue.state === "PendingApproval") {
-        await transitionIssueCommand(
-          { issue, target: "Queued", note: "Manual retry — queued for execution." },
-          container,
-        );
-      } else {
-        issue.lastError = undefined;
-        issue.nextRetryAt = undefined;
-        issue.updatedAt = now();
-      }
-      addEvent(state, issue.id, "manual", `Manual retry requested for ${issue.id}.`);
-    });
-  });
-
-  app.post("/api/issues/:id/cancel", async (c: any) => {
-    logger.info({ issueId: parseIssue(c) }, "[API] POST /api/issues/:id/cancel");
-    return mutateIssueState(state, c, async (issue) => {
-      const container = getContainer();
-      await cancelIssueCommand({ issue }, container);
-    });
-  });
+  // NOTE: create, state, retry, cancel routes live in issues.resource.ts (s3db resource routes).
+  // They have priority over collector routes. Do NOT duplicate them here.
 
   app.post("/api/issues/:id/approve", async (c: any) => {
     logger.info({ issueId: parseIssue(c) }, "[API] POST /api/issues/:id/approve");

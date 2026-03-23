@@ -94,6 +94,7 @@ export const issueStateMachineConfig = {
         },
         Running: {
           on: { REVIEW: "Reviewing", REQUEUE: "Queued", BLOCK: "Blocked" },
+          entry: "onEnterRunning",
           guards: { BLOCK: "requireBlockReason" },
           triggers: [{
             type: "cron" as const,
@@ -174,9 +175,32 @@ export const issueStateMachineConfig = {
       }
     },
 
-    onEnterQueued: async (context: Record<string, unknown>, _event: string, _machine: Machine) => {
+    onEnterRunning: async (context: Record<string, unknown>, _event: string, _machine: Machine) => {
       const issue = resolveIssue(context);
       if (issue) {
+        emitFsmEvent(issue.id, "state", `${issue.identifier} is running.`);
+        // Enqueue execution — safe for both manual and automatic transitions:
+        // automatic: canDispatch() sees running.has(id) and skips the duplicate
+        // manual (via POST /state): dispatches normally
+        lazyEnqueue(issue, "execute").catch(() => {});
+      }
+    },
+
+    onEnterQueued: async (context: Record<string, unknown>, event: string, _machine: Machine) => {
+      const issue = resolveIssue(context);
+      if (issue) {
+        // Event-specific field prep (business rules live here, not in handlers)
+        if (event === "REQUEUE") {
+          // Reviewer-requested rework — archive the reviewer's feedback
+          const feedback = typeof context.note === "string" ? context.note : undefined;
+          if (feedback) issue.lastError = feedback;
+          issue.lastFailedPhase = "review";
+          issue.attempts = (issue.attempts ?? 0) + 1;
+        } else if (event === "UNBLOCK") {
+          // Retry from Blocked — increment attempt budget
+          issue.attempts = (issue.attempts ?? 0) + 1;
+        }
+
         // Archive previous attempt summary before clearing lastError
         if (issue.attempts > 0 && issue.lastError) {
           // Read the full output from the most recent stdout file for better analysis
@@ -312,12 +336,14 @@ export const issueStateMachineConfig = {
       const issue = resolveIssue(context);
       const ts = new Date().toISOString();
       const week = isoWeek();
+      const reason = typeof context.reason === "string" ? context.reason : (typeof context.note === "string" ? context.note : undefined);
       if (issue) {
         issue.completedAt = ts;
         issue.terminalWeek = week;
         issue.nextRetryAt = undefined;
-        issue.lastError = undefined;
-        emitFsmEvent(issue.id, "state", `${issue.identifier} cancelled.`);
+        issue.lastError = reason || undefined;
+        issue.cancelledReason = reason || issue.cancelledReason;
+        emitFsmEvent(issue.id, "state", `${issue.identifier} cancelled${reason ? `: ${reason.slice(0, 100)}` : ""}.`);
       }
       const res = issueResource(machine);
       if (res) {
