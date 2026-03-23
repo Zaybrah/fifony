@@ -3,7 +3,8 @@ import { logger } from "../../concerns/logger.ts";
 import { detectAvailableProviders } from "../providers.ts";
 import type { RuntimeConfig } from "../../types.ts";
 import { renderPrompt } from "../prompting.ts";
-import { resolvePlanStageConfig, getPlanCommand } from "./planning-prompts.ts";
+import { resolvePlanStageConfig } from "./planning-prompts.ts";
+import { ADAPTERS } from "../adapters/registry.ts";
 import { env } from "node:process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -241,9 +242,29 @@ export async function enhanceIssueField(
     throw new Error(`Configured plan provider "${selectedProvider}" is not available. Detected: ${known}`);
   }
 
-  const command = getPlanCommand(selectedProvider, planModel, images);
+  const adapter = ADAPTERS[selectedProvider];
+  if (!adapter) {
+    throw new Error(`No adapter configured for plan provider "${selectedProvider}".`);
+  }
+
+  const ENHANCE_JSON_SCHEMA = JSON.stringify({
+    type: "object",
+    properties: {
+      field: { type: "string", enum: ["title", "description"] },
+      value: { type: "string" },
+    },
+    required: ["field", "value"],
+    additionalProperties: false,
+  });
+
+  const command = adapter.buildCommand({
+    model: planModel,
+    imagePaths: images,
+    jsonSchema: selectedProvider === "claude" ? ENHANCE_JSON_SCHEMA : undefined,
+    noToolAccess: selectedProvider === "claude",
+  });
   if (!command) {
-    throw new Error(`No command configured for plan provider "${selectedProvider}".`);
+    throw new Error(`Adapter returned empty command for provider "${selectedProvider}".`);
   }
 
   const prompt = await buildPrompt(field, title, description, issueType, images);

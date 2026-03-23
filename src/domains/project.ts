@@ -1,10 +1,9 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   Dirent,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -14,10 +13,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative as relativePath, resolve } from "node:path";
 import { env } from "node:process";
 
-import { appendFileTail } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
-import { detectAvailableProviders } from "../agents/providers.ts";
-import { renderPrompt } from "../agents/prompting.ts";
 import { getSettingStateResource } from "../persistence/store.ts";
 import type { ProjectNameSource, RuntimeSettingRecord } from "../types.ts";
 
@@ -434,148 +430,6 @@ async function saveCachedAnalysis(targetRoot: string, analysis: ProjectAnalysis)
 
 export { buildFallbackAnalysis };
 
-export async function analyzeProjectWithCli(
-  provider: string,
-  targetRoot: string,
-  options?: { forceRefresh?: boolean },
-): Promise<ProjectAnalysis> {
-  // Check cache first
-  if (!options?.forceRefresh) {
-    const cached = await loadCachedAnalysis(targetRoot);
-    if (cached) {
-      logger.info("Using cached project analysis.");
-      return cached;
-    }
-  }
-
-  const normalizedProvider = provider.trim().toLowerCase();
-  const providers = detectAvailableProviders();
-  const providerInfo = providers.find((p) => p.name === normalizedProvider && p.available);
-
-  if (!providerInfo) {
-    logger.warn(
-      { provider: normalizedProvider },
-      "Requested CLI provider not available, using fallback analysis",
-    );
-    return buildFallbackAnalysis(targetRoot);
-  }
-
-  const tempDir = mkdtempSync(join(tmpdir(), "fifony-scan-"));
-  const promptFile = join(tempDir, "fifony-scan-prompt.txt");
-  const analysisPrompt = await renderPrompt("project-analysis");
-  writeFileSync(promptFile, analysisPrompt, "utf8");
-
-  // Build environment with prompt file path
-  const processEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (typeof value === "string") processEnv[key] = value;
-  }
-  processEnv.FIFONY_PROMPT_FILE = promptFile;
-
-  try {
-    const output = await new Promise<string>((resolve, reject) => {
-      let stdout = "";
-      let stderr = "";
-      let timedOut = false;
-
-      let args: string[];
-      let command: string;
-
-      if (normalizedProvider === "claude") {
-        command = "claude";
-        args = [
-          "--print",
-          "--no-session-persistence",
-          "--output-format", "json",
-          "-p", analysisPrompt,
-        ];
-      } else if (normalizedProvider === "codex") {
-        command = "sh";
-        args = ["-c", `codex exec --skip-git-repo-check < "${promptFile}"`];
-      } else {
-        reject(new Error(`Unsupported provider: ${normalizedProvider}`));
-        return;
-      }
-
-      const child = spawn(command, args, {
-        cwd: targetRoot,
-        env: processEnv,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      if (child.stdin) child.stdin.end();
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        stdout = appendFileTail(stdout, chunk.toString("utf8"), 64_000);
-      });
-
-      child.stderr?.on("data", (chunk: Buffer) => {
-        stderr = appendFileTail(stderr, chunk.toString("utf8"), 16_000);
-      });
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-      }, 120_000);
-
-      child.on("error", (err) => {
-        clearTimeout(timer);
-        reject(new Error(`Failed to spawn ${normalizedProvider}: ${err.message}`));
-      });
-
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (timedOut) {
-          reject(new Error(`CLI analysis timed out after 120s`));
-          return;
-        }
-        if (code !== 0) {
-          logger.debug(
-            { provider: normalizedProvider, code, stderr: stderr.slice(0, 500) },
-            "CLI analysis command exited with non-zero code",
-          );
-        }
-        resolve(stdout);
-      });
-    });
-
-    const analysis = parseAnalysisOutput(output);
-    if (analysis && !isBlockedProjectAnalysisResponse(analysis)) {
-      logger.info(
-        { provider: normalizedProvider, domains: analysis.domains, stack: analysis.stack },
-        "CLI project analysis completed",
-      );
-      // Cache the result for future use
-      await saveCachedAnalysis(targetRoot, analysis);
-      return analysis;
-    }
-
-    if (!analysis) {
-      logger.warn(
-        { provider: normalizedProvider, rawOutput: output.slice(0, 500) },
-        "CLI returned unparseable output, using fallback",
-      );
-    } else {
-      logger.warn(
-        { provider: normalizedProvider, blockedAnalysis: analysis.description },
-        "CLI analysis returned blocked/insufficient context response, using fallback",
-      );
-    }
-    return buildFallbackAnalysis(targetRoot);
-  } catch (error) {
-    logger.warn(
-      { err: error, provider: normalizedProvider },
-      "CLI analysis failed, using fallback",
-    );
-    return buildFallbackAnalysis(targetRoot);
-  } finally {
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
-  }
-}
 
 // ── Reference repositories ───────────────────────────────────────────────────
 
