@@ -238,8 +238,8 @@ async function approveAndMerge(c: unknown) {
     return { status: 404, body: { ok: false, error: "Issue not found" } };
   }
 
-  if (issue.state !== "PendingDecision" && issue.state !== "Reviewing" && issue.state !== "Approved") {
-    return { status: 400, body: { ok: false, error: `Cannot approve-and-merge from state ${issue.state}. Expected PendingDecision, Reviewing, or Approved.` } };
+  if (issue.state !== "PendingDecision" && issue.state !== "Approved") {
+    return { status: 400, body: { ok: false, error: `Cannot approve-and-merge from state ${issue.state}. Expected PendingDecision or Approved. Reviewing must complete first.` } };
   }
 
   try {

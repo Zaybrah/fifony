@@ -219,7 +219,7 @@ export type RuntimeConfig = {
   runMode: "filesystem";
   defaultBranch?: string;
   mergeMode?: "local" | "push-pr";
-  /** If true, review approval can still be automatic after reviewer success; if false, reviewer success waits for manual approval. */
+  /** When true AND no reviewer is configured, issues auto-approve after execution. When true AND a reviewer IS configured, issues auto-approve after reviewer success. When false, issues always wait in PendingDecision for manual human approval. */
   autoReviewApproval: boolean;
   testCommand?: string;
   prBaseBranch?: string;

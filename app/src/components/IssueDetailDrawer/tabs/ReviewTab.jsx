@@ -44,6 +44,7 @@ export function ReviewTab({ issue, issueId, onStateChange, onRetry }) {
 
   // ── Derived state ───────────────────────────────────────────────────────────
   const isInReview = issue.state === "Reviewing" || issue.state === "PendingDecision";
+  const canDecide = issue.state === "PendingDecision"; // Decision actions only after review completes
   const isApproved = issue.state === "Approved";
   const isMergedState = issue.state === "Merged";
   const isMerged = !!issue.mergedAt || isMergedState;
@@ -461,9 +462,9 @@ export function ReviewTab({ issue, issueId, onStateChange, onRetry }) {
       </Section>
 
 
-      {/* ── Phase 3: Decision ──────────────────────────────────────────────── */}
+      {/* ── Phase 3: Decision (only after review completes → PendingDecision) */}
 
-      {isInReview && (
+      {canDecide && (
         <Section title="Decision" icon={ThumbsUp}>
           <div className="space-y-4">
             {mergeError && (

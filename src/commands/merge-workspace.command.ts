@@ -37,14 +37,14 @@ export async function mergeWorkspaceCommand(
 ): Promise<MergeWorkspaceResult> {
   const { issue, state, squashAlreadyApplied } = input;
 
-  if (!["Approved", "Reviewing", "PendingDecision"].includes(issue.state)) {
-    throw new Error(`Issue ${issue.identifier} is in state ${issue.state}. Merge is only allowed in Reviewing, PendingDecision, or Approved state.`);
+  if (!["Approved", "PendingDecision"].includes(issue.state)) {
+    throw new Error(`Issue ${issue.identifier} is in state ${issue.state}. Merge is only allowed in PendingDecision or Approved state. Reviewing must complete first.`);
   }
 
   ensureGitRepoReadyForWorktrees(TARGET_ROOT, "merge issues");
 
-  // Auto-transition to Approved if still in review
-  if (issue.state === "Reviewing" || issue.state === "PendingDecision") {
+  // Auto-transition to Approved if still in PendingDecision
+  if (issue.state === "PendingDecision") {
     await transitionIssueCommand(
       { issue, target: "Approved", note: "Approved and merged by user." },
       deps,
