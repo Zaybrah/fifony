@@ -52,8 +52,17 @@ export function parseEnhancerOutput(raw: string, expectedField: EnhancementField
     throw new Error("AI provider returned an empty response.");
   }
 
-  const sourceText = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1]?.trim() ?? text;
+  // Extract ALL code blocks — iterate last-to-first because the CLI echoes the prompt
+  // (which contains a placeholder example) before the real response.
+  const codeBlocks = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)].map((m) => m[1].trim()).reverse();
+  for (const block of codeBlocks) {
+    for (const candidate of extractJsonObjects(block)) {
+      const value = parseCandidate(candidate, expectedField);
+      if (value) return value;
+    }
+  }
 
+  const sourceText = codeBlocks[0] ?? text;
   const candidates = extractJsonObjects(sourceText);
   for (const candidate of candidates) {
     const value = parseCandidate(candidate, expectedField);
@@ -108,7 +117,7 @@ function parseCandidate(raw: string, expectedField: EnhancementField): string {
       typeof parsed.text === "string" ? parsed.text.trim() :
       "";
     const field = parsed.field;
-    const isPlaceholder = /^\.{2,}$/.test(value);
+    const isPlaceholder = /^\.{2,}$/.test(value) || /^<REPLACE_/.test(value) || /^your improved /i.test(value);
     if (value && !isPlaceholder && (!field || field === expectedField)) {
       return value;
     }
@@ -225,11 +234,14 @@ async function runProviderCommand(
       rmSync(tempDir, { recursive: true, force: true });
 
       if (code !== 0) {
-        const providerOutput = appendFileTail(commandOutput, "", 12_000);
-        const reason = providerOutput.trim()
-          ? ` Enhance command output: ${providerOutput.slice(0, 1200)}`
-          : "";
-        reject(new Error(`Enhance command failed (exit ${code ?? "unknown"}).${reason}`));
+        // Some CLIs (e.g. codex exec) exit non-zero but still produce useful output.
+        // Try to use the output anyway — the caller's parser will validate it.
+        if (commandOutput.trim()) {
+          logger.warn({ exitCode: code, provider }, `[Enhance] Provider exited ${code} but produced output — attempting to use it`);
+          resolve(commandOutput);
+          return;
+        }
+        reject(new Error(`Enhance command failed (exit ${code ?? "unknown"}) with no output.`));
         return;
       }
       resolve(commandOutput);
@@ -249,7 +261,7 @@ export async function enhanceIssueField(
   const images = Array.isArray(payload.images) ? payload.images.filter((p): p is string => typeof p === "string") : undefined;
 
   // Use the same provider/model as the plan stage — single source of truth
-  const { provider: selectedProvider, model: planModel } = await resolvePlanStageConfig(config);
+  const { provider: selectedProvider, model: selectedModel } = await resolvePlanStageConfig(config);
 
   const providers = detectAvailableProviders();
   const isAvailable = providers.some((p) => p.name === selectedProvider && p.available);
@@ -274,7 +286,7 @@ export async function enhanceIssueField(
   });
 
   const command = adapter.buildCommand({
-    model: planModel,
+    model: selectedModel,
     imagePaths: images,
     jsonSchema: selectedProvider === "claude" ? ENHANCE_JSON_SCHEMA : undefined,
     noToolAccess: selectedProvider === "claude",
@@ -295,7 +307,7 @@ export async function enhanceIssueField(
     config.commandTimeoutMs,
     images,
   );
-  logger.info({ provider: selectedProvider, model: planModel, field, rawOutput: output.slice(0, 2000) }, "Enhance raw output");
+  logger.info({ provider: selectedProvider, model: selectedModel, field, rawOutput: output.slice(0, 2000) }, "Enhance raw output");
   const value = parseEnhancerOutput(output, field);
   logger.info({ provider: selectedProvider, field, parsedValue: value.slice(0, 500) }, "Enhance parsed value");
   return { field, value, provider: selectedProvider };

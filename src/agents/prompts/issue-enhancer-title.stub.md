@@ -20,5 +20,5 @@ Rules:
 
 Return a single JSON code block as the LAST thing in your output:
 ```json
-{ "field": "title", "value": "your improved title here" }
+{ "field": "title", "value": "<REPLACE_WITH_ACTUAL_TITLE>" }
 ```

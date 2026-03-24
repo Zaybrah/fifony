@@ -23,5 +23,5 @@ Rules:
 
 After your analysis, return a single JSON code block as the LAST thing in your output:
 ```json
-{ "field": "description", "value": "your improved description here" }
+{ "field": "description", "value": "<REPLACE_WITH_ACTUAL_DESCRIPTION>" }
 ```
