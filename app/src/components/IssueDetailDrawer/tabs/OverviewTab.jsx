@@ -1,13 +1,10 @@
 import React from "react";
-import { Ban, Layers, Wrench, RotateCcw, XCircle, Circle, GitMerge, AlertOctagon } from "lucide-react";
-import { getIssueTransitions, formatDate, formatDuration } from "../../../utils.js";
+import { Ban, Layers, GitMerge, AlertOctagon } from "lucide-react";
+import { formatDate, formatDuration } from "../../../utils.js";
 import { Section, Field } from "../shared.jsx";
-import { STATE_ICON, STATE_BTN } from "../constants.js";
 
-export function OverviewTab({ issue, onStateChange, onRetry, onCancel }) {
+export function OverviewTab({ issue }) {
   const blockedBy = Array.isArray(issue.blockedBy) ? issue.blockedBy : [];
-  const transitions = getIssueTransitions(issue.state);
-  const nextStates = transitions.filter((s) => s !== issue.state);
 
   return (
     <div className="space-y-5">
@@ -34,7 +31,7 @@ export function OverviewTab({ issue, onStateChange, onRetry, onCancel }) {
         </div>
       )}
 
-      {/* Details + Timing — collapsed into one compact section */}
+      {/* Details + Timing */}
       <Section title="Details" icon={Layers}>
         <div className="space-y-0.5">
           <Field label="Attempts" value={`${issue.attempts ?? 0} / ${issue.maxAttempts ?? 0}`} />
@@ -61,36 +58,6 @@ export function OverviewTab({ issue, onStateChange, onRetry, onCancel }) {
           </div>
         </Section>
       )}
-
-      {/* Actions — at the bottom since footer handles primary actions */}
-      <Section title="Actions" icon={Wrench}>
-        <div className="space-y-3">
-          <div>
-            <div className="text-xs opacity-50 mb-1.5">Move to</div>
-            <div className="flex flex-wrap gap-1.5 max-sm:flex-col">
-              {nextStates.map((s) => {
-                const Icon = STATE_ICON[s] || Circle;
-                return (
-                  <button key={s} className={`btn btn-sm btn-soft gap-1.5 max-sm:w-full ${STATE_BTN[s] || ""}`}
-                    onClick={() => onStateChange?.(issue.id, s)}>
-                    <Icon className="size-3.5" />{s}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 max-sm:flex-col">
-            <button className="btn btn-sm btn-soft gap-1 max-sm:w-full" onClick={() => onRetry?.(issue.id)}
-              disabled={issue.state === "Running" || issue.state === "Reviewing"}>
-              <RotateCcw className="size-3" /> Retry
-            </button>
-            <button className="btn btn-sm btn-error btn-soft gap-1 max-sm:w-full" onClick={() => onCancel?.(issue.id)}
-              disabled={issue.state === "Approved" || issue.state === "Cancelled"}>
-              <XCircle className="size-3" /> Cancel
-            </button>
-          </div>
-        </div>
-      </Section>
     </div>
   );
 }
