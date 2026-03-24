@@ -1,12 +1,13 @@
 import type { AttemptSummary, IssueEntry, IssueState } from "../../types.ts";
-import { S3DB_ISSUE_RESOURCE, TERMINAL_STATES } from "../../concerns/constants.ts";
-import { computeDiffStats } from "../../domains/workspace.ts";
+import { S3DB_ISSUE_RESOURCE, TARGET_ROOT, TERMINAL_STATES } from "../../concerns/constants.ts";
+import { computeDiffStats, syncIssueDiffStatsToStore } from "../../domains/workspace.ts";
 import { extractFailureInsights } from "../../agents/failure-analyzer.ts";
 import { invalidateMetrics } from "../metrics-cache.ts";
 import { markIssueDirty } from "../dirty-tracker.ts";
 import { isoWeek, now } from "../../concerns/helpers.ts";
 import { logger } from "../../concerns/logger.ts";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 
 // ── Event emitter callback (set after container init to avoid circular deps) ──
@@ -17,6 +18,19 @@ export function setFsmEventEmitter(emitter: FsmEventEmitter | null): void {
   fsmEventEmitter = emitter;
 }
 
+/** Auto-revert a test squash applied to TARGET_ROOT if issue.testApplied is true. */
+function autoRevertTestSquash(issue: IssueEntry): void {
+  if (!issue.testApplied) return;
+  try {
+    execSync("git reset --hard HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+    execSync("git clean -fd", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+    logger.info({ issueId: issue.id }, "[FSM] Auto-reverted test squash from TARGET_ROOT");
+  } catch (err) {
+    logger.warn({ err: String(err), issueId: issue.id }, "[FSM] Failed to auto-revert test squash");
+  }
+  issue.testApplied = false;
+}
+
 /** Emit an event from FSM actions. No-op if container isn't ready yet (early boot). */
 function emitFsmEvent(issueId: string, kind: string, message: string): void {
   if (fsmEventEmitter) {
@@ -24,10 +38,18 @@ function emitFsmEvent(issueId: string, kind: string, message: string): void {
   }
 }
 
-// Lazy imports to avoid circular dependency (queue-workers → issue-runner → transition-issue → this)
+// Enqueue callback — injected at runtime to avoid circular dependency
+// (queue-workers → issue-runner → transition-issue → this)
+type EnqueueFn = (issue: IssueEntry, job: "plan" | "execute" | "review") => Promise<void>;
+let enqueueFn: EnqueueFn | null = null;
+
+export function setEnqueueFn(fn: EnqueueFn | null): void {
+  enqueueFn = fn;
+}
+
 async function lazyEnqueue(issue: IssueEntry, job: "plan" | "execute" | "review"): Promise<void> {
-  const { enqueue } = await import("./queue-workers.ts");
-  return enqueue(issue, job);
+  if (enqueueFn) return enqueueFn(issue, job);
+  logger.warn({ issueId: issue.id, job }, "[FSM] lazyEnqueue called but enqueueFn not set — job dropped");
 }
 
 export const ISSUE_STATE_MACHINE_ID = "issue-lifecycle";
@@ -94,6 +116,7 @@ export const issueStateMachineConfig = {
         },
         Running: {
           on: { REVIEW: "Reviewing", REQUEUE: "Queued", BLOCK: "Blocked" },
+          entry: "onEnterRunning",
           guards: { BLOCK: "requireBlockReason" },
           triggers: [{
             type: "cron" as const,
@@ -117,7 +140,7 @@ export const issueStateMachineConfig = {
           on: { APPROVE: "Approved", REQUEUE: "Queued", REPLAN: "Planning", CANCEL: "Cancelled" },
         },
         Blocked: {
-          on: { UNBLOCK: "Queued", REPLAN: "Planning", CANCEL: "Cancelled" },
+          on: { UNBLOCK: "Queued", REVIEW: "Reviewing", REPLAN: "Planning", CANCEL: "Cancelled" },
           entry: "onEnterBlocked",
         },
         Approved: {
@@ -155,6 +178,7 @@ export const issueStateMachineConfig = {
     onEnterPlanning: async (context: Record<string, unknown>, _event: string, _machine: Machine) => {
       const issue = resolveIssue(context);
       if (issue) {
+        autoRevertTestSquash(issue);
         issue.planningStatus = "idle";
         issue.planningError = undefined;
         issue.nextRetryAt = undefined;
@@ -174,9 +198,34 @@ export const issueStateMachineConfig = {
       }
     },
 
-    onEnterQueued: async (context: Record<string, unknown>, _event: string, _machine: Machine) => {
+    onEnterRunning: async (context: Record<string, unknown>, _event: string, _machine: Machine) => {
       const issue = resolveIssue(context);
       if (issue) {
+        emitFsmEvent(issue.id, "state", `${issue.identifier} is running.`);
+        // Enqueue execution — safe for both manual and automatic transitions:
+        // automatic: canDispatch() sees running.has(id) and skips the duplicate
+        // manual (via POST /state): dispatches normally
+        lazyEnqueue(issue, "execute").catch(() => {});
+      }
+    },
+
+    onEnterQueued: async (context: Record<string, unknown>, event: string, _machine: Machine) => {
+      const issue = resolveIssue(context);
+      if (issue) {
+        autoRevertTestSquash(issue);
+
+        // Event-specific field prep (business rules live here, not in handlers)
+        if (event === "REQUEUE") {
+          // Reviewer-requested rework — archive the reviewer's feedback
+          const feedback = typeof context.note === "string" ? context.note : undefined;
+          if (feedback) issue.lastError = feedback;
+          issue.lastFailedPhase = "review";
+          issue.attempts = (issue.attempts ?? 0) + 1;
+        } else if (event === "UNBLOCK") {
+          // Retry from Blocked — increment attempt budget
+          issue.attempts = (issue.attempts ?? 0) + 1;
+        }
+
         // Archive previous attempt summary before clearing lastError
         if (issue.attempts > 0 && issue.lastError) {
           // Read the full output from the most recent stdout file for better analysis
@@ -266,10 +315,15 @@ export const issueStateMachineConfig = {
         // Approved = waiting for merge. Not terminal yet.
         issue.nextRetryAt = undefined;
         issue.lastError = undefined;
-        // Pre-compute diff stats for display (but EC add() happens only on Merged)
+        // Compute diff stats if not already set (fallback for issues that skipped execution)
         if (!issue.linesAdded && !issue.linesRemoved && issue.baseBranch && issue.branchName) {
           computeDiffStats(issue);
         }
+        // Sync diff stats to EC plugin via resource.add()/sub() — the correct EC API.
+        // This must happen at approval time (values are stable post-execution).
+        await syncIssueDiffStatsToStore(issue).catch((err) => {
+          logger.warn({ err, issueId: issue.id }, "[FSM] Failed to sync diff stats to EC on approval");
+        });
         emitFsmEvent(issue.id, "state", `${issue.identifier} approved — waiting for merge.`);
       }
     },
@@ -292,27 +346,14 @@ export const issueStateMachineConfig = {
       }
       const res = issueResource(machine);
       if (res) {
-        // EC tracks diff stats via patch interception. To ensure the EC sees a real
-        // delta (not 0→0 if dirty flush already persisted the same values), we first
-        // reset the churn fields to 0, then patch with the real values.
-        const churnAdded = issue?.linesAdded ?? 0;
-        const churnRemoved = issue?.linesRemoved ?? 0;
-        const churnFiles = issue?.filesChanged ?? 0;
-        if (churnAdded || churnRemoved || churnFiles) {
-          await res.patch(machine.entityId, { linesAdded: 0, linesRemoved: 0, filesChanged: 0 }).catch(() => {});
-        }
-
+        // EC diff stats are already tracked at approval time via syncIssueDiffStatsToStore().
+        // Here we only persist terminal fields (completedAt, mergedAt, etc).
         await res.patch(machine.entityId, {
           completedAt: ts, terminalWeek: week, mergedAt: issue?.mergedAt ?? ts,
           nextRetryAt: undefined, lastError: undefined,
-          linesAdded: churnAdded, linesRemoved: churnRemoved, filesChanged: churnFiles,
           branchName: issue?.branchName, workspacePath: issue?.workspacePath, worktreePath: issue?.worktreePath,
           mergedReason: issue?.mergedReason,
         }).catch(() => {});
-
-        if (churnAdded || churnRemoved || churnFiles) {
-          logger.info({ issueId: issue?.id, linesAdded: churnAdded, linesRemoved: churnRemoved, filesChanged: churnFiles }, "[FSM] EC diff stats patched on merge (reset→set for delta tracking)");
-        }
       }
     },
 
@@ -320,12 +361,16 @@ export const issueStateMachineConfig = {
       const issue = resolveIssue(context);
       const ts = new Date().toISOString();
       const week = isoWeek();
+      const reason = typeof context.reason === "string" ? context.reason : (typeof context.note === "string" ? context.note : undefined);
       if (issue) {
+        autoRevertTestSquash(issue);
         issue.completedAt = ts;
         issue.terminalWeek = week;
         issue.nextRetryAt = undefined;
-        issue.lastError = undefined;
-        emitFsmEvent(issue.id, "state", `${issue.identifier} cancelled.`);
+        issue.lastError = reason || undefined;
+        issue.cancelledReason = reason || issue.cancelledReason;
+        emitFsmEvent(issue.id, "state", `${issue.identifier} cancelled${reason ? `: ${reason.slice(0, 100)}` : ""}.`);
+        // Worktree cleanup is handled by cleanTerminalWorkspaces() in queue-workers (background task)
       }
       const res = issueResource(machine);
       if (res) {

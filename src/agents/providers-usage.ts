@@ -1,12 +1,16 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { Dirent, existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { env } from "node:process";
 import { logger } from "../concerns/logger.ts";
+import { collectClaudeUsageFromCli } from "./adapters/claude.ts";
+import { collectCodexUsageFromCli } from "./adapters/codex.ts";
+import { collectGeminiUsageFromCli } from "./adapters/gemini.ts";
+import type { RateLimitEntry } from "./adapters/usage.ts";
+
+const execFileAsync = promisify(execFile);
 
 async function whichExists(cmd: string): Promise<boolean> {
   try {
@@ -41,17 +45,34 @@ interface ProviderUsage {
   usage: {
     today: UsagePeriod;
     thisWeek: UsagePeriod;
+    last5Hours: UsagePeriod;
     allTime: UsagePeriod;
   };
   resetInfo: string;
   nextResetAt: string;
   weeklyLimitEstimate: number | null;
   percentUsed: number | null;
+  version: string | null;
+  plan: string | null;
+  account: string | null;
+  effort: string | null;
+  rateLimits: RateLimitEntry[];
 }
 
 interface ProvidersUsageResult {
   providers: ProviderUsage[];
   collectedAt: string;
+}
+
+const PROVIDER_USAGE_ORDER = ["claude", "codex", "gemini"] as const;
+
+type ProviderUsageName = (typeof PROVIDER_USAGE_ORDER)[number];
+
+function normalizeProviderName(name: string): ProviderUsageName | null {
+  const normalized = (name || "").trim().toLowerCase();
+  return PROVIDER_USAGE_ORDER.includes(normalized as ProviderUsageName)
+    ? (normalized as ProviderUsageName)
+    : null;
 }
 
 function resolveCodexHomeCandidates(): string[] {
@@ -130,8 +151,45 @@ function computeTodayStart(): Date {
   return d;
 }
 
+function computeLastHoursStart(hours: number): Date {
+  return new Date(Date.now() - hours * 60 * 60 * 1000);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function makePeriod(input: number, output: number, sessions: number, since: string): UsagePeriod {
   return { inputTokens: input, outputTokens: output, tokensUsed: input + output, sessions, since };
+}
+
+function toNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function parseTimestamp(value: unknown): number {
+  if (typeof value !== "string") return 0;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function parseNumber(value: string | undefined | null): number {
+  if (!value) return 0;
+  const clean = value.replace(/[^\d]/g, "");
+  if (!clean) return 0;
+  const parsed = Number.parseInt(clean, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function keepLargest(current: number | null, incoming: number): number {
+  if (!Number.isFinite(incoming)) return current ?? 0;
+  if (incoming <= 0) return current ?? 0;
+  return current === null ? incoming : Math.max(current, incoming);
 }
 
 // Known weekly token limits per plan (approximate, based on public info)
@@ -140,6 +198,16 @@ const CLAUDE_PLAN_LIMITS: Record<string, number> = {
   max: 135_000_000,     // ~135M tokens/week (Max plan)
   max5x: 675_000_000,   // ~675M tokens/week (Max 5x plan)
 };
+
+/** Map display names from CLI banner (e.g. "Claude Max") to plan keys. */
+function resolveClaudePlanKey(displayName: string): string | null {
+  const lower = displayName.toLowerCase().trim();
+  if (/max\s*5x/i.test(lower)) return "max5x";
+  if (/max/i.test(lower)) return "max";
+  if (/pro/i.test(lower)) return "pro";
+  if (/free/i.test(lower)) return null;
+  return null;
+}
 
 // ── Claude usage (from JSONL session files) ──────────────────────────────────
 
@@ -161,11 +229,16 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
   let weekInputTokens = 0;
   let weekOutputTokens = 0;
   let weekSessions = 0;
+  let last5hInputTokens = 0;
+  let last5hOutputTokens = 0;
+  let last5hSessions = 0;
 
   const todayStart = computeTodayStart();
   const todayMs = todayStart.getTime();
   const weekStart = computeWeekStart();
   const weekMs = weekStart.getTime();
+  const last5hStart = computeLastHoursStart(5);
+  const last5hMs = last5hStart.getTime();
 
   if (existsSync(projectsDir)) {
     try {
@@ -194,6 +267,7 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
           let sessionCounted = false;
           let sessionTodayCounted = false;
           let sessionWeekCounted = false;
+          let sessionLast5hCounted = false;
 
           for (const line of content.split("\n")) {
             if (!line.trim()) continue;
@@ -233,6 +307,15 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
                   sessionWeekCounted = true;
                 }
               }
+
+              if (timestamp >= last5hMs) {
+                last5hInputTokens += inputTokens;
+                last5hOutputTokens += outputTokens;
+                if (!sessionLast5hCounted) {
+                  last5hSessions++;
+                  sessionLast5hCounted = true;
+                }
+              }
             } catch {}
           }
         }
@@ -244,9 +327,10 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
 
   // Claude models (known models for Claude Code)
   const models: ModelInfo[] = [
-    { slug: "claude-opus-4-6", displayName: "Claude Opus 4.6", description: "Most capable model for complex tasks" },
-    { slug: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6", description: "Balanced performance and speed" },
-    { slug: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", description: "Fast and efficient model" },
+    { slug: "claude-opus-4-6", displayName: "claude-opus-4-6", description: "Most capable for complex work" },
+    { slug: "claude-sonnet-4-6", displayName: "claude-sonnet-4-6", description: "Best for everyday tasks" },
+    { slug: "claude-sonnet-4-6-1m", displayName: "claude-sonnet-4-6 (1m context)", description: "Billed as extra usage · $3/$15 per Mtok" },
+    { slug: "claude-haiku-4-5", displayName: "claude-haiku-4-5", description: "Fastest for quick answers" },
   ];
 
   // Detect subscription type and configured model from settings
@@ -267,10 +351,56 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
     } catch {}
   }
 
-  const nextResetAt = computeNextMonday().toISOString();
-  const weeklyLimit = CLAUDE_PLAN_LIMITS[plan] ?? null;
+  let nextResetAt = computeNextMonday().toISOString();
+  let weeklyLimit = CLAUDE_PLAN_LIMITS[plan] ?? null;
   const weeklyUsed = weekInputTokens + weekOutputTokens;
   const percentUsed = weeklyLimit ? Math.min(100, Math.round((weeklyUsed / weeklyLimit) * 100)) : null;
+
+  const statusUsage = await collectClaudeUsageFromCli();
+  if (statusUsage) {
+    if (statusUsage.currentModel) {
+      currentModel = statusUsage.currentModel;
+    }
+    // Map CLI plan name (e.g. "Claude Max") → plan key → weekly limit
+    if (statusUsage.plan) {
+      const planKey = resolveClaudePlanKey(statusUsage.plan);
+      if (planKey && CLAUDE_PLAN_LIMITS[planKey]) {
+        plan = planKey;
+        weeklyLimit = CLAUDE_PLAN_LIMITS[planKey];
+      }
+    }
+    if (statusUsage.weeklyLimitEstimate !== null) {
+      weeklyLimit = statusUsage.weeklyLimitEstimate;
+    }
+    if (statusUsage.thisWeekInputTokens !== null || statusUsage.thisWeekOutputTokens !== null) {
+      weekInputTokens = statusUsage.thisWeekInputTokens ?? weekInputTokens;
+      weekOutputTokens = statusUsage.thisWeekOutputTokens ?? weekOutputTokens;
+      if (statusUsage.thisWeekSessions !== null) weekSessions = statusUsage.thisWeekSessions;
+    }
+    if (statusUsage.todayInputTokens !== null || statusUsage.todayOutputTokens !== null) {
+      todayInputTokens = statusUsage.todayInputTokens ?? todayInputTokens;
+      todayOutputTokens = statusUsage.todayOutputTokens ?? todayOutputTokens;
+      if (statusUsage.todaySessions !== null) todaySessions = statusUsage.todaySessions;
+    }
+    if (statusUsage.last5HoursInputTokens !== null || statusUsage.last5HoursOutputTokens !== null) {
+      last5hInputTokens = statusUsage.last5HoursInputTokens ?? last5hInputTokens;
+      last5hOutputTokens = statusUsage.last5HoursOutputTokens ?? last5hOutputTokens;
+      if (statusUsage.last5HoursSessions !== null) last5hSessions = statusUsage.last5HoursSessions;
+    }
+    if (statusUsage.allTimeInputTokens !== null || statusUsage.allTimeOutputTokens !== null) {
+      totalInputTokens = statusUsage.allTimeInputTokens ?? totalInputTokens;
+      totalOutputTokens = statusUsage.allTimeOutputTokens ?? totalOutputTokens;
+      if (statusUsage.allTimeSessions !== null) totalSessions = statusUsage.allTimeSessions;
+    }
+    if (statusUsage.resetInfo) {
+      resetInfo = statusUsage.resetInfo;
+    }
+    if (statusUsage.nextResetAt) {
+      nextResetAt = statusUsage.nextResetAt;
+    }
+  }
+
+  const finalPercentUsed = weeklyLimit ? Math.min(100, Math.round(((weekInputTokens + weekOutputTokens) / weeklyLimit) * 100)) : percentUsed;
 
   return {
     name: "claude",
@@ -280,16 +410,120 @@ async function collectClaudeUsage(): Promise<ProviderUsage | null> {
     usage: {
       today: makePeriod(todayInputTokens, todayOutputTokens, todaySessions, todayStart.toISOString()),
       thisWeek: makePeriod(weekInputTokens, weekOutputTokens, weekSessions, weekStart.toISOString()),
+      last5Hours: makePeriod(last5hInputTokens, last5hOutputTokens, last5hSessions, last5hStart.toISOString()),
       allTime: makePeriod(totalInputTokens, totalOutputTokens, totalSessions, ""),
     },
     resetInfo,
     nextResetAt,
     weeklyLimitEstimate: weeklyLimit,
-    percentUsed,
+    percentUsed: finalPercentUsed,
+    version: statusUsage?.version ?? null,
+    plan: statusUsage?.plan ?? (plan !== "pro" ? plan.toUpperCase() : "Pro"),
+    account: statusUsage?.account ?? null,
+    effort: statusUsage?.effort ?? null,
+    rateLimits: statusUsage?.rateLimits ?? [],
   };
 }
 
 // ── Codex usage (from SQLite state DB) ───────────────────────────────────────
+
+interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  timestampMs: number;
+}
+
+function aggregateCodexSessionUsageFromJsonl(lines: string[]): SessionUsage {
+  let maxInput = 0;
+  let maxOutput = 0;
+  let maxTotal = 0;
+  let sessionTs = 0;
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+
+    let entry: any;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const lineTs = parseTimestamp(entry?.timestamp);
+    const payloadTs = parseTimestamp(entry?.payload?.timestamp);
+    const candidateTs = Math.max(lineTs, payloadTs);
+    if (candidateTs > sessionTs) sessionTs = candidateTs;
+
+    if (entry.type !== "event_msg") continue;
+    if (entry.payload?.type !== "token_count") continue;
+
+    const info = entry.payload?.info || {};
+    const usage = info.total_token_usage || info.last_token_usage;
+    if (!usage || typeof usage !== "object") continue;
+
+    const input = toNumber(usage.input_tokens);
+    const output = toNumber(usage.output_tokens);
+    const total = toNumber(usage.total_tokens);
+    if (total <= 0) continue;
+
+    if (total > maxTotal) {
+      maxTotal = total;
+      maxInput = input;
+      maxOutput = output;
+    }
+  }
+
+  if (maxTotal <= 0) return { inputTokens: 0, outputTokens: 0, totalTokens: 0, timestampMs: sessionTs };
+
+  return {
+    inputTokens: maxInput,
+    outputTokens: maxOutput,
+    totalTokens: maxTotal,
+    timestampMs: sessionTs,
+  };
+}
+
+function collectCodexSessionUsagesFromJsonl(codexDir: string): SessionUsage[] {
+  const sessionsDir = join(codexDir, "sessions");
+  if (!existsSync(sessionsDir)) return [];
+
+  const stack = [sessionsDir];
+  const usageByFile: SessionUsage[] = [];
+  const seen = new Set<string>();
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+
+    let entries: Dirent[] = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const next = join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(next);
+        continue;
+      }
+
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+      try {
+        const content = readFileSync(next, "utf8");
+        const usage = aggregateCodexSessionUsageFromJsonl(content.split("\n"));
+        if (usage.totalTokens > 0) {
+          usageByFile.push(usage);
+        }
+      } catch {}
+    }
+  }
+
+  return usageByFile;
+}
 
 async function collectCodexUsage(): Promise<ProviderUsage | null> {
   const codexDir = resolveCodexDir();
@@ -308,7 +542,7 @@ async function collectCodexUsage(): Promise<ProviderUsage | null> {
       for (const m of cache.models || []) {
         models.push({
           slug: m.slug,
-          displayName: m.display_name || m.slug,
+          displayName: (m.display_name || m.slug).toLowerCase(),
           description: (m.description || "").slice(0, 80),
         });
       }
@@ -327,95 +561,367 @@ async function collectCodexUsage(): Promise<ProviderUsage | null> {
 
   const todayStart = computeTodayStart();
   const weekStart = computeWeekStart();
-  const nextResetAt = computeNextMonday().toISOString();
+  let nextResetAt = computeNextMonday().toISOString();
+  let resetInfo = "Weekly rate limit resets every Monday";
+  const last5hStart = computeLastHoursStart(5);
+  const last5hMs = last5hStart.getTime();
+  const todayMs = todayStart.getTime();
+  const weekMs = weekStart.getTime();
 
   // Find the right SQLite file
   const dbPath = findLatestCodexDb(codexDir);
-  if (!dbPath) {
-    return {
-      name: "codex",
-      available,
-      models,
-      currentModel,
-      usage: {
-        today: makePeriod(0, 0, 0, todayStart.toISOString()),
-        thisWeek: makePeriod(0, 0, 0, weekStart.toISOString()),
-        allTime: makePeriod(0, 0, 0, ""),
-      },
-      resetInfo: "Weekly rate limit resets every Monday",
-      nextResetAt,
-      weeklyLimitEstimate: null,
-      percentUsed: null,
-    };
-  }
-
   let allTimeTokens = 0;
   let allTimeSessions = 0;
   let todayTokens = 0;
   let todaySessions = 0;
   let weekTokens = 0;
   let weekSessions = 0;
+  let last5hTokens = 0;
+  let last5hSessions = 0;
+  let allTimeInputTokens = 0;
+  let allTimeOutputTokens = 0;
+  let todayInputTokens = 0;
+  let todayOutputTokens = 0;
+  let weekInputTokens = 0;
+  let weekOutputTokens = 0;
+  let last5hInputTokens = 0;
+  let last5hOutputTokens = 0;
 
   const todayUnix = Math.floor(todayStart.getTime() / 1000);
   const weekUnix = Math.floor(weekStart.getTime() / 1000);
+  const last5hUnix = Math.floor(last5hStart.getTime() / 1000);
 
-  try {
-    const query = `
-      SELECT
-        SUM(tokens_used) as total_tokens,
-        COUNT(*) as total_sessions,
-        SUM(CASE WHEN created_at >= ${todayUnix} THEN tokens_used ELSE 0 END) as today_tokens,
-        SUM(CASE WHEN created_at >= ${todayUnix} THEN 1 ELSE 0 END) as today_sessions,
-        SUM(CASE WHEN created_at >= ${weekUnix} THEN tokens_used ELSE 0 END) as week_tokens,
-        SUM(CASE WHEN created_at >= ${weekUnix} THEN 1 ELSE 0 END) as week_sessions
-      FROM threads;
-    `;
-    const { stdout } = await execFileAsync("sqlite3", [dbPath, query], {
-      encoding: "utf8",
-      timeout: 5000,
-    });
-    const result = stdout.trim();
+  if (dbPath) {
+    try {
+      const query = `
+        SELECT
+          SUM(tokens_used) as total_tokens,
+          COUNT(*) as total_sessions,
+          SUM(CASE WHEN created_at >= ${todayUnix} THEN tokens_used ELSE 0 END) as today_tokens,
+          SUM(CASE WHEN created_at >= ${todayUnix} THEN 1 ELSE 0 END) as today_sessions,
+          SUM(CASE WHEN created_at >= ${weekUnix} THEN tokens_used ELSE 0 END) as week_tokens,
+          SUM(CASE WHEN created_at >= ${weekUnix} THEN 1 ELSE 0 END) as week_sessions,
+          SUM(CASE WHEN created_at >= ${last5hUnix} THEN tokens_used ELSE 0 END) as last5h_tokens,
+          SUM(CASE WHEN created_at >= ${last5hUnix} THEN 1 ELSE 0 END) as last5h_sessions
+        FROM threads;
+      `;
+      const { stdout } = await execFileAsync("sqlite3", [dbPath, query], {
+        encoding: "utf8",
+        timeout: 5000,
+      });
+      const result = stdout.trim();
 
-    if (result) {
-      const parts = result.split("|");
-      allTimeTokens = parseInt(parts[0], 10) || 0;
-      allTimeSessions = parseInt(parts[1], 10) || 0;
-      todayTokens = parseInt(parts[2], 10) || 0;
-      todaySessions = parseInt(parts[3], 10) || 0;
-      weekTokens = parseInt(parts[4], 10) || 0;
-      weekSessions = parseInt(parts[5], 10) || 0;
+      if (result) {
+        const parts = result.split("|");
+        allTimeTokens = parseInt(parts[0], 10) || 0;
+        allTimeSessions = parseInt(parts[1], 10) || 0;
+        todayTokens = parseInt(parts[2], 10) || 0;
+        todaySessions = parseInt(parts[3], 10) || 0;
+        weekTokens = parseInt(parts[4], 10) || 0;
+        weekSessions = parseInt(parts[5], 10) || 0;
+        last5hTokens = parseInt(parts[6], 10) || 0;
+        last5hSessions = parseInt(parts[7], 10) || 0;
+      }
+    } catch (err) {
+      logger.debug(`Failed to query Codex SQLite: ${String(err)}`);
     }
-  } catch (err) {
-    logger.debug(`Failed to query Codex SQLite: ${String(err)}`);
   }
 
-  // Codex doesn't expose input/output split from SQLite, report all as input
+  const sessionUsages = collectCodexSessionUsagesFromJsonl(codexDir);
+  if (sessionUsages.length > 0) {
+    // If SQLite is not available or missing usage splits, build usage from JSONL logs.
+    let jsonlAllTimeInput = 0;
+    let jsonlAllTimeOutput = 0;
+    let jsonlAllTimeTokens = 0;
+    let jsonlAllTimeSessions = 0;
+    let jsonlTodayInput = 0;
+    let jsonlTodayOutput = 0;
+    let jsonlTodaySessions = 0;
+    let jsonlWeekInput = 0;
+    let jsonlWeekOutput = 0;
+    let jsonlWeekSessions = 0;
+    let jsonlLast5hInput = 0;
+    let jsonlLast5hOutput = 0;
+    let jsonlLast5hSessions = 0;
+
+    for (const usage of sessionUsages) {
+      if (usage.totalTokens <= 0) continue;
+      jsonlAllTimeInput += usage.inputTokens;
+      jsonlAllTimeOutput += usage.outputTokens;
+      jsonlAllTimeTokens += usage.totalTokens;
+      jsonlAllTimeSessions++;
+
+      if (usage.timestampMs >= todayMs) {
+        jsonlTodayInput += usage.inputTokens;
+        jsonlTodayOutput += usage.outputTokens;
+        jsonlTodaySessions++;
+      }
+      if (usage.timestampMs >= weekMs) {
+        jsonlWeekInput += usage.inputTokens;
+        jsonlWeekOutput += usage.outputTokens;
+        jsonlWeekSessions++;
+      }
+      if (usage.timestampMs >= last5hMs) {
+        jsonlLast5hInput += usage.inputTokens;
+        jsonlLast5hOutput += usage.outputTokens;
+        jsonlLast5hSessions++;
+      }
+    }
+
+    if (allTimeTokens === 0 && allTimeSessions === 0) {
+      allTimeTokens = jsonlAllTimeTokens;
+      allTimeSessions = jsonlAllTimeSessions;
+      todayTokens = jsonlTodayInput + jsonlTodayOutput;
+      todaySessions = jsonlTodaySessions;
+      weekTokens = jsonlWeekInput + jsonlWeekOutput;
+      weekSessions = jsonlWeekSessions;
+      last5hTokens = jsonlLast5hInput + jsonlLast5hOutput;
+      last5hSessions = jsonlLast5hSessions;
+    } else {
+      allTimeInputTokens = jsonlAllTimeInput;
+      allTimeOutputTokens = jsonlAllTimeOutput;
+      todayInputTokens = jsonlTodayInput;
+      todayOutputTokens = jsonlTodayOutput;
+      weekInputTokens = jsonlWeekInput;
+      weekOutputTokens = jsonlWeekOutput;
+      last5hInputTokens = jsonlLast5hInput;
+      last5hOutputTokens = jsonlLast5hOutput;
+    }
+
+    // Fallback sessions in case SQLite returns zero counts with populated logs.
+    if (allTimeSessions === 0) allTimeSessions = jsonlAllTimeSessions;
+    if (todaySessions === 0) todaySessions = jsonlTodaySessions;
+    if (weekSessions === 0) weekSessions = jsonlWeekSessions;
+    if (last5hSessions === 0) last5hSessions = jsonlLast5hSessions;
+  }
+
+  // If SQLiite reported totals but no token split, use the JSONL split when available.
+  if (allTimeInputTokens === 0 && allTimeOutputTokens === 0 && sessionUsages.length > 0) {
+    for (const usage of sessionUsages) {
+      if (usage.totalTokens <= 0) continue;
+      allTimeInputTokens += usage.inputTokens;
+      allTimeOutputTokens += usage.outputTokens;
+    }
+    if (allTimeInputTokens > 0 || allTimeOutputTokens > 0) {
+      todayInputTokens = 0;
+      todayOutputTokens = 0;
+      weekInputTokens = 0;
+      weekOutputTokens = 0;
+      last5hInputTokens = 0;
+      last5hOutputTokens = 0;
+      for (const usage of sessionUsages) {
+        if (usage.timestampMs >= todayMs) {
+          todayInputTokens += usage.inputTokens;
+          todayOutputTokens += usage.outputTokens;
+        }
+        if (usage.timestampMs >= weekMs) {
+          weekInputTokens += usage.inputTokens;
+          weekOutputTokens += usage.outputTokens;
+        }
+        if (usage.timestampMs >= last5hMs) {
+          last5hInputTokens += usage.inputTokens;
+          last5hOutputTokens += usage.outputTokens;
+        }
+      }
+    }
+  }
+
+  // If we only have SQLite totals, report whole usage under input to avoid zeroed display.
+  if (allTimeInputTokens === 0 && allTimeOutputTokens === 0) {
+    allTimeInputTokens = allTimeTokens;
+  }
+  if (todayInputTokens === 0 && todayOutputTokens === 0) {
+    todayInputTokens = todayTokens;
+  }
+  if (weekInputTokens === 0 && weekOutputTokens === 0) {
+    weekInputTokens = weekTokens;
+  }
+  if (last5hInputTokens === 0 && last5hOutputTokens === 0) {
+    last5hInputTokens = last5hTokens;
+  }
+
+  const statusUsage = await collectCodexUsageFromCli();
+  if (statusUsage) {
+    if (statusUsage.currentModel) {
+      currentModel = statusUsage.currentModel;
+    }
+    if (statusUsage.allTimeInputTokens !== null || statusUsage.allTimeOutputTokens !== null) {
+      allTimeInputTokens = statusUsage.allTimeInputTokens ?? allTimeInputTokens;
+      allTimeOutputTokens = statusUsage.allTimeOutputTokens ?? allTimeOutputTokens;
+      if (statusUsage.allTimeSessions !== null) allTimeSessions = statusUsage.allTimeSessions;
+    }
+    if (statusUsage.todayInputTokens !== null || statusUsage.todayOutputTokens !== null) {
+      todayInputTokens = statusUsage.todayInputTokens ?? todayInputTokens;
+      todayOutputTokens = statusUsage.todayOutputTokens ?? todayOutputTokens;
+      if (statusUsage.todaySessions !== null) todaySessions = statusUsage.todaySessions;
+    }
+    if (statusUsage.thisWeekInputTokens !== null || statusUsage.thisWeekOutputTokens !== null) {
+      weekInputTokens = statusUsage.thisWeekInputTokens ?? weekInputTokens;
+      weekOutputTokens = statusUsage.thisWeekOutputTokens ?? weekOutputTokens;
+      if (statusUsage.thisWeekSessions !== null) weekSessions = statusUsage.thisWeekSessions;
+    }
+    if (statusUsage.last5HoursInputTokens !== null || statusUsage.last5HoursOutputTokens !== null) {
+      last5hInputTokens = statusUsage.last5HoursInputTokens ?? last5hInputTokens;
+      last5hOutputTokens = statusUsage.last5HoursOutputTokens ?? last5hOutputTokens;
+      if (statusUsage.last5HoursSessions !== null) last5hSessions = statusUsage.last5HoursSessions;
+    }
+    if (statusUsage.resetInfo) {
+      resetInfo = statusUsage.resetInfo;
+    }
+    if (statusUsage.nextResetAt) {
+      nextResetAt = statusUsage.nextResetAt;
+    }
+  }
+
+  // Codex doesn't expose input/output split from SQL in some environments.
   return {
     name: "codex",
     available,
     models,
     currentModel,
     usage: {
-      today: makePeriod(todayTokens, 0, todaySessions, todayStart.toISOString()),
-      thisWeek: makePeriod(weekTokens, 0, weekSessions, weekStart.toISOString()),
-      allTime: makePeriod(allTimeTokens, 0, allTimeSessions, ""),
+      today: makePeriod(todayInputTokens, todayOutputTokens, todaySessions, todayStart.toISOString()),
+      thisWeek: makePeriod(weekInputTokens, weekOutputTokens, weekSessions, weekStart.toISOString()),
+      last5Hours: makePeriod(last5hInputTokens, last5hOutputTokens, last5hSessions, last5hStart.toISOString()),
+      allTime: makePeriod(allTimeInputTokens, allTimeOutputTokens, allTimeSessions, ""),
     },
-    resetInfo: "Weekly rate limit resets every Monday",
+    resetInfo,
     nextResetAt,
     weeklyLimitEstimate: null,
-    percentUsed: null,
+    percentUsed: statusUsage?.weeklyPercentUsed ?? null,
+    version: statusUsage?.version ?? null,
+    plan: statusUsage?.plan ?? null,
+    account: statusUsage?.account ?? null,
+    effort: statusUsage?.effort ?? null,
+    rateLimits: statusUsage?.rateLimits ?? [],
   };
 }
 
-// ── Gemini usage (stub — CLI has no local usage DB yet) ───────────────────────
+// ── Gemini usage (from local session files) ──────────────────────────────────
+
+function aggregateGeminiSessionUsageFromJson(content: string): SessionUsage {
+  let sessionInput = 0;
+  let sessionOutput = 0;
+  let sessionTotal = 0;
+  let sessionTs = 0;
+
+  let session: {
+    startTime?: string;
+    lastUpdated?: string;
+    messages?: Array<{
+      type?: string;
+      timestamp?: string;
+      tokens?: {
+        input?: number;
+        output?: number;
+        total?: number;
+      };
+    }>;
+  };
+
+  try {
+    session = JSON.parse(content);
+  } catch {
+    return { inputTokens: 0, outputTokens: 0, totalTokens: 0, timestampMs: 0 };
+  }
+
+  const fallbackTs = parseTimestamp(session.startTime) || parseTimestamp(session.lastUpdated);
+  if (fallbackTs > sessionTs) sessionTs = fallbackTs;
+
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  for (const message of messages) {
+    if (!message || message.type !== "gemini" || !message.tokens) continue;
+
+    const tokens = message.tokens;
+    const input = toNumber(tokens.input);
+    const output = toNumber(tokens.output);
+    const total = toNumber(tokens.total);
+    if (input === 0 && output === 0 && total === 0) continue;
+
+    sessionInput += input;
+    sessionOutput += output;
+    sessionTotal += total > 0 ? total : input + output;
+
+    const messageTs = parseTimestamp(message.timestamp);
+    if (messageTs > sessionTs) sessionTs = messageTs;
+  }
+
+  if (sessionTotal <= 0) return { inputTokens: 0, outputTokens: 0, totalTokens: 0, timestampMs: sessionTs };
+
+  return {
+    inputTokens: sessionInput,
+    outputTokens: sessionOutput,
+    totalTokens: sessionTotal,
+    timestampMs: sessionTs,
+  };
+}
+
+function collectGeminiSessionUsages(): SessionUsage[] {
+  const geminiTmp = join(homedir(), ".gemini", "tmp");
+  if (!existsSync(geminiTmp)) return [];
+
+  const usages: SessionUsage[] = [];
+  let entries: Dirent[] = [];
+  try {
+    entries = readdirSync(geminiTmp, { withFileTypes: true });
+  } catch {
+    return usages;
+  }
+
+  for (const profile of entries) {
+    if (!profile.isDirectory()) continue;
+
+    const chatsDir = join(geminiTmp, profile.name, "chats");
+    if (!existsSync(chatsDir)) continue;
+
+    let sessions: string[] = [];
+    try {
+      sessions = readdirSync(chatsDir)
+        .filter((name) => name.startsWith("session-") && (name.endsWith(".json") || name.endsWith(".jsonl")));
+    } catch {
+      continue;
+    }
+
+    for (const sessionFile of sessions) {
+      const sessionPath = join(chatsDir, sessionFile);
+      try {
+        const usage = aggregateGeminiSessionUsageFromJson(readFileSync(sessionPath, "utf8"));
+        if (usage.totalTokens > 0) usages.push(usage);
+      } catch {}
+    }
+  }
+
+  return usages;
+}
 
 async function collectGeminiUsage(): Promise<ProviderUsage | null> {
   const available = await whichExists("gemini");
   if (!available) return null;
 
+  // Version: `gemini --version` (non-interactive, no PTY needed)
+  let version: string | null = null;
+  try {
+    const { stdout } = await execFileAsync("gemini", ["--version"], { encoding: "utf8", timeout: 5000 });
+    const trimmed = stdout.trim();
+    if (/^\d+\.\d+/.test(trimmed)) version = trimmed;
+  } catch {}
+
+  // Account: from local google_accounts.json
+  let account: string | null = null;
+  const accountsPath = join(homedir(), ".gemini", "google_accounts.json");
+  if (existsSync(accountsPath)) {
+    try {
+      const data = JSON.parse(readFileSync(accountsPath, "utf8"));
+      if (typeof data.active === "string" && data.active.includes("@")) {
+        account = data.active;
+      }
+    } catch {}
+  }
+
   const todayStart = computeTodayStart();
   const weekStart = computeWeekStart();
-  const nextResetAt = computeNextMonday().toISOString();
+  let nextResetAt = computeNextMonday().toISOString();
+  const last5hStart = computeLastHoursStart(5);
 
   // Read models from the installed CLI package (same source as discoverModels)
   const models: ModelInfo[] = [];
@@ -452,20 +958,104 @@ async function collectGeminiUsage(): Promise<ProviderUsage | null> {
     } catch {}
   }
 
+  const todayMs = todayStart.getTime();
+  const weekMs = weekStart.getTime();
+  const last5hMs = last5hStart.getTime();
+
+  let resetInfo = "Usage from local Gemini session logs";
+
+  let todayInputTokens = 0;
+  let todayOutputTokens = 0;
+  let todaySessions = 0;
+  let weekInputTokens = 0;
+  let weekOutputTokens = 0;
+  let weekSessions = 0;
+  let last5hInputTokens = 0;
+  let last5hOutputTokens = 0;
+  let last5hSessions = 0;
+  let allTimeInputTokens = 0;
+  let allTimeOutputTokens = 0;
+  let allTimeSessions = 0;
+
+  const sessionUsages = collectGeminiSessionUsages();
+  for (const usage of sessionUsages) {
+    allTimeInputTokens += usage.inputTokens;
+    allTimeOutputTokens += usage.outputTokens;
+    allTimeSessions++;
+
+    if (usage.timestampMs >= todayMs) {
+      todayInputTokens += usage.inputTokens;
+      todayOutputTokens += usage.outputTokens;
+      todaySessions++;
+    }
+    if (usage.timestampMs >= weekMs) {
+      weekInputTokens += usage.inputTokens;
+      weekOutputTokens += usage.outputTokens;
+      weekSessions++;
+    }
+    if (usage.timestampMs >= last5hMs) {
+      last5hInputTokens += usage.inputTokens;
+      last5hOutputTokens += usage.outputTokens;
+      last5hSessions++;
+    }
+  }
+
+  const statusUsage = await collectGeminiUsageFromCli();
+  if (statusUsage) {
+    if (statusUsage.currentModel) {
+      currentModel = statusUsage.currentModel;
+    }
+    if (statusUsage.allTimeInputTokens !== null || statusUsage.allTimeOutputTokens !== null) {
+      allTimeInputTokens = statusUsage.allTimeInputTokens ?? allTimeInputTokens;
+      allTimeOutputTokens = statusUsage.allTimeOutputTokens ?? allTimeOutputTokens;
+      if (statusUsage.allTimeSessions !== null) allTimeSessions = statusUsage.allTimeSessions;
+    }
+    if (statusUsage.todayInputTokens !== null || statusUsage.todayOutputTokens !== null) {
+      todayInputTokens = statusUsage.todayInputTokens ?? todayInputTokens;
+      todayOutputTokens = statusUsage.todayOutputTokens ?? todayOutputTokens;
+      if (statusUsage.todaySessions !== null) todaySessions = statusUsage.todaySessions;
+    }
+    if (statusUsage.thisWeekInputTokens !== null || statusUsage.thisWeekOutputTokens !== null) {
+      weekInputTokens = statusUsage.thisWeekInputTokens ?? weekInputTokens;
+      weekOutputTokens = statusUsage.thisWeekOutputTokens ?? weekOutputTokens;
+      if (statusUsage.thisWeekSessions !== null) weekSessions = statusUsage.thisWeekSessions;
+    }
+    if (statusUsage.last5HoursInputTokens !== null || statusUsage.last5HoursOutputTokens !== null) {
+      last5hInputTokens = statusUsage.last5HoursInputTokens ?? last5hInputTokens;
+      last5hOutputTokens = statusUsage.last5HoursOutputTokens ?? last5hOutputTokens;
+      if (statusUsage.last5HoursSessions !== null) last5hSessions = statusUsage.last5HoursSessions;
+    }
+    if (statusUsage.resetInfo) {
+      resetInfo = statusUsage.resetInfo;
+    }
+    if (statusUsage.nextResetAt) {
+      nextResetAt = statusUsage.nextResetAt;
+    }
+    if (statusUsage.weeklyLimitEstimate !== null && statusUsage.weeklyPercentUsed !== null) {
+      resetInfo = `Estimated weekly used: ${statusUsage.weeklyPercentUsed}%`;
+    }
+  }
+
   return {
     name: "gemini",
     available,
     models,
     currentModel,
     usage: {
-      today: makePeriod(0, 0, 0, todayStart.toISOString()),
-      thisWeek: makePeriod(0, 0, 0, weekStart.toISOString()),
-      allTime: makePeriod(0, 0, 0, ""),
+      today: makePeriod(todayInputTokens, todayOutputTokens, todaySessions, todayStart.toISOString()),
+      thisWeek: makePeriod(weekInputTokens, weekOutputTokens, weekSessions, weekStart.toISOString()),
+      last5Hours: makePeriod(last5hInputTokens, last5hOutputTokens, last5hSessions, last5hStart.toISOString()),
+      allTime: makePeriod(allTimeInputTokens, allTimeOutputTokens, allTimeSessions, ""),
     },
-    resetInfo: "Usage data not available for Gemini CLI",
+    resetInfo,
     nextResetAt,
     weeklyLimitEstimate: null,
-    percentUsed: null,
+    percentUsed: statusUsage?.weeklyPercentUsed ?? null,
+    version: statusUsage?.version ?? version,
+    plan: statusUsage?.plan ?? null,
+    account: statusUsage?.account ?? account,
+    effort: null, // Gemini has no effort/reasoning concept
+    rateLimits: statusUsage?.rateLimits ?? [],
   };
 }
 
@@ -492,4 +1082,13 @@ export async function collectProvidersUsage(): Promise<ProvidersUsageResult> {
   };
   usageCacheAt = Date.now();
   return usageCache;
+}
+
+export async function collectProviderUsage(providerName: string): Promise<ProviderUsage | null> {
+  const normalized = normalizeProviderName(providerName);
+  if (!normalized) return null;
+
+  if (normalized === "claude") return collectClaudeUsage();
+  if (normalized === "codex") return collectCodexUsage();
+  return collectGeminiUsage();
 }

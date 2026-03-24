@@ -115,7 +115,7 @@ function GridIssueCard({ issue, onSelect }) {
   );
 }
 
-export function ListView({ issues, onStateChange, onRetry, onCancel, onSelect, expanded = false }) {
+export function ListView({ issues, onStateChange, onRetry, onCancel, onSelect, expanded = false, focusedIndex = -1 }) {
   if (issues.length === 0) {
     return (
       <EmptyState
@@ -129,8 +129,10 @@ export function ListView({ issues, onStateChange, onRetry, onCancel, onSelect, e
   if (expanded) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 stagger-children">
-        {issues.map((issue) => (
-          <GridIssueCard key={issue.id} issue={issue} onSelect={onSelect} />
+        {issues.map((issue, i) => (
+          <div key={issue.id} className={i === focusedIndex ? "ring-2 ring-primary/50 rounded-2xl" : ""}>
+            <GridIssueCard issue={issue} onSelect={onSelect} />
+          </div>
         ))}
       </div>
     );
@@ -138,8 +140,10 @@ export function ListView({ issues, onStateChange, onRetry, onCancel, onSelect, e
 
   return (
     <div className="space-y-2 stagger-children">
-      {issues.map((issue) => (
-        <IssueCard key={issue.id} issue={issue} onSelect={onSelect} />
+      {issues.map((issue, i) => (
+        <div key={issue.id} className={i === focusedIndex ? "ring-2 ring-primary/50 rounded-lg" : ""}>
+          <IssueCard issue={issue} onSelect={onSelect} />
+        </div>
       ))}
     </div>
   );

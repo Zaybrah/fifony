@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Lightbulb, Loader2, Sparkles, FileText, Bug, RefreshCw, BookOpen, Wrench, Paperclip, ImageIcon } from "lucide-react";
+import { X, Lightbulb, Loader2, Sparkles, FileText, Bug, RefreshCw, BookOpen, Wrench, Paperclip, ImageIcon, Mic, MicOff } from "lucide-react";
 import { useSwipeToDismiss } from "../hooks/useSwipeToDismiss.js";
 import { api } from "../api.js";
+import { useSpeechToText } from "../hooks/useSpeechToText.js";
+import { VoiceWaveform } from "./VoiceWaveform.jsx";
 
 const ISSUE_TEMPLATES = [
   { id: "blank",    label: "Blank",         icon: FileText,  activeColor: "border-base-content/30 bg-base-content/5 text-base-content",         title: "",            description: "" },
@@ -19,9 +21,57 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
   const [enhancing, setEnhancing] = useState({ title: false, description: false });
   const [images, setImages] = useState([]); // [{ name, preview, path }]
   const [uploading, setUploading] = useState(false);
+  const [voiceTarget, setVoiceTarget] = useState(null); // "title" | "description" | null
   const titleRef = useRef(null);
+  const descRef = useRef(null);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // ── Speech-to-text ──────────────────────────────────────────────────
+  const speech = useSpeechToText({ language: "pt-BR" });
+  const canUseSpeech = speech.supported;
+
+  // Snapshot: text before/after cursor when recording started
+  const voiceInsertRef = useRef({ before: "", after: "" });
+
+  const toggleVoice = useCallback((field) => {
+    if (speech.listening && voiceTarget === field) {
+      speech.stop();
+      setVoiceTarget(null);
+      return;
+    }
+    if (speech.listening) speech.stop();
+
+    // Capture cursor position
+    const el = field === "title" ? titleRef.current : descRef.current;
+    const value = field === "title" ? title : description;
+    const pos = el?.selectionStart ?? value.length;
+    voiceInsertRef.current = {
+      before: value.slice(0, pos),
+      after: value.slice(pos),
+    };
+
+    setVoiceTarget(field);
+    speech.start();
+  }, [speech, voiceTarget, title, description]);
+
+  // Insert transcript at cursor position as it comes in
+  useEffect(() => {
+    if (!voiceTarget || !speech.transcript) return;
+    const { before, after } = voiceInsertRef.current;
+    const space = before.length > 0 && !before.endsWith(" ") && !before.endsWith("\n") ? " " : "";
+    const combined = `${before}${space}${speech.transcript}${after ? (after.startsWith(" ") || after.startsWith("\n") ? "" : " ") + after : ""}`;
+    if (voiceTarget === "title") setTitle(combined);
+    else setDescription(combined);
+  }, [speech.transcript, voiceTarget]);
+
+  // Stop when drawer closes
+  useEffect(() => {
+    if (!open && speech.listening) {
+      speech.stop();
+      setVoiceTarget(null);
+    }
+  }, [open, speech]);
 
   const applyTemplate = useCallback((templateId) => {
     const tpl = ISSUE_TEMPLATES.find((t) => t.id === templateId);
@@ -142,7 +192,7 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
         {...swipeHandlers}
       >
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-base-300">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-base-300 shrink-0">
             <div className="flex items-center gap-2">
               <Lightbulb className="size-5 opacity-60" />
               <h2 className="text-lg font-bold">New Issue</h2>
@@ -152,8 +202,9 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
             </button>
           </div>
 
-          <div ref={scrollRef} className={`flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-4 drawer-safe-bottom ${open ? "stagger-children" : ""}`}>
-            <div className="grid grid-cols-3 gap-1.5">
+          <div ref={scrollRef} className={`flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 flex flex-col gap-4 drawer-safe-bottom ${open ? "stagger-children" : ""}`}>
+            {/* Templates — compact wrap on mobile, grid on desktop */}
+            <div className="flex flex-wrap sm:grid sm:grid-cols-3 gap-1.5">
               {ISSUE_TEMPLATES.map((tpl) => {
                 const Icon = tpl.icon;
                 const isActive = selectedTemplate === tpl.id;
@@ -162,22 +213,43 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
                     key={tpl.id}
                     type="button"
                     onClick={() => applyTemplate(tpl.id)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-all duration-150 text-sm font-medium ${
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:py-2 rounded-lg border text-left transition-all duration-150 text-xs sm:text-sm font-medium ${
                       isActive
                         ? tpl.activeColor
                         : "border-base-300 text-base-content/50 hover:border-base-content/20 hover:text-base-content/70 hover:bg-base-200/50"
                     }`}
                   >
-                    <Icon className="size-3.5 shrink-0" />
-                    <span className="truncate">{tpl.label}</span>
+                    <Icon className="size-3 sm:size-3.5 shrink-0" />
+                    {tpl.label}
                   </button>
                 );
               })}
             </div>
 
+            {/* Title field */}
             <div className="form-control">
-              <label className="label justify-between gap-2">
+              <label className="label pb-1">
                 <span className="label-text font-medium">What needs to be done?</span>
+              </label>
+              <input
+                ref={titleRef}
+                className={`input input-bordered w-full ${speech.listening && voiceTarget === "title" ? "border-error/50 bg-error/5" : ""}`}
+                placeholder={speech.listening && voiceTarget === "title" ? "Listening... speak now" : "Fix the login redirect bug"}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+              />
+              <div className="flex items-center gap-1 mt-1.5">
+                {canUseSpeech && (
+                  <button
+                    type="button"
+                    className={`btn btn-xs gap-1 ${speech.listening && voiceTarget === "title" ? "btn-error" : "btn-ghost opacity-50 hover:opacity-100"}`}
+                    onClick={() => toggleVoice("title")}
+                  >
+                    {speech.listening && voiceTarget === "title" ? <MicOff className="size-3" /> : <Mic className="size-3" />}
+                    {speech.listening && voiceTarget === "title" ? "Stop" : "Dictate"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-xs btn-soft btn-secondary gap-1"
@@ -187,20 +259,33 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
                   {enhancing.title ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
                   Enhance
                 </button>
-              </label>
-              <input
-                ref={titleRef}
-                className="input input-bordered w-full"
-                placeholder="Fix the login redirect bug"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
+              </div>
+              <VoiceWaveform active={speech.listening && voiceTarget === "title"} onStop={() => toggleVoice("title")} />
             </div>
 
-            <div className="form-control flex-1 flex flex-col min-h-0">
-              <label className="label justify-between gap-2">
+            {/* Description field */}
+            <div className="form-control">
+              <label className="label pb-1">
                 <span className="label-text font-medium">Context & details</span>
+              </label>
+              <textarea
+                ref={descRef}
+                className={`textarea textarea-bordered w-full min-h-32 sm:min-h-40 resize-none ${speech.listening && voiceTarget === "description" ? "border-error/50 bg-error/5" : ""}`}
+                placeholder={speech.listening && voiceTarget === "description" ? "Listening... speak now" : "Describe the problem, expected behavior, acceptance criteria..."}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+              <div className="flex items-center gap-1 mt-1.5">
+                {canUseSpeech && (
+                  <button
+                    type="button"
+                    className={`btn btn-xs gap-1 ${speech.listening && voiceTarget === "description" ? "btn-error" : "btn-ghost opacity-50 hover:opacity-100"}`}
+                    onClick={() => toggleVoice("description")}
+                  >
+                    {speech.listening && voiceTarget === "description" ? <MicOff className="size-3" /> : <Mic className="size-3" />}
+                    {speech.listening && voiceTarget === "description" ? "Stop" : "Dictate"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-xs btn-soft btn-secondary gap-1"
@@ -210,13 +295,8 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
                   {enhancing.description ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
                   Enhance
                 </button>
-              </label>
-              <textarea
-                className="textarea textarea-bordered w-full flex-1 min-h-40 resize-none"
-                placeholder="Describe the problem, expected behavior, acceptance criteria..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
+              </div>
+              <VoiceWaveform active={speech.listening && voiceTarget === "description"} onStop={() => toggleVoice("description")} />
             </div>
 
             <div className="form-control">
@@ -260,9 +340,9 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast 
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-base-300 max-sm:flex-col-reverse" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)" }}>
-            <button type="button" className="btn btn-ghost max-sm:w-full" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary gap-1.5 max-sm:w-full" disabled={isLoading || !title.trim()}>
+          <div className="flex items-center justify-end gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-base-300 shrink-0 max-sm:flex-col-reverse" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}>
+            <button type="button" className="btn btn-ghost btn-sm sm:btn-md max-sm:w-full" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary btn-sm sm:btn-md gap-1.5 max-sm:w-full" disabled={isLoading || !title.trim()}>
               {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Lightbulb className="size-4" />}
               {isLoading ? "Creating..." : "Create Issue"}
             </button>

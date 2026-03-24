@@ -213,7 +213,6 @@ function WorkflowSettings() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
   // Auto-save with debounce
   const autoSave = useCallback((newWorkflow, changedStage) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -300,6 +299,15 @@ function WorkflowSettings() {
           {restoring ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
           Restore defaults
         </button>
+      </div>
+
+      <div className="card bg-base-200">
+        <div className="card-body gap-3 p-4">
+          <h3 className="card-title text-sm">Pipeline</h3>
+          <p className="text-xs opacity-50">
+            Configure providers/models/effort by stage and persist directly to workflow settings.
+          </p>
+        </div>
       </div>
 
       {/* Pipeline steps indicator */}

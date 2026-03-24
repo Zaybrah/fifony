@@ -6,6 +6,15 @@ import type { ProviderAdapter, ProviderCommandOptions } from "./registry.ts";
 import { renderPrompt } from "../prompting.ts";
 import { buildFullPlanPrompt, resolveEffortForProvider, extractValidationCommands, buildImagePromptSection } from "./shared.ts";
 import { REVIEW_RESULT_SCHEMA, extractPlanDirs } from "./commands.ts";
+import {
+  collectProviderUsageSnapshotFromCli,
+  type ProviderUsageSnapshot,
+  parseGeminiUsageFromStatus,
+} from "./usage.ts";
+
+export const GEMINI_USAGE_COMMAND = "/stats session";
+export const collectGeminiUsageFromCli = (): Promise<ProviderUsageSnapshot | null> =>
+  collectProviderUsageSnapshotFromCli("gemini", GEMINI_USAGE_COMMAND, parseGeminiUsageFromStatus);
 
 // ── Result contract (embedded in prompt — Gemini CLI has no --json-schema flag) ─
 
@@ -19,7 +28,11 @@ Return a JSON object with this exact schema when finished:
   "validation": { "commands_run": ["..."], "result": "pass" | "partial" | "fail" },
   "open_questions": ["..."],
   "followups": ["..."],
-  "nextPrompt": "guidance for next turn if status is continue"
+  "nextPrompt": "guidance for next turn if status is continue",
+  "tools_used": ["list of tools you used, e.g. Read, Write, Edit, Bash, Grep, Glob"],
+  "skills_used": ["list of slash commands you invoked, e.g. /commit, /review-pr"],
+  "agents_used": ["list of subagents you spawned, e.g. code-reviewer, build-error-resolver"],
+  "commands_run": ["list of shell commands you executed, e.g. npm test, git status"]
 }
 `.trim();
 
@@ -38,6 +51,9 @@ export function buildGeminiCommand(options: ProviderCommandOptions): string {
   if (options.model) {
     parts.push(`--model ${options.model}`);
   }
+
+  // screen-reader mode reduces terminal UI noise and is friendlier for text-only flows
+  parts.push("--screen-reader");
 
   // JSON output enables structured parsing and token tracking
   parts.push("--output-format json");

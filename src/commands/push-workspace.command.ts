@@ -2,7 +2,12 @@ import { execFileSync, execSync } from "node:child_process";
 import type { IssueEntry, RuntimeState } from "../types.ts";
 import type { IIssueRepository, IEventStore, IPersistencePort } from "../ports/index.ts";
 import { transitionIssueCommand } from "./transition-issue.command.ts";
-import { ensureWorktreeCommitted, computeDiffStats } from "../domains/workspace.ts";
+import {
+  assertIssueHasGitWorktree,
+  computeDiffStats,
+  ensureGitRepoReadyForWorktrees,
+  ensureWorktreeCommitted,
+} from "../domains/workspace.ts";
 import { runValidationGate } from "../domains/validation.ts";
 import { TARGET_ROOT } from "../concerns/constants.ts";
 import { logger } from "../concerns/logger.ts";
@@ -74,8 +79,20 @@ export async function pushWorkspaceCommand(
     throw new Error(`Issue ${issue.identifier} is in state ${issue.state}. Push is only allowed in Reviewing, PendingDecision, or Approved state.`);
   }
 
-  if (!issue.branchName || !issue.baseBranch || !issue.worktreePath) {
-    throw new Error(`Issue ${issue.identifier} has no git worktree — cannot push.`);
+  ensureGitRepoReadyForWorktrees(TARGET_ROOT, "push issue branches");
+  assertIssueHasGitWorktree(issue, "push");
+
+  if (issue.testApplied) {
+    try {
+      execSync("git reset --hard HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+      execSync("git clean -fd", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+      issue.testApplied = false;
+      deps.eventStore.addEvent(issue.id, "info", "Auto-reverted test squash before push.");
+      logger.info({ issueId: issue.id }, "[Push] Auto-reverted test squash before push");
+    } catch (err: any) {
+      const msg = err.stderr || err.stdout || String(err);
+      throw new Error(`Failed to revert test squash before push: ${msg}`);
+    }
   }
 
   // Auto-transition to Approved if still in review

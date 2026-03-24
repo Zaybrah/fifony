@@ -1,13 +1,16 @@
 import { appendFileTail, extractJsonObjects } from "../../concerns/helpers.ts";
 import { logger } from "../../concerns/logger.ts";
-import { detectAvailableProviders, normalizeAgentProvider, resolveAgentCommand } from "../providers.ts";
+import { detectAvailableProviders } from "../providers.ts";
 import type { RuntimeConfig } from "../../types.ts";
 import { renderPrompt } from "../prompting.ts";
+import { resolvePlanStageConfig } from "./planning-prompts.ts";
+import { ADAPTERS } from "../adapters/registry.ts";
 import { env } from "node:process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TARGET_ROOT } from "../../concerns/constants.ts";
 
 
 export type EnhancementField = "title" | "description";
@@ -28,13 +31,6 @@ type EnhanceResult = {
   provider: string;
 };
 
-function getProviderCommand(
-  provider: string,
-  config: RuntimeConfig,
-): string {
-  return resolveAgentCommand(provider, config.agentCommand || "", "", "");
-}
-
 async function buildPrompt(field: EnhancementField, title: string, description: string, issueType?: string, images?: string[]): Promise<string> {
   const context = {
     title: title || "(empty)",
@@ -50,18 +46,42 @@ async function buildPrompt(field: EnhancementField, title: string, description: 
   return renderPrompt("issue-enhancer-description", context);
 }
 
-function parseEnhancerOutput(raw: string, expectedField: EnhancementField): string {
+export function parseEnhancerOutput(raw: string, expectedField: EnhancementField): string {
   const text = raw.trim();
   if (!text) {
     throw new Error("AI provider returned an empty response.");
   }
 
-  const candidates = extractJsonObjects(
-    text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1]?.trim() ?? text,
-  );
+  // Extract ALL code blocks — iterate last-to-first because the CLI echoes the prompt
+  // (which contains a placeholder example) before the real response.
+  const codeBlocks = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)].map((m) => m[1].trim()).reverse();
+  for (const block of codeBlocks) {
+    for (const candidate of extractJsonObjects(block)) {
+      const value = parseCandidate(candidate, expectedField);
+      if (value) return value;
+    }
+  }
+
+  const sourceText = codeBlocks[0] ?? text;
+  const candidates = extractJsonObjects(sourceText);
   for (const candidate of candidates) {
     const value = parseCandidate(candidate, expectedField);
     if (value) return value;
+  }
+
+  // Fallback: CLI tools (e.g. Codex) echo the full prompt to stdout which may
+  // contain unbalanced braces (CSS snippets, error stack traces, etc.) that
+  // corrupt extractJsonObjects' depth tracker.  Try extracting from each
+  // `{"field"` occurrence starting from the end — the real response is last.
+  const fieldRe = /\{\s*"field"/g;
+  const starts: number[] = [];
+  let fm: RegExpExecArray | null;
+  while ((fm = fieldRe.exec(sourceText)) !== null) starts.push(fm.index);
+  for (let i = starts.length - 1; i >= 0; i--) {
+    for (const candidate of extractJsonObjects(sourceText.slice(starts[i]))) {
+      const value = parseCandidate(candidate, expectedField);
+      if (value) return value;
+    }
   }
 
   const cleanedRaw = text.trim();
@@ -97,12 +117,17 @@ function parseCandidate(raw: string, expectedField: EnhancementField): string {
       typeof parsed.text === "string" ? parsed.text.trim() :
       "";
     const field = parsed.field;
-    const isPlaceholder = /^\.{2,}$/.test(value);
+    const isPlaceholder = /^\.{2,}$/.test(value) || /^<REPLACE_/.test(value) || /^your improved /i.test(value);
     if (value && !isPlaceholder && (!field || field === expectedField)) {
       return value;
     }
-    if (typeof parsed.result === "string") {
-      const nested = parsed.result.trim();
+    // Check nested JSON in result/response fields (Gemini CLI wraps output in {response:"..."})
+    const nestedSource =
+      typeof parsed.result === "string" ? parsed.result :
+      typeof parsed.response === "string" ? parsed.response :
+      undefined;
+    if (nestedSource) {
+      const nested = nestedSource.trim();
       if (nested) {
         const nestedClean = nested.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
         for (const nestedCandidate of extractJsonObjects(nestedClean)) {
@@ -172,7 +197,7 @@ async function runProviderCommand(
 
     const child = spawn(effectiveCommand, {
       shell: true,
-      cwd: tempDir,
+      cwd: TARGET_ROOT,
       env: spawnEnv,
     });
 
@@ -209,11 +234,14 @@ async function runProviderCommand(
       rmSync(tempDir, { recursive: true, force: true });
 
       if (code !== 0) {
-        const providerOutput = appendFileTail(commandOutput, "", 12_000);
-        const reason = providerOutput.trim()
-          ? ` Enhance command output: ${providerOutput.slice(0, 1200)}`
-          : "";
-        reject(new Error(`Enhance command failed (exit ${code ?? "unknown"}).${reason}`));
+        // Some CLIs (e.g. codex exec) exit non-zero but still produce useful output.
+        // Try to use the output anyway — the caller's parser will validate it.
+        if (commandOutput.trim()) {
+          logger.warn({ exitCode: code, provider }, `[Enhance] Provider exited ${code} but produced output — attempting to use it`);
+          resolve(commandOutput);
+          return;
+        }
+        reject(new Error(`Enhance command failed (exit ${code ?? "unknown"}) with no output.`));
         return;
       }
       resolve(commandOutput);
@@ -230,73 +258,57 @@ export async function enhanceIssueField(
   const title = typeof payload.title === "string" ? payload.title.trim() : "";
   const description = typeof payload.description === "string" ? payload.description.trim() : "";
   const issueType = typeof payload.issueType === "string" ? payload.issueType.trim() : undefined;
-  const requestedProvider = normalizeAgentProvider(
-    typeof payload.preferredProvider === "string" ? payload.preferredProvider : payload.provider ?? config.agentProvider,
-  );
-  const providers = detectAvailableProviders();
-  const availableSet = new Set(providers.filter((entry) => entry.available).map((entry) => entry.name));
-  const orderedProviders: string[] = [];
-  const addProvider = (candidate: string) => {
-    if (availableSet.has(candidate) && !orderedProviders.includes(candidate)) {
-      orderedProviders.push(candidate);
-    }
-  };
-
-  addProvider(requestedProvider);
-  // Fall back to any other available provider, in detection order
-  for (const entry of providers) {
-    if (entry.available) addProvider(entry.name);
-  }
-
-  if (!orderedProviders.length) {
-    const known = providers.map((entry) => `${entry.name}:${entry.available ? "available" : "missing"}`).join(", ");
-    throw new Error(`No AI provider available (codex/claude). Detected: ${known}`);
-  }
-
   const images = Array.isArray(payload.images) ? payload.images.filter((p): p is string => typeof p === "string") : undefined;
-  const prompt = await buildPrompt(field, title, description, issueType, images);
-  const errors: string[] = [];
 
-  // JSON schema for structured enhance output via OpenAI API
-  const enhanceSchema = {
-    type: "object" as const,
-    properties: {
-      field: { type: "string" as const },
-      value: { type: "string" as const },
-    },
-    required: ["field", "value"] as const,
-    additionalProperties: false as const,
-  };
+  // Use the same provider/model as the plan stage — single source of truth
+  const { provider: selectedProvider, model: selectedModel } = await resolvePlanStageConfig(config);
 
-  for (const selectedProvider of orderedProviders) {
-    // ── All providers: spawn CLI process ──
-    const command = getProviderCommand(selectedProvider, config);
-    if (!command) {
-      errors.push(`Provider "${selectedProvider}" has no command.`);
-      continue;
-    }
-
-    try {
-      const output = await runProviderCommand(
-        command,
-        selectedProvider,
-        prompt,
-        title,
-        description,
-        field,
-        config.commandTimeoutMs,
-        images,
-      );
-      logger.info({ provider: selectedProvider, field, rawOutput: output.slice(0, 2000) }, "Enhance raw output");
-      const value = parseEnhancerOutput(output, field);
-      logger.info({ provider: selectedProvider, field, parsedValue: value }, "Enhance parsed value");
-      return { field, value, provider: selectedProvider };
-    } catch (error) {
-      errors.push(
-        `Provider "${selectedProvider}" failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+  const providers = detectAvailableProviders();
+  const isAvailable = providers.some((p) => p.name === selectedProvider && p.available);
+  if (!isAvailable) {
+    const known = providers.map((entry) => `${entry.name}:${entry.available ? "available" : "missing"}`).join(", ");
+    throw new Error(`Configured plan provider "${selectedProvider}" is not available. Detected: ${known}`);
   }
 
-  throw new Error(`Could not enhance issue field. ${errors.join(" | ")}`);
+  const adapter = ADAPTERS[selectedProvider];
+  if (!adapter) {
+    throw new Error(`No adapter configured for plan provider "${selectedProvider}".`);
+  }
+
+  const ENHANCE_JSON_SCHEMA = JSON.stringify({
+    type: "object",
+    properties: {
+      field: { type: "string", enum: ["title", "description"] },
+      value: { type: "string" },
+    },
+    required: ["field", "value"],
+    additionalProperties: false,
+  });
+
+  const command = adapter.buildCommand({
+    model: selectedModel,
+    imagePaths: images,
+    jsonSchema: selectedProvider === "claude" ? ENHANCE_JSON_SCHEMA : undefined,
+    noToolAccess: selectedProvider === "claude",
+  });
+  if (!command) {
+    throw new Error(`Adapter returned empty command for provider "${selectedProvider}".`);
+  }
+
+  const prompt = await buildPrompt(field, title, description, issueType, images);
+
+  const output = await runProviderCommand(
+    command,
+    selectedProvider,
+    prompt,
+    title,
+    description,
+    field,
+    config.commandTimeoutMs,
+    images,
+  );
+  logger.info({ provider: selectedProvider, model: selectedModel, field, rawOutput: output.slice(0, 2000) }, "Enhance raw output");
+  const value = parseEnhancerOutput(output, field);
+  logger.info({ provider: selectedProvider, field, parsedValue: value.slice(0, 500) }, "Enhance parsed value");
+  return { field, value, provider: selectedProvider };
 }

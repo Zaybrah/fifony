@@ -1,7 +1,6 @@
 import type { IssuePlan, RuntimeConfig, IssueEntry } from "../../types.ts";
 import { now } from "../../concerns/helpers.ts";
 import { logger } from "../../concerns/logger.ts";
-import { markIssuePlanDirty } from "../../persistence/dirty-tracker.ts";
 import { type PlanningSessionUsage } from "./planning-session.ts";
 import { generatePlan } from "./plan-generator.ts";
 import { refinePlan } from "./plan-refiner.ts";
@@ -40,7 +39,7 @@ export function generatePlanInBackground(
   generatePlan(issue.title, issue.description, config, null, { fast })
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
-      markIssuePlanDirty(issue.id);
+      issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
       issue.planningStatus = "idle";
       issue.planningStartedAt = undefined;
       issue.planningError = undefined;
@@ -48,6 +47,11 @@ export function generatePlanInBackground(
 
       applyUsage(issue, usage);
       applySuggestions(issue, plan);
+
+      try {
+        const { savePlanForIssue } = await import("../../persistence/store.ts");
+        await savePlanForIssue(issue.id, plan, issue.planVersion);
+      } catch { /* non-critical */ }
 
       addEvent(issue.id, "progress", `${fast ? "Fast plan" : "Plan"} generated for ${issue.identifier}: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.`);
       if (usage.totalTokens > 0) {
@@ -90,7 +94,7 @@ export function refinePlanInBackground(
   refinePlan(issue, feedback, config, null)
     .then(async ({ plan, usage }) => {
       issue.plan = plan;
-      markIssuePlanDirty(issue.id);
+      issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
       issue.planningStatus = "idle";
       issue.planningStartedAt = undefined;
       issue.planningError = undefined;
@@ -98,6 +102,11 @@ export function refinePlanInBackground(
 
       applyUsage(issue, usage);
       applySuggestions(issue, plan);
+
+      try {
+        const { savePlanForIssue } = await import("../../persistence/store.ts");
+        await savePlanForIssue(issue.id, plan, issue.planVersion);
+      } catch { /* non-critical */ }
 
       const feedbackPreview = feedback.length > 80 ? `${feedback.slice(0, 77)}...` : feedback;
       addEvent(issue.id, "progress", `Plan refined for ${issue.identifier}: "${feedbackPreview}" → ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.`);

@@ -10,11 +10,9 @@ import type {
   RuntimeState,
 } from "../types.ts";
 import {
-  findIssueStateMachineTransitionPath,
   executeTransition,
 } from "../persistence/plugins/issue-state-machine.ts";
 import {
-  ALLOWED_STATES,
   PERSIST_EVENTS_MAX,
   TERMINAL_STATES,
   TARGET_ROOT,
@@ -289,30 +287,3 @@ export function getNextRetryAt(issue: IssueEntry, baseMs: number): string {
   return new Date(Date.now() + nextDelay).toISOString();
 }
 
-export async function handleStatePatch(state: RuntimeState, issue: IssueEntry, payload: JsonRecord): Promise<void> {
-  const nextState = parseIssueState(payload.state);
-  if (!nextState || !ALLOWED_STATES.includes(nextState)) {
-    throw new Error(`Unsupported state: ${String(payload.state)}`);
-  }
-
-  // Find the FSM event path from current state to target
-  const path = findIssueStateMachineTransitionPath(null, issue.state, nextState);
-  if (!path || path.length === 0) {
-    throw new Error(`No valid transition from '${issue.state}' to '${nextState}' for issue ${issue.id}.`);
-  }
-
-  // Execute each event in the path
-  for (const event of path) {
-    await transitionIssue(issue, event, { note: `Manual state update: ${nextState}`, reason: toStringValue(payload.reason) });
-  }
-
-  if (nextState === "PendingApproval") {
-    issue.nextRetryAt = undefined;
-    issue.lastError = undefined;
-  }
-  if (nextState === "Cancelled") {
-    issue.lastError = toStringValue(payload.reason);
-  }
-
-  addEvent(state, issue.id, "manual", `Manual state transition to ${nextState}`);
-}

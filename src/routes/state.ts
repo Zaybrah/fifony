@@ -1,15 +1,18 @@
 import type { IssueEntry, RuntimeMetrics, RuntimeState } from "../types.ts";
-import { isoWeek, now, parseIssueState, toStringValue } from "../concerns/helpers.ts";
+import { isoWeek, now, toStringValue } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
 import { persistState } from "../persistence/store.ts";
 import { markIssueDirty } from "../persistence/dirty-tracker.ts";
 import { addEvent, computeMetrics } from "../domains/issues.ts";
-import { ATTACHMENTS_ROOT, TERMINAL_STATES, TARGET_ROOT } from "../concerns/constants.ts";
+import { ATTACHMENTS_ROOT, TARGET_ROOT } from "../concerns/constants.ts";
 import { findIssue, mutateIssueState, parseIssue } from "../routes/helpers.ts";
 import { cleanWorkspace } from "../domains/workspace.ts";
 import { detectAvailableProviders } from "../agents/providers.ts";
 import { analyzeParallelizability } from "../persistence/plugins/scheduler.ts";
-import { collectProvidersUsage } from "../agents/providers-usage.ts";
+import {
+  collectProviderUsage,
+  collectProvidersUsage,
+} from "../agents/providers-usage.ts";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
@@ -17,15 +20,12 @@ import { basename, extname, join } from "node:path";
 
 // Hexagonal architecture
 import { getContainer } from "../persistence/container.ts";
-import { createIssueCommand } from "../commands/create-issue.command.ts";
-import { cancelIssueCommand } from "../commands/cancel-issue.command.ts";
 import { approvePlanCommand } from "../commands/approve-plan.command.ts";
 import { executeIssueCommand } from "../commands/execute-issue.command.ts";
 import { replanIssueCommand } from "../commands/replan-issue.command.ts";
 import { mergeWorkspaceCommand } from "../commands/merge-workspace.command.ts";
 import { pushWorkspaceCommand } from "../commands/push-workspace.command.ts";
 import { transitionIssueCommand } from "../commands/transition-issue.command.ts";
-import { retryExecutionCommand } from "../commands/retry-execution.command.ts";
 
 type GetStateResult = RuntimeState & {
   metrics: RuntimeMetrics;
@@ -61,6 +61,21 @@ function getStateQuery(
   };
 }
 
+function getWorkspaceActionErrorStatus(error: unknown): number {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    message.includes("requires a git repository")
+    || message.includes("requires at least one commit")
+    || message.includes("has no git worktree")
+    || message.includes("No mergeable workspace found")
+    || message.includes("target repository has uncommitted changes")
+    || message.includes("current branch is")
+  ) {
+    return 409;
+  }
+  return 500;
+}
+
 export function registerStateRoutes(
   app: any,
   state: RuntimeState,
@@ -88,6 +103,22 @@ export function registerStateRoutes(
     return c.json(analyzeParallelizability(state.issues));
   });
 
+  // RESTful: /api/providers/:slug/usage
+  app.get("/api/providers/:slug/usage", async (c: any) => {
+    const provider = c.req.param("slug") || "";
+    try {
+      const usage = await collectProviderUsage(provider);
+      return c.json({
+        providers: usage ? [usage] : [],
+        collectedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error({ err: error, provider }, "Failed to collect provider usage");
+      return c.json({ providers: [] }, 500);
+    }
+  });
+
+  // Aggregate: /api/providers/usage (all providers)
   app.get("/api/providers/usage", async (c: any) => {
     try {
       const usage = await collectProvidersUsage();
@@ -98,111 +129,8 @@ export function registerStateRoutes(
     }
   });
 
-  app.post("/api/issues/create", async (c: any) => {
-    try {
-      const payload = await c.req.json();
-      logger.info({ title: (payload.title ?? "").toString().slice(0, 80) }, "[API] POST /api/issues/create");
-      const container = getContainer();
-      const result = await createIssueCommand({ payload, state }, container);
-      return c.json({ ok: true, issue: result.issue }, 201);
-    } catch (error) {
-      return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
-    }
-  });
-
-  app.post("/api/issues/:id/state", async (c: any) => {
-    const issueId = parseIssue(c);
-    if (!issueId) {
-      return c.json({ ok: false, error: "Issue id is required." }, 400);
-    }
-
-    const issue = findIssue(state, issueId);
-    if (!issue) {
-      return c.json({ ok: false, error: "Issue not found" }, 404);
-    }
-
-    try {
-      const payload = await c.req.json();
-      logger.info({ issueId, identifier: issue.identifier, targetState: payload.state }, "[API] POST /api/issues/:id/state");
-      const nextState = parseIssueState(payload.state);
-      if (!nextState) {
-        throw new Error(`Unsupported state: ${String(payload.state)}`);
-      }
-      const container = getContainer();
-      await transitionIssueCommand({ issue, target: nextState, note: `Manual state update: ${nextState}` }, container);
-      // nextRetryAt/lastError are now handled by FSM entry actions
-      if (nextState === "Cancelled" && payload.reason) {
-        issue.lastError = toStringValue(payload.reason);
-      }
-      await persistState(state);
-      return c.json({ ok: true, issue });
-    } catch (error) {
-      return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
-    }
-  });
-
-  app.post("/api/issues/:id/retry", async (c: any) => {
-    logger.info({ issueId: parseIssue(c) }, "[API] POST /api/issues/:id/retry");
-    return mutateIssueState(state, c, async (issue) => {
-      const container = getContainer();
-      if (TERMINAL_STATES.has(issue.state)) {
-        // Terminal → REOPEN → Planning, then if plan exists → Planned → Queued
-        await transitionIssueCommand(
-          { issue, target: "Planning", note: "Manual retry — reopened." },
-          container,
-        );
-        if (issue.plan?.steps?.length) {
-          await transitionIssueCommand(
-            { issue, target: "PendingApproval", note: "Existing plan found." },
-            container,
-          );
-          await transitionIssueCommand(
-            { issue, target: "Queued", note: "Auto-queued after plan approval." },
-            container,
-          );
-        }
-      } else if (issue.state === "Blocked") {
-        await retryExecutionCommand(
-          { issue, note: "Manual retry from Blocked." },
-          container,
-        );
-      } else if (issue.state === "Approved") {
-        // Done → reopen for rework (e.g. after merge conflicts)
-        await transitionIssueCommand(
-          { issue, target: "Planning", note: "Requeued for rework after merge conflicts." },
-          container,
-        );
-        if (issue.plan?.steps?.length) {
-          await transitionIssueCommand(
-            { issue, target: "PendingApproval", note: "Existing plan found." },
-            container,
-          );
-          await transitionIssueCommand(
-            { issue, target: "Queued", note: "Auto-queued for rework." },
-            container,
-          );
-        }
-      } else if (issue.state === "PendingApproval") {
-        await transitionIssueCommand(
-          { issue, target: "Queued", note: "Manual retry — queued for execution." },
-          container,
-        );
-      } else {
-        issue.lastError = undefined;
-        issue.nextRetryAt = undefined;
-        issue.updatedAt = now();
-      }
-      addEvent(state, issue.id, "manual", `Manual retry requested for ${issue.id}.`);
-    });
-  });
-
-  app.post("/api/issues/:id/cancel", async (c: any) => {
-    logger.info({ issueId: parseIssue(c) }, "[API] POST /api/issues/:id/cancel");
-    return mutateIssueState(state, c, async (issue) => {
-      const container = getContainer();
-      await cancelIssueCommand({ issue }, container);
-    });
-  });
+  // NOTE: create, state, retry, cancel routes live in issues.resource.ts (s3db resource routes).
+  // They have priority over collector routes. Do NOT duplicate them here.
 
   app.post("/api/issues/:id/approve", async (c: any) => {
     logger.info({ issueId: parseIssue(c) }, "[API] POST /api/issues/:id/approve");
@@ -240,12 +168,12 @@ export function registerStateRoutes(
         const result = await pushWorkspaceCommand({ issue, state }, container);
         return c.json({ ok: true, prUrl: result.prUrl, ghAvailable: result.ghAvailable });
       }
-      const result = await mergeWorkspaceCommand({ issue, state }, container);
+      const result = await mergeWorkspaceCommand({ issue, state, squashAlreadyApplied: issue.testApplied ?? false }, container);
       return c.json({ ok: true, ...result });
     } catch (error) {
       const issueId = parseIssue(c);
       logger.error(`Failed to merge workspace for ${issueId || "<unknown>"}: ${String(error)}`);
-      return c.json({ ok: false, error: String(error) }, 500);
+      return c.json({ ok: false, error: String(error) }, getWorkspaceActionErrorStatus(error));
     }
   });
 
@@ -261,7 +189,7 @@ export function registerStateRoutes(
       return c.json({ ok: true, ...result });
     } catch (error) {
       logger.error(`Failed to preview merge for ${parseIssue(c) || "<unknown>"}: ${String(error)}`);
-      return c.json({ ok: false, error: String(error) }, 500);
+      return c.json({ ok: false, error: String(error) }, getWorkspaceActionErrorStatus(error));
     }
   });
 
@@ -281,7 +209,7 @@ export function registerStateRoutes(
       return c.json({ ok: true, ...result });
     } catch (error) {
       logger.error(`Failed to rebase for ${parseIssue(c) || "<unknown>"}: ${String(error)}`);
-      return c.json({ ok: false, error: String(error) }, 500);
+      return c.json({ ok: false, error: String(error) }, getWorkspaceActionErrorStatus(error));
     }
   });
 
@@ -303,6 +231,8 @@ export function registerStateRoutes(
         const msg = err.stderr || err.stdout || String(err);
         throw new Error(`git merge --squash failed: ${msg}`);
       }
+      issue.testApplied = true;
+      markIssueDirty(issue.id);
       addEvent(state, issue.id, "manual", `Test squash applied to workspace: git merge --squash ${issue.branchName}`);
     });
   });
@@ -317,6 +247,8 @@ export function registerStateRoutes(
         const msg = err.stderr || err.stdout || String(err);
         throw new Error(`git reset/clean failed: ${msg}`);
       }
+      issue.testApplied = false;
+      markIssueDirty(issue.id);
       addEvent(state, issue.id, "manual", `Test reverted: git reset --hard HEAD && git clean -fd`);
     });
   });

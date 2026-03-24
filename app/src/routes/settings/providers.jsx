@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useDashboard } from "../../context/DashboardContext";
+import { useProvidersUsage } from "../../hooks";
 import ProvidersView from "../../components/ProvidersView";
 
 export const Route = createFileRoute("/settings/providers")({
@@ -7,6 +7,6 @@ export const Route = createFileRoute("/settings/providers")({
 });
 
 function ProviderSettings() {
-  const ctx = useDashboard();
-  return <ProvidersView providersUsage={ctx.providersUsage} />;
+  const providersUsage = useProvidersUsage();
+  return <ProvidersView providersUsage={providersUsage} />;
 }

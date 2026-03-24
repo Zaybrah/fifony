@@ -14,7 +14,7 @@ import type {
 import { SOURCE_ROOT, TARGET_ROOT, WORKSPACE_ROOT } from "../concerns/constants.ts";
 import { now, idToSafePath } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
-import { markIssueDirty, markIssuePlanDirty } from "../persistence/dirty-tracker.ts";
+import { markIssueDirty } from "../persistence/dirty-tracker.ts";
 import { getEffectiveAgentProviders } from "./providers.ts";
 import { addEvent, computeMetrics, getNextRetryAt } from "../domains/issues.ts";
 import { compileReview, buildExecutionAudit, persistExecutionAudit } from "./adapters/index.ts";
@@ -61,8 +61,16 @@ export async function runPlanningJob(
     );
 
     issue.plan = plan;
-    markIssuePlanDirty(issue.id);
     issue.planVersion = Math.max((issue.planVersion ?? 0), 1);
+
+    // Save plan to issue_plans resource (1:N model — marks previous plans as not current)
+    try {
+      const { savePlanForIssue } = await import("../persistence/store.ts");
+      await savePlanForIssue(issue.id, plan, issue.planVersion);
+      logger.debug({ issueId: issue.id, planVersion: issue.planVersion }, "[Agent] Plan saved to issue_plans resource");
+    } catch (err) {
+      logger.warn({ err: String(err), issueId: issue.id }, "[Agent] Failed to save plan");
+    }
 
     // Apply plan suggestions (paths, effort)
     if (plan.suggestedPaths?.length && !(issue.paths?.length)) issue.paths = plan.suggestedPaths;
@@ -119,11 +127,18 @@ async function handleReviewStage(
 
   const container = getContainer();
   const reviewer = routedProviders.find((p) => p.role === "reviewer");
+  const autoReviewApproval = state.config.autoReviewApproval !== false;
   if (!reviewer) {
-    // No reviewer configured → auto-approve
-    issue.mergedReason = "Auto-approved: no reviewer configured.";
-    await transitionIssueCommand({ issue, target: "Approved", note: `No reviewer configured; auto-approved for ${issue.identifier}.` }, container);
-    // completedAt and lastError handled by FSM onEnterDone
+    // No reviewer configured.
+    if (autoReviewApproval) {
+      issue.mergedReason = "Auto-approved: no reviewer configured.";
+      await transitionIssueCommand({ issue, target: "Approved", note: `No reviewer configured; auto-approved for ${issue.identifier}.` }, container);
+      // completedAt and lastError handled by FSM onEnterDone
+      return;
+    }
+
+    issue.mergedReason = "Reviewer not configured; manual approval required.";
+    await transitionIssueCommand({ issue, target: "PendingDecision", note: `No reviewer configured; manual approval required for ${issue.identifier}.` }, container);
     return;
   }
 
@@ -176,8 +191,11 @@ async function handleReviewStage(
   }
 
   if (reviewResult.success) {
-    issue.mergedReason = `Auto-approved by reviewer in ${reviewResult.turns} turn(s).`;
+    issue.mergedReason = autoReviewApproval
+      ? `Auto-approved by reviewer in ${reviewResult.turns} turn(s).`
+      : `Reviewer completed for ${issue.identifier}; waiting for manual approval.`;
     await transitionIssueCommand({ issue, target: "PendingDecision", note: `Reviewer completed for ${issue.identifier}.` }, container);
+    if (!autoReviewApproval) return;
 
     // Run validation gate before transitioning to Done
     const validation = await runValidationGate(issue, state.config);

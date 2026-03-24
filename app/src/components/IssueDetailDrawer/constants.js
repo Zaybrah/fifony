@@ -46,25 +46,20 @@ export const ISSUE_TYPE_COLORS = {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 
-export const BASE_TABS = [
-  { id: "overview", label: "Overview", icon: Info },
-  { id: "execution", label: "Execution", icon: Terminal },
-  { id: "diff", label: "Diff", icon: Code },
-  { id: "routing", label: "Routing", icon: Route },
-  { id: "history", label: "Events", icon: Activity },
+export const ISSUE_DRAWER_TABS = [
+  { id: "overview", label: "Overview", icon: Info, color: "text-info", activeColor: "tab-active text-info" },
+  { id: "planning", label: "Plan", icon: Lightbulb, color: "text-primary", activeColor: "tab-active text-primary" },
+  { id: "execution", label: "Execution", icon: Terminal, color: "text-secondary", activeColor: "tab-active text-secondary" },
+  { id: "review", label: "Review", icon: ClipboardCheck, color: "text-success", activeColor: "tab-active text-success" },
+  { id: "diff", label: "Diff", icon: Code, color: "text-warning", activeColor: "tab-active text-warning" },
+  { id: "routing", label: "Routing", icon: Route, color: "text-accent", activeColor: "tab-active text-accent" },
+  { id: "events", label: "Events", icon: Activity, color: "text-error", activeColor: "tab-active text-error" },
 ];
 
-export const PLANNING_TAB = { id: "planning", label: "Plan", icon: Lightbulb };
-export const REVIEW_TAB = { id: "review", label: "Review", icon: ClipboardCheck };
-
-export function getTabs(issueState) {
-  if (issueState === "Planning") {
-    return [PLANNING_TAB, ...BASE_TABS];
-  }
-  if (issueState === "Reviewing" || issueState === "PendingDecision" || issueState === "Approved" || issueState === "Merged" || issueState === "Blocked") {
-    return [BASE_TABS[0], REVIEW_TAB, ...BASE_TABS.slice(1)];
-  }
-  return [BASE_TABS[0], PLANNING_TAB, ...BASE_TABS.slice(1)];
+export function getDefaultIssueDrawerTab(issueState) {
+  if (issueState === "Planning" || issueState === "PendingApproval") return "planning";
+  if (issueState === "Reviewing" || issueState === "PendingDecision") return "review";
+  return "overview";
 }
 
 // ── State machine helpers ────────────────────────────────────────────────────

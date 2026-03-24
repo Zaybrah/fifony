@@ -7,7 +7,12 @@ import Confetti from "../Confetti";
 import OnboardingParticles from "../OnboardingParticles";
 
 import { getStepLabels, getStepCount } from "./constants";
-import { saveSetting, normalizeRoleEfforts, buildWorkflowConfig } from "./helpers";
+import {
+  buildWorkflowConfig,
+  canProceedFromSetup,
+  normalizeRoleEfforts,
+  saveSetting,
+} from "./helpers";
 
 import StepIndicator from "./steps/StepIndicator";
 import StepContent from "./steps/StepContent";
@@ -43,12 +48,14 @@ export default function OnboardingWizard({ onComplete }) {
   // New step state
   const [projectName, setProjectNameState] = useState("");
   const [projectSource, setProjectSource] = useState("missing");
+  const [setupGitStatus, setSetupGitStatus] = useState(null);
   const [runtimeSnapshot, setRuntimeSnapshot] = useState(null);
   const [selectedAgents, setSelectedAgents] = useState([]);
   const [selectedSkills, setSelectedSkills] = useState([]);
   const [mergeMode, setMergeMode] = useState("local");
   const [prBaseBranch, setPrBaseBranch] = useState("");
   const [testCommand, setTestCommand] = useState("");
+  const [autoReviewApproval, setAutoReviewApproval] = useState(true);
 
   const STEP_COUNT = getStepCount();
   const STEP_LABELS = getStepLabels();
@@ -113,6 +120,11 @@ export default function OnboardingWizard({ onComplete }) {
     const parsedConcurrency = Number.parseInt(String(savedConcurrency ?? 2), 10);
     if (Number.isFinite(parsedConcurrency)) {
       setConcurrency(Math.min(10, Math.max(1, parsedConcurrency)));
+    }
+
+    const savedAutoReviewApproval = getSettingValue(settings, "runtime.autoReviewApproval", true);
+    if (typeof savedAutoReviewApproval === "boolean") {
+      setAutoReviewApproval(savedAutoReviewApproval);
     }
 
     const savedMergeMode = getSettingValue(settings, "runtime.mergeMode", "local");
@@ -210,6 +222,7 @@ export default function OnboardingWizard({ onComplete }) {
       if (mergeMode === "push-pr" && prBaseBranch.trim()) {
         saveSetting("runtime.prBaseBranch", prBaseBranch.trim(), "runtime").catch(() => {});
       }
+      saveSetting("runtime.autoReviewApproval", autoReviewApproval, "runtime").catch(() => {});
       if (testCommand.trim()) {
         saveSetting("runtime.testCommand", testCommand.trim(), "runtime").catch(() => {});
       }
@@ -227,7 +240,7 @@ export default function OnboardingWizard({ onComplete }) {
       saveSetting("ui.theme", selectedTheme, "ui").catch(() => {});
       api.post("/config/concurrency", { concurrency }).catch(() => {});
     }
-  }, [pipeline, efforts, models, concurrency, selectedTheme, normalizedProjectName, mergeMode, prBaseBranch, testCommand]);
+  }, [pipeline, efforts, models, concurrency, selectedTheme, normalizedProjectName, mergeMode, prBaseBranch, testCommand, autoReviewApproval]);
 
   const goNext = useCallback(() => {
     if (step < STEP_COUNT - 1) {
@@ -269,6 +282,7 @@ export default function OnboardingWizard({ onComplete }) {
       saves.push(saveSetting("runtime.workflowConfig", buildWorkflowConfig(pipeline, efforts, models), "runtime"));
       saves.push(api.post("/config/concurrency", { concurrency }));
       saves.push(saveSetting("runtime.mergeMode", mergeMode, "runtime"));
+      saves.push(saveSetting("runtime.autoReviewApproval", autoReviewApproval, "runtime"));
       if (mergeMode === "push-pr" && prBaseBranch.trim()) {
         saves.push(saveSetting("runtime.prBaseBranch", prBaseBranch.trim(), "runtime"));
       }
@@ -328,12 +342,12 @@ export default function OnboardingWizard({ onComplete }) {
       qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
       onComplete?.();
     }
-  }, [normalizedProjectName, pipeline, efforts, models, concurrency, selectedTheme, selectedAgents, selectedSkills, mergeMode, prBaseBranch, testCommand, qc, onComplete]);
+  }, [normalizedProjectName, pipeline, efforts, models, concurrency, selectedTheme, selectedAgents, selectedSkills, mergeMode, prBaseBranch, testCommand, autoReviewApproval, qc, onComplete]);
 
   // Can proceed from step
   const canProceed =
     stepName === "Welcome" ||
-    (stepName === "Setup" && Boolean(normalizedProjectName)) ||
+    (stepName === "Setup" && canProceedFromSetup(normalizedProjectName, setupGitStatus)) ||
     (stepName === "Pipeline" && (pipeline.executor || providersLoading)) ||
     stepName === "Agents & Skills" ||
     stepName === "Preferences" ||
@@ -391,11 +405,14 @@ export default function OnboardingWizard({ onComplete }) {
               projectSource={projectSource}
               workspacePath={workspacePath}
               currentBranch={defaultBranch}
+              onGitStatusChange={setSetupGitStatus}
               onBranchCreated={(branch) => { setDefaultBranch(branch); if (!prBaseBranch) setPrBaseBranch(branch); }}
               mergeMode={mergeMode}
               setMergeMode={setMergeMode}
               prBaseBranch={prBaseBranch}
               setPrBaseBranch={setPrBaseBranch}
+              autoReviewApproval={autoReviewApproval}
+              setAutoReviewApproval={setAutoReviewApproval}
               testCommand={testCommand}
               setTestCommand={setTestCommand}
             />

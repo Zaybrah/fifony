@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cpu, Zap, Clock, Hash, ChevronDown, ChevronUp, CircleDot, RefreshCw, ArrowDown, ArrowUp, CalendarClock } from "lucide-react";
+import { Cpu, Zap, Clock, Hash, ChevronDown, ChevronUp, CircleDot, RefreshCw, ArrowDown, ArrowUp, CalendarClock, Gauge, Shield, Tag } from "lucide-react";
 
 function formatTokens(count) {
   if (!count || count === 0) return "0";
@@ -107,6 +107,20 @@ function ResetCountdown({ nextResetAt, resetInfo }) {
   );
 }
 
+function WindowBalance({ label, limit, used }) {
+  if (limit == null) return null;
+  const remaining = Math.max(0, limit - used);
+  const remainingPct = Math.max(0, 100 - Math.round((used / limit) * 100));
+  return (
+    <div className="flex justify-between items-center text-xs bg-base-100 rounded-lg px-3 py-2">
+      <span className="opacity-60">{label}</span>
+      <span className={`font-mono font-semibold ${remainingPct <= 10 ? "text-error" : remainingPct <= 30 ? "text-warning" : "text-success"}`}>
+        {formatTokens(remaining)} available
+      </span>
+    </div>
+  );
+}
+
 function ModelsList({ models, currentModel }) {
   const [expanded, setExpanded] = useState(false);
   const visibleModels = expanded ? models : models.slice(0, 4);
@@ -142,11 +156,76 @@ function ModelsList({ models, currentModel }) {
   );
 }
 
+function formatScope(scope) {
+  if (scope === "global") return "Global";
+  if (scope === "session") return "Session";
+  // Model slug → title case: "gpt-5.3-codex-spark" → "GPT-5.3-Codex-Spark"
+  return scope.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatPeriod(period) {
+  if (period === "5h") return "5h";
+  if (period === "weekly") return "Week";
+  if (period === "daily") return "Daily";
+  if (period === "session") return "Session";
+  return period;
+}
+
+function RateLimitBar({ entry }) {
+  const available = Math.max(0, 100 - entry.percentUsed);
+  const cls =
+    entry.percentUsed >= 90 ? "progress-error" :
+    entry.percentUsed >= 70 ? "progress-warning" :
+    "progress-primary";
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between text-[10px] mb-0.5">
+          <span className="opacity-60 truncate">{formatScope(entry.scope)} · {formatPeriod(entry.period)}</span>
+          <span className="font-mono shrink-0">{entry.percentUsed}%</span>
+        </div>
+        <progress className={`progress ${cls} w-full h-1.5`} value={entry.percentUsed} max={100} />
+      </div>
+    </div>
+  );
+}
+
+function RateLimitsSection({ rateLimits }) {
+  if (!rateLimits || rateLimits.length === 0) return null;
+  return (
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wide opacity-50 mb-2">Rate limits</h4>
+      <div className="space-y-2 bg-base-100 rounded-lg p-3">
+        {rateLimits.map((entry, i) => (
+          <RateLimitBar key={`${entry.scope}-${entry.period}-${i}`} entry={entry} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ProviderCard({ provider }) {
-  const { name, available, models, currentModel, usage, resetInfo, nextResetAt, weeklyLimitEstimate, percentUsed } = provider;
+  const {
+    name,
+    available,
+    models,
+    currentModel,
+    usage,
+    resetInfo,
+    nextResetAt,
+    weeklyLimitEstimate,
+    percentUsed,
+    version,
+    plan,
+    account,
+    effort,
+    rateLimits,
+  } = provider;
 
   const displayName = name === "claude" ? "Claude Code" : name === "codex" ? "Codex CLI" : name;
   const brandColor = name === "claude" ? "text-warning" : "text-info";
+  const last5hUsage = usage.last5Hours ?? usage.today;
 
   return (
     <div className="card bg-base-200">
@@ -156,11 +235,31 @@ function ProviderCard({ provider }) {
           <div className="flex items-center gap-2">
             <Cpu className={`size-5 ${brandColor}`} />
             <h3 className="card-title text-sm">{displayName}</h3>
+            {version && <span className="badge badge-xs badge-ghost font-mono">v{version}</span>}
           </div>
           <span className={`badge badge-sm ${available ? "badge-success" : "badge-error"}`}>
             {available ? "available" : "not found"}
           </span>
         </div>
+
+        {/* Provider meta: plan, account, effort */}
+        {(plan || account || effort) && (
+          <div className="flex flex-wrap gap-1.5">
+            {plan && (
+              <span className="badge badge-xs badge-outline gap-1">
+                <Shield className="size-2.5" /> {plan}
+              </span>
+            )}
+            {account && (
+              <span className="badge badge-xs badge-ghost font-mono truncate max-w-[200px]">{account}</span>
+            )}
+            {effort && (
+              <span className="badge badge-xs badge-outline gap-1">
+                <Gauge className="size-2.5" /> {effort}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Current model */}
         {currentModel && (
@@ -176,13 +275,23 @@ function ProviderCard({ provider }) {
           weeklyUsed={usage.thisWeek.tokensUsed}
         />
 
+        <WindowBalance
+          label="This week remaining"
+          limit={weeklyLimitEstimate}
+          used={usage.thisWeek.tokensUsed}
+        />
+
         {/* Usage stats */}
         <div className="space-y-2">
           <h4 className="text-xs font-semibold uppercase tracking-wide opacity-50">Token usage</h4>
+          <UsageMeter label="Last 5h" period={last5hUsage} icon={Clock} />
           <UsageMeter label="Today" period={usage.today} icon={Zap} />
           <UsageMeter label="This week" period={usage.thisWeek} icon={Hash} />
           <UsageMeter label="All time" period={usage.allTime} icon={Clock} />
         </div>
+
+        {/* Rate limits breakdown */}
+        <RateLimitsSection rateLimits={rateLimits} />
 
         {/* Reset countdown */}
         <ResetCountdown nextResetAt={nextResetAt} resetInfo={resetInfo} />

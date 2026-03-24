@@ -1,30 +1,33 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   X, AlertTriangle, Loader, RotateCcw, PlayCircle, GitMerge,
-  ThumbsUp, GitPullRequest, Eye,
+  GitPullRequest, Trash2,
 } from "lucide-react";
-import { PreviewModal } from "./PreviewModal.jsx";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api.js";
 import { useSwipeToDismiss } from "../../hooks/useSwipeToDismiss.js";
 import { useWorkflowConfig } from "../../hooks/useWorkflowConfig.js";
-import { ISSUE_TYPE_COLORS, getTabs } from "./constants.js";
+import {
+  ISSUE_DRAWER_TABS,
+  ISSUE_TYPE_COLORS,
+  getDefaultIssueDrawerTab,
+} from "./constants.js";
 import { PipelineStepper } from "./PipelineStepper.jsx";
+import { StateActionMenu } from "./StateActionMenu.jsx";
 import { OverviewTab } from "./tabs/OverviewTab.jsx";
 import { ExecutionTab } from "./tabs/ExecutionTab.jsx";
 import { DiffTab } from "./tabs/DiffTab.jsx";
 import { RoutingTab } from "./tabs/RoutingTab.jsx";
 import { EventsTab } from "./tabs/EventsTab.jsx";
-import { HistoryTab } from "./tabs/HistoryTab.jsx";
 import { PlanningTab } from "./tabs/PlanningTab.jsx";
 import { ReviewTab } from "./tabs/ReviewTab.jsx";
 
 // ── DrawerFooter ─────────────────────────────────────────────────────────────
 
-function DrawerFooter({ issue, onStateChange, onMerge, onPush, mergeBusy, mergeError, mergeNotice, mergeMode }) {
+function DrawerFooter({ issue, onStateChange, onRetry, onMerge, onPush, mergeBusy, mergeError, mergeNotice, mergeMode }) {
   const footerStyle = { paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" };
   const [executeBusy, setExecuteBusy] = useState(false);
   const [executeError, setExecuteError] = useState(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
 
   const handleExecute = useCallback(async () => {
     setExecuteBusy(true);
@@ -47,10 +50,15 @@ function DrawerFooter({ issue, onStateChange, onMerge, onPush, mergeBusy, mergeE
   const isMergedState = issue.state === "Merged";
   const isMerged = !!issue.mergedAt || isMergedState;
 
-  // Planning: approve button lives inside PlanningTab, nothing to show here
+  // Hooks must be called unconditionally (Rules of Hooks)
+  const [gitClean, setGitClean] = useState(null);
+  useEffect(() => {
+    if (!isDone || isMerged) return;
+    api.get("/git/status").then((s) => setGitClean(s.isClean !== false)).catch(() => setGitClean(null));
+  }, [isDone, isMerged]);
+
   if (isPlanning) return null;
 
-  // PendingApproval: show Execute button to dispatch to Queued
   if (isPlanned) {
     return (
       <div className="px-6 py-3 border-t border-base-300 shrink-0 space-y-1.5" style={footerStyle}>
@@ -82,41 +90,18 @@ function DrawerFooter({ issue, onStateChange, onMerge, onPush, mergeBusy, mergeE
     );
   }
 
-  // Reviewing/PendingDecision: preview + approve/rework actions
-  if (isInReview) {
-    return (
-      <>
-        {previewOpen && <PreviewModal issue={issue} onClose={() => setPreviewOpen(false)} />}
-        <div className="px-6 py-3 border-t border-base-300 shrink-0 space-y-1.5" style={footerStyle}>
-          <button
-            className="btn btn-primary btn-sm btn-soft gap-1.5 w-full"
-            onClick={() => setPreviewOpen(true)}
-          >
-            <Eye className="size-3.5" /> Preview Changes
-          </button>
-          <div className="flex items-center gap-2">
-            <button
-              className="btn btn-success btn-sm gap-1.5 flex-1"
-              onClick={() => onStateChange?.(issue.id, "Approved")}
-            >
-              <ThumbsUp className="size-4" /> Approve
-            </button>
-            <button
-              className="btn btn-warning btn-sm gap-1.5 flex-1"
-              onClick={() => onStateChange?.(issue.id, "Queued")}
-            >
-              <RotateCcw className="size-4" /> Rework
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  }
+  if (isInReview) return null;
 
   if (isDone && !isMerged) {
     const isPushPr = mergeMode === "push-pr";
     return (
       <div className="px-6 py-3 border-t border-base-300 shrink-0 space-y-2" style={footerStyle}>
+        {gitClean === false && (
+          <div className="alert alert-warning text-xs py-1.5">
+            <AlertTriangle className="size-3.5" />
+            <span>Project has uncommitted changes — merge will fail. Commit or stash them first.</span>
+          </div>
+        )}
         {mergeError && (
           <div className="alert alert-error text-sm py-2">
             <AlertTriangle className="size-4" /> {mergeError}
@@ -161,7 +146,8 @@ function DrawerFooter({ issue, onStateChange, onMerge, onPush, mergeBusy, mergeE
 
 // ── IssueDetailDrawer ─────────────────────────────────────────────────────────
 
-export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCancel, events, mergeMode }) {
+export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCancel, onDelete, events, mergeMode, tabRef }) {
+  const qc = useQueryClient();
   const [tab, setTab] = useState("overview");
   const [visible, setVisible] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -188,6 +174,20 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
     }
   }, [issue?.id, replanBusy]);
 
+  const handleExecuteFromDrawer = useCallback(async () => {
+    if (!issue?.id) return;
+    try {
+      const res = await api.post(`/issues/${encodeURIComponent(issue.id)}/execute`);
+      if (!res.ok) throw new Error(res.error || "Execute failed.");
+    } catch { /* footer handles errors for its own execute button */ }
+  }, [issue?.id]);
+
+  const handleDeleteFromDrawer = useCallback(() => {
+    if (!issue?.id) return;
+    onDelete?.(issue.id);
+    handleClose();
+  }, [issue?.id, onDelete]);
+
   const handleClose = useCallback(() => {
     setClosing(true);
     setTimeout(() => { setVisible(false); setClosing(false); onClose(); }, 250);
@@ -195,9 +195,21 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
 
   const { ref: swipeRef, handlers: swipeHandlers } = useSwipeToDismiss({ onDismiss: handleClose, direction: "right" });
 
-  // Reset tab when issue changes — auto-open Review tab when Reviewing/PendingDecision
+  // Initialize the most relevant tab when switching issues.
   useEffect(() => {
-    setTab((issue?.state === "Planning" || issue?.state === "PendingApproval") ? "planning" : (issue?.state === "Reviewing" || issue?.state === "PendingDecision") ? "review" : "overview");
+    if (issue) {
+      setTab(getDefaultIssueDrawerTab(issue.state));
+    }
+  }, [issue?.id]);
+
+  // Expose tab get/set to parent via ref for keyboard shortcuts
+  useEffect(() => {
+    if (tabRef) {
+      tabRef.current = { get: () => tab, set: (t) => setTab(t) };
+    }
+  }, [tabRef, tab]);
+
+  useEffect(() => {
     setMergeBusy(false);
     setMergeError(null);
     setMergeNotice(null);
@@ -218,13 +230,14 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
         setMergeError(`Merge aborted — ${conflicts} conflict${conflicts !== 1 ? "s" : ""}: ${conflictNames.join(", ")}`);
       } else {
         setMergeNotice(`Merged ${mergedFiles} file${mergedFiles !== 1 ? "s" : ""} into the project.`);
+        qc.invalidateQueries({ queryKey: ["runtime-state"] });
       }
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : String(err));
     } finally {
       setMergeBusy(false);
     }
-  }, [issue?.id, mergeBusy]);
+  }, [issue?.id, mergeBusy, qc]);
 
   const handlePush = useCallback(async () => {
     if (!issue?.id || mergeBusy) return;
@@ -240,22 +253,13 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
       } else {
         setMergeNotice("Branch pushed to origin.");
       }
+      qc.invalidateQueries({ queryKey: ["runtime-state"] });
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : String(err));
     } finally {
       setMergeBusy(false);
     }
   }, [issue?.id, mergeBusy]);
-
-  // Close drawer on Escape key
-  useEffect(() => {
-    if (!issue || !visible) return;
-    const handler = (e) => {
-      if (e.key === "Escape") handleClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [issue?.id, visible, handleClose]);
 
   // Auto-scroll active tab into view
   useEffect(() => {
@@ -275,7 +279,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
     >
       <div
         ref={swipeRef}
-        className={`fixed top-0 right-0 z-50 h-full w-full md:w-[520px] lg:w-[600px] bg-base-100 shadow-2xl flex flex-col ${closing ? "animate-slide-out-right" : "animate-slide-in-right"}`}
+        className={`fixed top-0 right-0 z-50 h-full w-full md:w-[40vw] md:min-w-[520px] lg:min-w-[600px] bg-base-100 shadow-2xl flex flex-col ${closing ? "animate-slide-out-right" : "animate-slide-in-right"}`}
         onClick={(event) => event.stopPropagation()}
         {...swipeHandlers}
       >
@@ -284,30 +288,39 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-mono text-xs opacity-40 shrink-0">{issue.identifier}</span>
+              <StateActionMenu
+                issue={issue}
+                onStateChange={onStateChange}
+                onRetry={onRetry}
+                onCancel={onCancel}
+                onReplan={handleReplanFromDrawer}
+                onExecute={handleExecuteFromDrawer}
+              />
               {issue.baseBranch && (
                 <span className="flex items-center gap-0.5 text-[10px] font-mono opacity-40 shrink-0 border border-base-300 rounded px-1 py-0.5">
                   <GitMerge className="size-2.5" />
                   {issue.baseBranch}
                 </span>
               )}
-              {issue.state !== "Planning" && issue.plan && !["Running", "Reviewing", "Queued"].includes(issue.state) && (
-                <button
-                  className="btn btn-ghost btn-xs gap-1 opacity-50 hover:opacity-100"
-                  onClick={handleReplanFromDrawer}
-                  disabled={replanBusy || issue.planningStatus === "planning"}
-                  title="Archive current plan and request a new one"
-                >
-                  {replanBusy ? <Loader className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
-                  Replan
-                </button>
-              )}
               {replanError && (
                 <span className="text-xs text-error truncate">{replanError}</span>
               )}
             </div>
-            <button type="button" className="btn btn-sm btn-ghost btn-circle shrink-0" onClick={handleClose} aria-label="Close">
-              <X className="size-4" />
-            </button>
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost btn-circle text-error/40 hover:text-error hover:bg-error/10"
+                onClick={handleDeleteFromDrawer}
+                disabled={issue.state === "Running" || issue.state === "Reviewing"}
+                aria-label="Delete issue"
+                title="Delete issue permanently"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+              <button type="button" className="btn btn-sm btn-ghost btn-circle shrink-0" onClick={handleClose} aria-label="Close">
+                <X className="size-4" />
+              </button>
+            </div>
           </div>
 
           <div className="flex items-start gap-2 mb-1">
@@ -347,26 +360,30 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
               className="tabs tabs-lift overflow-x-auto flex-nowrap -webkit-overflow-scrolling-touch scrollbar-none"
               style={{ scrollbarWidth: "none" }}
             >
-              {getTabs(issue.state).map(({ id, label, icon: Icon }) => (
-                <a
-                  key={id}
-                  role="tab"
-                  className={`tab gap-1 text-xs whitespace-nowrap ${tab === id ? "tab-active" : ""} ${id === "review" ? "text-secondary font-semibold" : ""}`}
-                  onClick={() => setTab(id)}
-                >
-                  <Icon className="size-3" />
-                  {label}
-                  {id === "review" && (issue.state === "Reviewing" || issue.state === "PendingDecision") && (
-                    <span className="badge badge-xs badge-secondary">!</span>
-                  )}
-                  {id === "planning" && issue.planningStatus === "planning" && (
-                    <span className="loading loading-spinner loading-xs text-info" />
-                  )}
-                  {id === "planning" && isPendingPlanning && (
-                    <span className="loading loading-dots loading-xs text-info opacity-50" />
-                  )}
-                </a>
-              ))}
+              {ISSUE_DRAWER_TABS.map(({ id, label, icon: Icon, color, activeColor }) => {
+                const isActive = tab === id;
+                const iconColor = isActive ? activeColor.replace("tab-active ", "") : color;
+                return (
+                  <a
+                    key={id}
+                    role="tab"
+                    className={`tab gap-1 text-xs whitespace-nowrap ${isActive ? activeColor : color} ${isActive ? "font-semibold" : ""}`}
+                    onClick={() => setTab(id)}
+                  >
+                    <Icon className={`size-3 ${iconColor}`} />
+                    {label}
+                    {id === "review" && (issue.state === "Reviewing" || issue.state === "PendingDecision") && (
+                      <span className="badge badge-xs badge-secondary">!</span>
+                    )}
+                    {id === "planning" && issue.planningStatus === "planning" && (
+                      <span className="loading loading-spinner loading-xs text-info" />
+                    )}
+                    {id === "planning" && isPendingPlanning && (
+                      <span className="loading loading-dots loading-xs text-info opacity-50" />
+                    )}
+                  </a>
+                );
+              })}
             </div>
             {/* Fade edges for scroll indication */}
             <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-base-100 to-transparent pointer-events-none md:hidden" />
@@ -376,13 +393,12 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 drawer-safe-bottom">
           <div key={tab} className="animate-fade-in">
-            {tab === "overview" && <OverviewTab issue={issue} onStateChange={onStateChange} onRetry={onRetry} onCancel={onCancel} />}
+            {tab === "overview" && <OverviewTab issue={issue} />}
             {tab === "planning" && <PlanningTab issue={issue} onStateChange={onStateChange} workflowConfig={workflowConfig} />}
             {tab === "review" && <ReviewTab issue={issue} issueId={issue.id} onStateChange={onStateChange} onRetry={onRetry} />}
             {tab === "execution" && <ExecutionTab issue={issue} workflowConfig={workflowConfig} />}
             {tab === "diff" && <DiffTab issueId={issue.id} />}
             {tab === "routing" && <RoutingTab issue={issue} />}
-            {tab === "history" && <HistoryTab issue={issue} />}
             {tab === "events" && <EventsTab issueId={issue.id} events={events} />}
           </div>
         </div>
@@ -391,6 +407,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
         <DrawerFooter
           issue={issue}
           onStateChange={onStateChange}
+          onRetry={onRetry}
           onMerge={handleMerge}
           onPush={handlePush}
           mergeBusy={mergeBusy}

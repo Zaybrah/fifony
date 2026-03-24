@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useDashboard } from "../context/DashboardContext";
 import ListView from "../components/ListView";
 import { Search, X, Filter, SlidersHorizontal, Download } from "lucide-react";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 
 const STATE_GROUPS = [
   { label: "Active", states: ["Planning", "PendingApproval", "Queued", "Running"] },
@@ -39,6 +40,8 @@ function IssuesPage() {
   const ctx = useDashboard();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortBy, setSortBy] = useState("updated");
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const searchRef = useRef(null);
 
   // Multi-select state filter: Set of active states (empty = all)
   const [activeStates, setActiveStates] = useState(new Set());
@@ -108,6 +111,19 @@ function IssuesPage() {
     setSortBy("updated");
   };
 
+  // ── Keyboard shortcuts ──────────────────────────────────────────────
+  const noDrawer = !ctx.selectedIssue;
+  const sortedRef = useRef(sortedIssues);
+  sortedRef.current = sortedIssues;
+
+  useHotkeys("slash", () => searchRef.current?.focus(), { enabled: noDrawer, preventDefault: true, description: "Focus search", metadata: { group: "issues" } }, [noDrawer]);
+  useHotkeys("j", () => setFocusedIndex((i) => { const len = sortedRef.current.length; return len === 0 ? -1 : Math.min(i + 1, len - 1); }), { enabled: noDrawer, description: "Next issue", metadata: { group: "issues" } }, [noDrawer]);
+  useHotkeys("k", () => setFocusedIndex((i) => Math.max(i <= 0 ? 0 : i - 1, 0)), { enabled: noDrawer, description: "Previous issue", metadata: { group: "issues" } }, [noDrawer]);
+  useHotkeys("enter", () => { const item = sortedRef.current[focusedIndex]; if (item) ctx.setSelectedIssue(item); }, { enabled: noDrawer && focusedIndex >= 0, description: "Open issue", metadata: { group: "issues" } }, [focusedIndex, ctx, noDrawer]);
+  useHotkeys("f", () => setFiltersOpen((v) => !v), { enabled: noDrawer, description: "Toggle filters", metadata: { group: "issues" } }, [noDrawer]);
+  useHotkeys("x", clearAll, { enabled: noDrawer, description: "Clear all filters", metadata: { group: "issues" } }, [clearAll, noDrawer]);
+  useHotkeys("escape", () => setFocusedIndex(-1), { enabled: focusedIndex >= 0 && noDrawer, description: "Clear focus", metadata: { group: "issues" } }, [focusedIndex, noDrawer]);
+
   const activeFilterCount = (activeStates.size > 0 ? 1 : 0) + (ctx.completionFilter !== "recent" ? 1 : 0);
 
   // Jira CSV state mapping
@@ -157,6 +173,7 @@ function IssuesPage() {
           <label className="input input-bordered input-sm flex items-center gap-2 flex-1">
             <Search className="size-4 opacity-40" />
             <input
+              ref={searchRef}
               type="text"
               className="grow"
               placeholder="Search title, ID, type..."
@@ -315,6 +332,7 @@ function IssuesPage() {
           onCancel={ctx.cancelIssue}
           onSelect={ctx.setSelectedIssue}
           expanded
+          focusedIndex={focusedIndex}
         />
       </div>
     </div>

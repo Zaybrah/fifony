@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AlertTriangle, Terminal, SlidersHorizontal, Zap } from "lucide-react";
 import { api } from "../../../api.js";
 import { formatDate, formatDuration } from "../../../utils.js";
@@ -6,22 +6,27 @@ import { Section, Field, CopyButton, ConfigStrip, TokenPhaseBreakdown } from "..
 
 // ── LiveMonitor ───────────────────────────────────────────────────────────────
 
-function LiveMonitor({ issueId, running, startedAt }) {
+function LiveMonitor({ issueId, running, startedAt, onOutput }) {
   const [live, setLive] = useState(null);
 
   const fetchLive = useCallback(async () => {
     try {
       const res = await api.get(`/live/${encodeURIComponent(issueId)}`);
       setLive(res);
+      onOutput?.(res?.logTail || "");
     } catch { /* ignore */ }
   }, [issueId]);
 
   useEffect(() => {
-    if (!running) { setLive(null); return; }
+    if (!running) {
+      setLive(null);
+      onOutput?.(null);
+      return;
+    }
     fetchLive();
     const interval = setInterval(fetchLive, 3000);
     return () => clearInterval(interval);
-  }, [running, fetchLive]);
+  }, [running, fetchLive, onOutput]);
 
   if (!running || !live) return null;
 
@@ -46,11 +51,6 @@ function LiveMonitor({ issueId, running, startedAt }) {
         {live.agentPid && <span>PID: {live.agentPid}</span>}
         {live.agentAlive === false && live.agentPid && <span className="text-error">process dead</span>}
       </div>
-      {live.logTail && (
-        <pre className="text-xs bg-base-200 rounded-box p-2 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto font-mono opacity-80">
-          {live.logTail}
-        </pre>
-      )}
     </div>
   );
 }
@@ -60,11 +60,24 @@ function LiveMonitor({ issueId, running, startedAt }) {
 export function ExecutionTab({ issue, workflowConfig }) {
   const isRunning = issue.state === "Running" || issue.state === "Reviewing";
   const executeConfig = workflowConfig?.workflow?.execute;
+  const [liveOutput, setLiveOutput] = useState("");
+  const handleLiveOutput = useCallback((value) => setLiveOutput(value || ""), []);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const outputRef = useRef(null);
+  const commandOutput = isRunning ? (liveOutput || issue.commandOutputTail || "") : (issue.commandOutputTail || "");
+  const hasCommandOutput = Boolean(commandOutput);
+
+  // Auto-scroll to bottom when output updates
+  useEffect(() => {
+    if (autoScroll && outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [commandOutput, autoScroll]);
 
   return (
     <div className="space-y-5">
       {/* Live monitor */}
-      <LiveMonitor issueId={issue.id} running={isRunning} startedAt={issue.startedAt} />
+      <LiveMonitor issueId={issue.id} running={isRunning} startedAt={issue.startedAt} onOutput={handleLiveOutput} />
 
       {executeConfig && (
         <Section title="Execution Config" icon={SlidersHorizontal}>
@@ -90,18 +103,31 @@ export function ExecutionTab({ issue, workflowConfig }) {
         </Section>
       )}
 
-      {issue.commandOutputTail && (
+      {hasCommandOutput ? (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <div className="font-semibold text-sm flex items-center gap-1.5">
-              <Terminal className="size-4 opacity-50" /> Command Output
+              <Terminal className="size-4 opacity-50" /> CLI Output
             </div>
-            <CopyButton text={issue.commandOutputTail} />
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-xs checkbox-primary"
+                  checked={autoScroll}
+                  onChange={(e) => setAutoScroll(e.target.checked)}
+                />
+                <span className="text-xs opacity-50">Auto-scroll</span>
+              </label>
+              <CopyButton text={commandOutput} />
+            </div>
           </div>
-          <pre className="text-xs bg-base-200 rounded-box p-3 overflow-x-auto whitespace-pre-wrap max-h-[50vh] overflow-y-auto">
-            {issue.commandOutputTail}
+          <pre ref={outputRef} className="text-xs bg-base-200 rounded-box p-3 overflow-x-auto whitespace-pre-wrap max-h-[50vh] overflow-y-auto">
+            {commandOutput}
           </pre>
         </div>
+      ) : (
+        <div className="text-sm opacity-40 text-center py-4">No command output yet.</div>
       )}
 
       {(issue.tokensByPhase || issue.tokensByModel) && (
@@ -110,7 +136,7 @@ export function ExecutionTab({ issue, workflowConfig }) {
         </Section>
       )}
 
-      {!issue.lastError && !issue.commandOutputTail && !issue.tokensByPhase && !issue.tokensByModel && (
+      {!issue.lastError && !hasCommandOutput && !issue.tokensByPhase && !issue.tokensByModel && (
         <div className="text-sm opacity-40 text-center py-8">No execution data yet.</div>
       )}
     </div>

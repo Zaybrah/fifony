@@ -52,7 +52,7 @@ function GitignoreBanner() {
   );
 }
 
-function BranchCard({ currentBranch, onBranchCreated }) {
+function BranchCard({ currentBranch, onBranchCreated, onGitStatusChange }) {
   // Git status
   const [gitStatus, setGitStatus] = useState(null); // null = loading
   const [initBusy, setInitBusy] = useState(false);
@@ -65,8 +65,12 @@ function BranchCard({ currentBranch, onBranchCreated }) {
         setGitStatus(data);
         if (data.branch) setActiveBranch(data.branch);
       })
-      .catch(() => setGitStatus({ isGit: true, branch: currentBranch, hasCommits: true }));
+      .catch(() => setGitStatus({ isGit: false, branch: currentBranch || null, hasCommits: false }));
   }, []);
+
+  useEffect(() => {
+    onGitStatusChange?.(gitStatus);
+  }, [gitStatus, onGitStatusChange]);
 
   // Branch switch/create
   const [editing, setEditing] = useState(false);
@@ -76,6 +80,7 @@ function BranchCard({ currentBranch, onBranchCreated }) {
   const [switchResult, setSwitchResult] = useState(null); // { branch, created }
 
   const isGit = gitStatus === null || gitStatus.isGit;
+  const hasCommits = gitStatus?.hasCommits ?? false;
   const isProtected = PROTECTED_BRANCHES.has(activeBranch);
   const trimmedInput = inputValue.trim();
   const isValidInput = /^[a-zA-Z0-9/_.-]+$/.test(trimmedInput) && trimmedInput.length > 0;
@@ -112,8 +117,8 @@ function BranchCard({ currentBranch, onBranchCreated }) {
     try {
       const res = await api.post("/git/init", {});
       if (!res.ok) throw new Error(res.error || "Failed to initialize git.");
-      setGitStatus({ isGit: true, branch: res.branch, hasCommits: true });
-      setActiveBranch(res.branch);
+      setGitStatus({ isGit: Boolean(res.isGit ?? true), branch: res.branch || null, hasCommits: Boolean(res.hasCommits ?? true) });
+      setActiveBranch(res.branch || activeBranch);
     } catch (err) {
       setInitError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -138,7 +143,7 @@ function BranchCard({ currentBranch, onBranchCreated }) {
             <GitMerge className="size-4 shrink-0" />
             <div className="text-sm">
               <p className="font-semibold">Not a git repository</p>
-              <p className="opacity-80 mt-0.5">fifony requires git to create agent worktrees. Initialize one here.</p>
+              <p className="opacity-80 mt-0.5">fifony requires git and an initial commit to create agent worktrees. Initialize it here to continue.</p>
             </div>
           </div>
           {initError && (
@@ -150,6 +155,43 @@ function BranchCard({ currentBranch, onBranchCreated }) {
             {initBusy ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}
             Initialize git repository
           </button>
+        </div>
+      )}
+
+      {gitStatus !== null && gitStatus.isGit && !hasCommits && (
+        <div className="flex flex-col gap-3">
+          <div className="alert alert-warning py-3">
+            <GitMerge className="size-4 shrink-0" />
+            <div className="text-sm">
+              <p className="font-semibold">Repository has no commits yet</p>
+              <p className="opacity-80 mt-0.5">fifony needs one initial commit before it can create per-issue git worktrees. Create it here to continue.</p>
+            </div>
+          </div>
+          {initError && (
+            <p className="text-xs text-error flex items-center gap-1">
+              <AlertTriangle className="size-3" /> {initError}
+            </p>
+          )}
+          <button className="btn btn-primary gap-2 self-start" onClick={handleGitInit} disabled={initBusy}>
+            {initBusy ? <Loader2 className="size-4 animate-spin" /> : <GitMerge className="size-4" />}
+            Create initial commit
+          </button>
+        </div>
+      )}
+
+      {/* Untracked files warning — merge will fail if working tree is dirty */}
+      {gitStatus?.isGit && gitStatus?.hasCommits && gitStatus?.isClean === false && (
+        <div className="alert alert-info py-3 text-sm">
+          <AlertTriangle className="size-4 shrink-0" />
+          <div>
+            <p className="font-semibold">Working tree has uncommitted changes</p>
+            <p className="opacity-80 mt-0.5">
+              {gitStatus.untrackedCount > 0
+                ? `${gitStatus.untrackedCount} untracked file${gitStatus.untrackedCount > 1 ? "s" : ""} found. `
+                : ""}
+              Commit or stash your changes before merging issues — fifony requires a clean working tree to merge agent work.
+            </p>
+          </div>
         </div>
       )}
 
@@ -314,11 +356,41 @@ function TestCommandCard({ testCommand, setTestCommand }) {
   );
 }
 
+function ReviewApprovalCard({ autoReviewApproval, setAutoReviewApproval }) {
+  return (
+    <div className="bg-base-200 rounded-2xl p-5 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="size-4 text-primary" />
+        <div className="text-sm font-semibold">Review completion</div>
+      </div>
+      <p className="text-xs text-base-content/50 -mt-2">
+        Control whether completed reviews move issues directly to Done or require manual confirmation.
+      </p>
+      <label className="label cursor-pointer justify-start gap-3">
+        <input
+          type="checkbox"
+          className="toggle toggle-sm toggle-primary"
+          checked={autoReviewApproval}
+          onChange={(e) => setAutoReviewApproval(e.target.checked)}
+        />
+        <span className="label-text text-sm">Automatic review approval</span>
+      </label>
+      <p className="text-xs text-base-content/50">
+        {autoReviewApproval
+          ? "Checked: issues go directly to Done when reviewer succeeds."
+          : "Unchecked: issues stop in Pending Decision and require manual approval action."
+        }
+      </p>
+    </div>
+  );
+}
+
 function SetupStep({
   projectName, setProjectName,
   detectedProjectName, projectSource, workspacePath,
-  currentBranch, onBranchCreated,
+  currentBranch, onGitStatusChange, onBranchCreated,
   mergeMode, setMergeMode, prBaseBranch, setPrBaseBranch,
+  autoReviewApproval, setAutoReviewApproval,
   testCommand, setTestCommand,
 }) {
   const normalizedProjectName = normalizeProjectName(projectName);
@@ -395,8 +467,9 @@ function SetupStep({
         </div>
       </div>
 
-      <BranchCard currentBranch={currentBranch} onBranchCreated={onBranchCreated} />
+      <BranchCard currentBranch={currentBranch} onGitStatusChange={onGitStatusChange} onBranchCreated={onBranchCreated} />
       <MergeModeCard mergeMode={mergeMode} setMergeMode={setMergeMode} prBaseBranch={prBaseBranch} setPrBaseBranch={setPrBaseBranch} currentBranch={currentBranch} />
+      <ReviewApprovalCard autoReviewApproval={autoReviewApproval} setAutoReviewApproval={setAutoReviewApproval} />
       <TestCommandCard testCommand={testCommand} setTestCommand={setTestCommand} />
     </div>
   );

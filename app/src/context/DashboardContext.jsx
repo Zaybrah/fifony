@@ -6,7 +6,6 @@ import {
   useRuntimeEvents,
   useProviders,
   useParallelism,
-  useProvidersUsage,
   useSettings,
   useRuntimeWebSocket,
   useTheme,
@@ -82,7 +81,6 @@ export function DashboardProvider({ children }) {
   const events = useRuntimeEvents(eventKind, eventIssueId, liveMode ? 3000 : 2500);
   const providers = useProviders();
   const parallelism = useParallelism();
-  const providersUsage = useProvidersUsage();
 
   const data = runtime.data || {};
   const issues = Array.isArray(data.issues) ? data.issues : [];
@@ -169,7 +167,7 @@ export function DashboardProvider({ children }) {
   });
 
   const retryMut = useMutation({
-    mutationFn: (id) => api.post(`/issues/${encodeURIComponent(id)}/retry`),
+    mutationFn: ({ id, feedback }) => api.post(`/issues/${encodeURIComponent(id)}/retry`, feedback ? { feedback } : undefined),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["runtime-state"] }),
     onError: (e) => showToast(e.message),
   });
@@ -178,6 +176,12 @@ export function DashboardProvider({ children }) {
     mutationFn: (id) => api.post(`/issues/${encodeURIComponent(id)}/cancel`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["runtime-state"] }),
     onError: (e) => showToast(e.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id) => api.post(`/issues/${encodeURIComponent(id)}/delete`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["runtime-state"] }); showToast("Issue deleted", "success"); },
+    onError: (e) => showToast(e.message, "error"),
   });
 
   const refreshMut = useMutation({
@@ -232,7 +236,7 @@ export function DashboardProvider({ children }) {
     // Connection
     status, wsStatus, liveMode,
     // Data
-    data, issues, filtered, metrics, eventsData, providers, parallelism, providersUsage,
+    data, issues, filtered, metrics, eventsData, providers, parallelism,
     projectName: projectMeta.projectName,
     queueTitle: projectMeta.queueTitle,
     categoryOptions, issueOptions,
@@ -253,8 +257,9 @@ export function DashboardProvider({ children }) {
     selectedIssue, setSelectedIssue,
     // Mutations
     updateState: (id, state) => updateState.mutate({ id, state }),
-    retryIssue: (id) => retryMut.mutate(id),
+    retryIssue: (id, feedback) => retryMut.mutate({ id, feedback }),
     cancelIssue: (id) => cancelMut.mutate(id),
+    deleteIssue: (id) => deleteMut.mutate(id),
     refresh: () => refreshMut.mutate(),
     // Settings
     concurrency, setConcurrency,
@@ -268,7 +273,7 @@ export function DashboardProvider({ children }) {
     confetti, showConfetti, clearConfetti,
   }), [
     theme, status, wsStatus, liveMode, data, issues, filtered, metrics, eventsData,
-    providers, parallelism, providersUsage, categoryOptions, issueOptions, runtime,
+    providers, parallelism, categoryOptions, issueOptions, runtime,
     projectMeta,
     query, stateFilter, categoryFilter, completionFilter,
     isEventsOpen, eventKind, eventIssueId,

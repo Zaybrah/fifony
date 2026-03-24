@@ -66,6 +66,14 @@ export type IssueEntry = {
   tokenUsage?: AgentTokenUsage; // aggregated across all turns/attempts
   tokensByPhase?: Record<AgentProviderRole, AgentTokenUsage>; // per-phase breakdown (planner/executor/reviewer)
   tokensByModel?: Record<string, AgentTokenUsage>; // full per-model breakdown with input/output
+  /** Tools the CLI actually used (accumulated across all turns) */
+  toolsUsed?: string[];
+  /** Skills (slash commands) actually invoked during execution */
+  skillsUsed?: string[];
+  /** Subagents actually spawned during execution */
+  agentsUsed?: string[];
+  /** Shell commands actually executed */
+  commandsRun?: string[];
   images?: string[]; // absolute paths to attached image files (screenshots, evidence)
   issueType?: string; // template type selected at creation (blank/bug/feature/refactor/docs/chore)
   eventsCount?: number; // total events added to this issue — tracked via EventualConsistency plugin
@@ -78,11 +86,15 @@ export type IssueEntry = {
   /** When the workspace was merged into TARGET_ROOT */
   mergedAt?: string;
   /** Summary of the merge result */
-  mergeResult?: { copied: number; deleted: number; skipped: number; conflicts: number; conflictFiles?: string[] };
+  mergeResult?: { copied: number; deleted: number; skipped: number; conflicts: number; conflictFiles?: string[]; conflictResolution?: { resolved: boolean; provider: string; resolvedFiles: string[]; durationMs: number; output?: string; resolvedAt: string } };
+  /** Summary of pre-merge rebase attempt (auto-rebase before merge to resolve diverged branches) */
+  rebaseResult?: { success: boolean; conflictFiles: string[]; rebasedAt: string };
   /** Why the issue was merged — set for both auto and manual merges */
   mergedReason?: string;
   /** Why the issue was cancelled — set for both auto and manual cancels */
   cancelledReason?: string;
+  /** Whether a test squash (git merge --squash) is currently applied to TARGET_ROOT */
+  testApplied?: boolean;
   /** ISO timestamp when issue entered Reviewing state (last time, for code review turnaround KPI) */
   reviewingAt?: string;
   /** Planning process status — driven by scheduler-managed planning job */
@@ -207,6 +219,8 @@ export type RuntimeConfig = {
   runMode: "filesystem";
   defaultBranch?: string;
   mergeMode?: "local" | "push-pr";
+  /** If true, review approval can still be automatic after reviewer success; if false, reviewer success waits for manual approval. */
+  autoReviewApproval: boolean;
   testCommand?: string;
   prBaseBranch?: string;
   /** Maximum dollar budget per agent execution (claude --max-budget-usd) */
@@ -315,6 +329,14 @@ export type AgentDirective = {
   summary: string;
   nextPrompt: string;
   tokenUsage?: AgentTokenUsage;
+  /** Tools the CLI actually used (Read, Write, Edit, Bash, etc.) */
+  toolsUsed?: string[];
+  /** Skills (slash commands) actually invoked during execution */
+  skillsUsed?: string[];
+  /** Subagents actually spawned during execution */
+  agentsUsed?: string[];
+  /** Shell commands actually executed */
+  commandsRun?: string[];
 };
 
 export type AgentSessionResult = {
@@ -341,6 +363,10 @@ export type AgentSessionTurn = {
   directiveSummary: string;
   nextPrompt: string;
   tokenUsage?: AgentTokenUsage;
+  toolsUsed?: string[];
+  skillsUsed?: string[];
+  agentsUsed?: string[];
+  commandsRun?: string[];
 };
 
 export type AgentSessionState = {

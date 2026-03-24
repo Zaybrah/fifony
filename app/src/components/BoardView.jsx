@@ -1,9 +1,11 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { IssueCard } from "./IssueCard.jsx";
 import { EmptyState } from "./EmptyState.jsx";
-import { Lightbulb, Plus, Play, Eye, AlertTriangle, CheckCircle, XCircle, RotateCcw, ArrowRight, ChevronDown, X } from "lucide-react";
+import { Lightbulb, Plus, Play, Eye, AlertTriangle, CheckCircle, XCircle, RotateCcw, ArrowRight, X, Info } from "lucide-react";
 import { useDragAndDrop } from "../hooks/useDragAndDrop.js";
-import { getIssueTransitions, ISSUE_STATE_MACHINE } from "../utils.js";
+import { getIssueTransitions } from "../utils.js";
+import { useHotkeys } from "react-hotkeys-hook";
+import { useDashboard } from "../context/DashboardContext.jsx";
 
 function ColumnBadge({ count, className }) {
   const prevRef = useRef(count);
@@ -25,8 +27,8 @@ function ColumnBadge({ count, className }) {
 }
 
 // Kanban columns — grouped by who acts:
-//   Planning (AI), Needs Approval (Human), In Progress (AI), Blocked (Human), Done (terminal)
-const COLUMNS = ["Planning", "Needs Approval", "In Progress", "Blocked", "Done"];
+//   Planning (AI), In Progress (AI), Needs Approval (Human), Blocked (Human), Done (terminal)
+const COLUMNS = ["Planning", "In Progress", "Needs Approval", "Blocked", "Done"];
 const PLANNING_STATES = new Set(["Planning"]);
 const NEEDS_APPROVAL_STATES = new Set(["PendingApproval", "PendingDecision"]);
 const IN_PROGRESS_STATES = new Set(["Queued", "Running", "Reviewing"]);
@@ -71,6 +73,14 @@ const EMPTY_CONFIG = {
   "In Progress": { icon: Play, desc: "Issues move here when agents start" },
   Blocked: { icon: AlertTriangle, desc: "Needs attention" },
   Done: { icon: CheckCircle, desc: "Completed" },
+};
+
+const COLUMN_TOOLTIP = {
+  Planning: "AI is generating the execution plan.\nStates: Planning",
+  "Needs Approval": "Waiting for your decision — approve, rework, or replan.\nStates: PendingApproval, PendingDecision",
+  "In Progress": "AI agents are working — executing or reviewing code.\nStates: Queued, Running, Reviewing",
+  Blocked: "Failed or stale — needs retry or manual intervention.\nStates: Blocked",
+  Done: "Completed — ready to merge or already merged.\nStates: Approved, Merged, Cancelled",
 };
 
 function SkeletonCard({ delay = 0 }) {
@@ -189,14 +199,8 @@ function ColumnDots({ columns, activeIndex }) {
   );
 }
 
-// Default visible card limits for collapsible columns
-const COLLAPSE_LIMITS = {
-  Done: 20,
-};
-
-function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColumn, getCardHandlers, onSelect, onCreateIssue, lastDroppedId, hasRunningAgents, totalIssues, onLongPress, selectedIds, onToggleSelect, hasSelection }) {
+function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColumn, getCardHandlers, onSelect, onCreateIssue, lastDroppedId, hasRunningAgents, totalIssues, onLongPress, selectedIds, onToggleSelect, hasSelection, focusedIssueId }) {
   const colRef = useRef(null);
-  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     registerColumn(col, colRef.current);
@@ -210,12 +214,7 @@ function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColum
   const isDimmed = isDragging && !isValid && !isSource;
   const isEmpty = issues.length === 0;
   const isCollapsedEmpty = isEmpty && col !== "Planning" && totalIssues === 0;
-
-  // Collapsible columns: Done shows 20 by default
-  const collapseLimit = COLLAPSE_LIMITS[col];
-  const isCollapsible = collapseLimit != null && issues.length > collapseLimit;
-  const visibleIssues = (isCollapsible && !expanded) ? issues.slice(0, collapseLimit) : issues;
-  const hiddenCount = issues.length - visibleIssues.length;
+  const visibleIssues = issues;
 
   let columnClass = `kanban-column bg-base-200 rounded-box p-3 flex flex-col min-h-0 overflow-hidden`;
   if (isCollapsedEmpty) {
@@ -245,6 +244,11 @@ function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColum
           {col === "In Progress" && hasRunningAgents && (
             <span className="issue-phase-dot" title="Agents working" />
           )}
+          {COLUMN_TOOLTIP[col] && (
+            <div className="lg:tooltip lg:tooltip-bottom" data-tip={COLUMN_TOOLTIP[col]}>
+              <Info className="size-3 opacity-30 hover:opacity-60 transition-opacity cursor-help" />
+            </div>
+          )}
         </h3>
         <ColumnBadge count={issues.length} className={badgeClass} />
       </div>
@@ -264,15 +268,62 @@ function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColum
             )
           ) : (
             <div className="stagger-children space-y-2">
-              {visibleIssues.map((issue) => {
+              {col === "Done" ? (
+                // Sub-group Done column: Ready to Ship / Shipped / Cancelled
+                <>
+                  {(() => {
+                    const ready = visibleIssues.filter((i) => i.state === "Approved");
+                    const shipped = visibleIssues.filter((i) => i.state === "Merged");
+                    const cancelled = visibleIssues.filter((i) => i.state === "Cancelled");
+                    const renderCard = (issue) => {
+                      const beingDragged = dragState?.issueId === issue.id;
+                      const justDropped = lastDroppedId === issue.id;
+                      const isFocused = focusedIssueId === issue.id;
+                      return (
+                        <div
+                          key={issue.id}
+                          data-issue-id={issue.id}
+                          className={`${beingDragged ? "kanban-card-dragging-source" : ""} ${justDropped ? "animate-pop" : ""} ${isFocused ? "ring-2 ring-primary/50 rounded-lg" : ""}`}
+                          onContextMenu={(e) => { if ('ontouchstart' in window) { e.preventDefault(); onLongPress?.(issue); } }}
+                        >
+                          <IssueCard issue={issue} onSelect={onSelect} dragHandlers={getCardHandlers(issue, col)} isDragging={beingDragged} isSelected={selectedIds?.has(issue.id)} onToggleSelect={onToggleSelect} hasSelection={hasSelection} />
+                        </div>
+                      );
+                    };
+                    return (
+                      <>
+                        {ready.length > 0 && (
+                          <>
+                            <div className="text-[10px] uppercase tracking-wider opacity-40 font-semibold px-1">Ready to Ship</div>
+                            {ready.map(renderCard)}
+                          </>
+                        )}
+                        {shipped.length > 0 && (
+                          <>
+                            <div className="text-[10px] uppercase tracking-wider opacity-40 font-semibold px-1 mt-2">Shipped</div>
+                            {shipped.map((i) => <div key={i.id} className="opacity-60">{renderCard(i)}</div>)}
+                          </>
+                        )}
+                        {cancelled.length > 0 && (
+                          <>
+                            <div className="text-[10px] uppercase tracking-wider opacity-40 font-semibold px-1 mt-2">Cancelled</div>
+                            {cancelled.map((i) => <div key={i.id} className="opacity-40">{renderCard(i)}</div>)}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </>
+              ) : visibleIssues.map((issue) => {
                 const beingDragged = dragState?.issueId === issue.id;
                 const justDropped = lastDroppedId === issue.id;
+                const isFocused = focusedIssueId === issue.id;
                 return (
                   <div
                     key={issue.id}
-                    className={`${beingDragged ? "kanban-card-dragging-source" : ""} ${justDropped ? "animate-pop" : ""}`}
+                    data-issue-id={issue.id}
+                    className={`${beingDragged ? "kanban-card-dragging-source" : ""} ${justDropped ? "animate-pop" : ""} ${isFocused ? "ring-2 ring-primary/50 rounded-lg" : ""}`}
                     onContextMenu={(e) => {
-                      // Long press on mobile triggers context menu — use action sheet instead
                       if ('ontouchstart' in window) {
                         e.preventDefault();
                         onLongPress?.(issue);
@@ -293,16 +344,6 @@ function KanbanColumn({ col, issues, empty, badgeClass, dragState, registerColum
               })}
 
               {/* Collapse/expand toggle for Done column */}
-              {isCollapsible && (
-                <button
-                  className="btn btn-ghost btn-xs w-full gap-1 opacity-50 hover:opacity-80"
-                  onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-                >
-                  <ChevronDown className={`size-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
-                  {expanded ? "Show less" : `+${hiddenCount} more`}
-                </button>
-              )}
-
               {isOver && isValid && (
                 <div className="kanban-drop-placeholder" />
               )}
@@ -321,7 +362,7 @@ function computeBulkTransitions(selectedIds, issues) {
 
   // Get valid transitions for each selected issue (excluding current state)
   const transitionSets = selectedIssues.map((issue) => {
-    const transitions = ISSUE_STATE_MACHINE[issue.state] || [];
+    const transitions = getIssueTransitions(issue.state);
     return new Set(transitions.filter((s) => s !== issue.state));
   });
 
@@ -378,6 +419,8 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, 
   const [actionSheetIssue, setActionSheetIssue] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const scrollContainerRef = useRef(null);
+  const [focusedCol, setFocusedCol] = useState(-1);
+  const [focusedCard, setFocusedCard] = useState(-1);
 
   const hasSelection = selectedIds.size > 0;
 
@@ -394,15 +437,7 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, 
     setSelectedIds(new Set());
   }, []);
 
-  // Escape key clears selection
-  useEffect(() => {
-    if (!hasSelection) return;
-    const handler = (e) => {
-      if (e.key === "Escape") clearSelection();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [hasSelection, clearSelection]);
+  // Escape clears selection (now handled via keyboard shortcut registry below)
 
   // Clean up selectedIds when issues change (remove stale IDs)
   useEffect(() => {
@@ -441,8 +476,9 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, 
       else col = "Done";
       buckets[col].push(issue);
     }
-    for (const c of COLUMNS) {
-      buckets[c].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    // Sort each column: most recent first (by createdAt descending)
+    for (const col of COLUMNS) {
+      buckets[col].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
     return buckets;
   }, [issues]);
@@ -516,6 +552,55 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, 
     setActionSheetIssue(issue);
   }, []);
 
+  // ── Keyboard shortcuts ──────────────────────────────────────────────
+  const { selectedIssue } = useDashboard();
+  const noDrawer = !selectedIssue;
+  const groupedRef = useRef(grouped);
+  groupedRef.current = grouped;
+
+  const jumpToColumn = useCallback((colIndex) => {
+    setFocusedCol(colIndex);
+    setFocusedCard(0);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const grid = container.querySelector("[class*='grid']");
+    const colEl = grid?.children[colIndex];
+    colEl?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, []);
+
+  const moveFocusedCard = useCallback((dir) => {
+    if (focusedCol < 0) { setFocusedCol(0); setFocusedCard(0); return; }
+    const colName = COLUMNS[focusedCol];
+    const colIssues = groupedRef.current[colName] || [];
+    setFocusedCard((prev) => Math.max(0, Math.min(prev + dir, colIssues.length - 1)));
+  }, [focusedCol]);
+
+  const openFocusedCard = useCallback(() => {
+    if (focusedCol < 0 || focusedCard < 0) return;
+    const colIssues = groupedRef.current[COLUMNS[focusedCol]] || [];
+    if (colIssues[focusedCard]) onSelect?.(colIssues[focusedCard]);
+  }, [focusedCol, focusedCard, onSelect]);
+
+  useHotkeys("1", () => jumpToColumn(0), { enabled: noDrawer, description: "Planning column", metadata: { group: "kanban" } }, [jumpToColumn, noDrawer]);
+  useHotkeys("2", () => jumpToColumn(1), { enabled: noDrawer, description: "In Progress column", metadata: { group: "kanban" } }, [jumpToColumn, noDrawer]);
+  useHotkeys("3", () => jumpToColumn(2), { enabled: noDrawer, description: "Needs Approval column", metadata: { group: "kanban" } }, [jumpToColumn, noDrawer]);
+  useHotkeys("4", () => jumpToColumn(3), { enabled: noDrawer, description: "Blocked column", metadata: { group: "kanban" } }, [jumpToColumn, noDrawer]);
+  useHotkeys("5", () => jumpToColumn(4), { enabled: noDrawer, description: "Done column", metadata: { group: "kanban" } }, [jumpToColumn, noDrawer]);
+  useHotkeys("j", () => moveFocusedCard(1), { enabled: noDrawer, description: "Next card", metadata: { group: "kanban" } }, [moveFocusedCard, noDrawer]);
+  useHotkeys("k", () => moveFocusedCard(-1), { enabled: noDrawer, description: "Previous card", metadata: { group: "kanban" } }, [moveFocusedCard, noDrawer]);
+  useHotkeys("enter", openFocusedCard, { enabled: noDrawer && focusedCard >= 0, description: "Open card", metadata: { group: "kanban" } }, [openFocusedCard, noDrawer, focusedCard]);
+  useHotkeys("escape", () => { if (hasSelection) clearSelection(); else { setFocusedCol(-1); setFocusedCard(-1); } }, { enabled: (hasSelection || focusedCol >= 0) && noDrawer, description: "Clear selection / focus", metadata: { group: "kanban" } }, [hasSelection, clearSelection, focusedCol, noDrawer]);
+
+  // Scroll focused card into view
+  useEffect(() => {
+    if (focusedCol < 0 || focusedCard < 0) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const grid = container.querySelector("[class*='grid']");
+    const cards = grid?.children[focusedCol]?.querySelectorAll("[data-issue-id]");
+    cards?.[focusedCard]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [focusedCol, focusedCard]);
+
   if (isLoading) {
     return (
       <div className="overflow-x-auto pb-2 flex-1 flex flex-col min-h-0">
@@ -556,27 +641,34 @@ export function BoardView({ issues, onStateChange, onRetry, onCancel, onSelect, 
             minWidth: `${COLUMNS.length * 200}px`,
           }}
         >
-          {COLUMNS.map((col) => (
-            <KanbanColumn
-              key={col}
-              col={col}
-              issues={grouped[col]}
-              empty={EMPTY_CONFIG[col]}
-              badgeClass={COLUMN_BADGE[col]}
-              dragState={dragState}
-              registerColumn={registerColumn}
-              getCardHandlers={getCardHandlers}
-              onSelect={guardedOnSelect}
-              onCreateIssue={onCreateIssue}
-              lastDroppedId={lastDroppedId}
-              hasRunningAgents={hasRunningAgents}
-              totalIssues={issues.length}
-              onLongPress={handleLongPress}
-              selectedIds={selectedIds}
-              onToggleSelect={toggleSelect}
-              hasSelection={hasSelection}
-            />
-          ))}
+          {COLUMNS.map((col, colIdx) => {
+            const colIssues = grouped[col];
+            const focusedIssueId = focusedCol === colIdx && focusedCard >= 0 && focusedCard < colIssues.length
+              ? colIssues[focusedCard]?.id
+              : null;
+            return (
+              <KanbanColumn
+                key={col}
+                col={col}
+                issues={colIssues}
+                empty={EMPTY_CONFIG[col]}
+                badgeClass={COLUMN_BADGE[col]}
+                dragState={dragState}
+                registerColumn={registerColumn}
+                getCardHandlers={getCardHandlers}
+                onSelect={guardedOnSelect}
+                onCreateIssue={onCreateIssue}
+                lastDroppedId={lastDroppedId}
+                hasRunningAgents={hasRunningAgents}
+                totalIssues={issues.length}
+                onLongPress={handleLongPress}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                hasSelection={hasSelection}
+                focusedIssueId={focusedIssueId}
+              />
+            );
+          })}
         </div>
 
         <DragGhost dragState={dragState} ghostRef={ghostRef} />
