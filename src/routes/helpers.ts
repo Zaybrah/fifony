@@ -41,7 +41,13 @@ export function findIssue(state: RuntimeState, issueId: string): IssueEntry | un
   return state.issues.find((issue) => issue.id === issueId || issue.identifier === issueId);
 }
 
-export function parseIssue(c: any): string | null {
+/** Minimal type for raffel/s3db route context — avoids `any` at critical boundaries. */
+export type RouteContext = {
+  req: { param: (name: string) => string | undefined; json: () => Promise<Record<string, unknown>> };
+  json: (body: unknown, status?: number) => Response;
+};
+
+export function parseIssue(c: RouteContext | any): string | null {
   const value = c.req?.param ? c.req.param("id") : undefined;
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -87,9 +93,9 @@ export function applyPlanSuggestions(issue: IssueEntry, plan: import("../types.t
 
 export async function mutateIssueState(
   state: RuntimeState,
-  c: any,
+  c: RouteContext,
   updater: (issue: IssueEntry) => Promise<void> | void,
-): Promise<any> {
+): Promise<Response> {
   const issueId = parseIssue(c);
   if (!issueId) {
     return c.json({ ok: false, error: "Issue id is required." }, 400);
