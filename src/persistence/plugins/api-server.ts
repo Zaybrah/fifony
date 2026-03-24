@@ -132,7 +132,7 @@ export async function startApiServer(
     tls: false,
     versionPrefix: false,
     metrics: {
-      logLevel: 'info'
+      logLevel: false
     },
     // HTTP + WebSocket on the same port via listeners
     listeners: [{
