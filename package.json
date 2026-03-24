@@ -34,7 +34,8 @@
     "prepublishOnly": "pnpm build",
     "mcp": "pnpm prompts:generate && node ./bin/fifony.js mcp",
     "test": "node --import tsx/esm --test 'tests/**/*.test.ts'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "release:check": "bash scripts/release-check.sh"
   },
   "files": [
     "bin/",
