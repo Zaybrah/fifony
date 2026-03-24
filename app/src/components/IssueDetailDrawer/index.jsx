@@ -21,6 +21,7 @@ import { RoutingTab } from "./tabs/RoutingTab.jsx";
 import { EventsTab } from "./tabs/EventsTab.jsx";
 import { PlanningTab } from "./tabs/PlanningTab.jsx";
 import { ReviewTab } from "./tabs/ReviewTab.jsx";
+import { SessionsTab } from "./tabs/SessionsTab.jsx";
 
 // ── DrawerFooter ─────────────────────────────────────────────────────────────
 
@@ -399,6 +400,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
             {tab === "review" && <ReviewTab issue={issue} issueId={issue.id} onStateChange={onStateChange} onRetry={onRetry} />}
             {tab === "execution" && <ExecutionTab issue={issue} workflowConfig={workflowConfig} />}
             {tab === "diff" && <DiffTab issueId={issue.id} />}
+            {tab === "sessions" && <SessionsTab issueId={issue.id} />}
             {tab === "routing" && <RoutingTab issue={issue} />}
             {tab === "events" && <EventsTab issueId={issue.id} events={events} />}
           </div>
