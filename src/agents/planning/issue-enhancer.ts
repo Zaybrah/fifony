@@ -10,6 +10,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TARGET_ROOT } from "../../concerns/constants.ts";
 
 
 export type EnhancementField = "title" | "description";
@@ -51,12 +52,27 @@ export function parseEnhancerOutput(raw: string, expectedField: EnhancementField
     throw new Error("AI provider returned an empty response.");
   }
 
-  const candidates = extractJsonObjects(
-    text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1]?.trim() ?? text,
-  );
+  const sourceText = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1]?.trim() ?? text;
+
+  const candidates = extractJsonObjects(sourceText);
   for (const candidate of candidates) {
     const value = parseCandidate(candidate, expectedField);
     if (value) return value;
+  }
+
+  // Fallback: CLI tools (e.g. Codex) echo the full prompt to stdout which may
+  // contain unbalanced braces (CSS snippets, error stack traces, etc.) that
+  // corrupt extractJsonObjects' depth tracker.  Try extracting from each
+  // `{"field"` occurrence starting from the end — the real response is last.
+  const fieldRe = /\{\s*"field"/g;
+  const starts: number[] = [];
+  let fm: RegExpExecArray | null;
+  while ((fm = fieldRe.exec(sourceText)) !== null) starts.push(fm.index);
+  for (let i = starts.length - 1; i >= 0; i--) {
+    for (const candidate of extractJsonObjects(sourceText.slice(starts[i]))) {
+      const value = parseCandidate(candidate, expectedField);
+      if (value) return value;
+    }
   }
 
   const cleanedRaw = text.trim();
@@ -172,7 +188,7 @@ async function runProviderCommand(
 
     const child = spawn(effectiveCommand, {
       shell: true,
-      cwd: tempDir,
+      cwd: TARGET_ROOT,
       env: spawnEnv,
     });
 
