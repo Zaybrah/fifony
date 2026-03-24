@@ -84,10 +84,11 @@ export async function pushWorkspaceCommand(
 
   if (issue.testApplied) {
     try {
-      execSync("git reset --hard HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
-      execSync("git clean -fd", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+      // Safe revert: unstage + restore tracked files without destroying untracked files
+      execSync("git reset HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+      execSync("git checkout -- .", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
       issue.testApplied = false;
-      deps.eventStore.addEvent(issue.id, "info", "Auto-reverted test squash before push.");
+      deps.eventStore.addEvent(issue.id, "info", "Auto-reverted test squash before push (untracked files preserved).");
       logger.info({ issueId: issue.id }, "[Push] Auto-reverted test squash before push");
     } catch (err: any) {
       const msg = err.stderr || err.stdout || String(err);

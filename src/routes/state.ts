@@ -241,15 +241,17 @@ export function registerStateRoutes(
     logger.info({ issueId: parseIssue(c) }, "[API] POST /api/issues/:id/revert-try");
     return mutateIssueState(state, c, async (issue) => {
       try {
-        execSync("git reset --hard HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
-        execSync("git clean -fd", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+        // Safe revert: unstage squash changes and restore tracked files to HEAD
+        // WITHOUT destroying untracked files (no git clean)
+        execSync("git reset HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+        execSync("git checkout -- .", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
       } catch (err: any) {
         const msg = err.stderr || err.stdout || String(err);
-        throw new Error(`git reset/clean failed: ${msg}`);
+        throw new Error(`git revert-try failed: ${msg}`);
       }
       issue.testApplied = false;
       markIssueDirty(issue.id);
-      addEvent(state, issue.id, "manual", `Test reverted: git reset --hard HEAD && git clean -fd`);
+      addEvent(state, issue.id, "manual", `Test reverted safely (untracked files preserved).`);
     });
   });
 

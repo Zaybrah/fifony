@@ -151,12 +151,12 @@ The Setup step blocks execution until the workspace is a git repository with at 
 | Route | What you see |
 |-------|-------------|
 | `/kanban` | Drag-and-drop board with 5 columns: Planning, In Progress, Reviewing, Blocked, Done. |
-| `/issues` | Searchable list with multi-state filters, sort options, and capability filters. |
-| `/agents` | Live cockpit: worker slots, queue depth, real-time log tail, token sparklines per agent. |
-| `/analytics` | Token usage trends, daily and weekly rollups, top issues by cost, per-model breakdown. |
+| `/issues` | Searchable list with multi-state filters and sort options. |
+| `/agents` | Live cockpit: worker slots, queue depth, real-time log tail, token totals. |
+| `/analytics` | Token usage trends, daily and weekly rollups, top issues by tokens, per-model breakdown. |
 | `/settings` | General, Workflow pipeline config, Notifications, Providers, Hotkeys reference. |
 
-The **Issue Detail Drawer** shows the full plan (phases and steps), all execution sessions, the workspace diff, and a per-phase token breakdown — Plan / Execute / Review — with input and output counts per model.
+The **Issue Detail Drawer** shows the full plan (phases and steps), the workspace diff, and a per-phase token breakdown — Plan / Execute / Review — with input and output counts per model.
 
 <div align="center">
 <img src="docs/ss-04.webp" alt="Agents cockpit" width="720" />
@@ -200,7 +200,7 @@ Dictate issue titles and descriptions by voice. Click the microphone button next
 
 ### PWA
 
-Install as a desktop app. Works offline. Desktop notifications when issues change state. Service worker with stale-while-revalidate caching.
+Install as a desktop app. Offline app shell with update detection banner. Desktop notifications when issues change state (requires browser tab open). Service worker caches shell and static assets.
 
 ---
 

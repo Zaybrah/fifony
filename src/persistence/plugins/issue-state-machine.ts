@@ -18,13 +18,14 @@ export function setFsmEventEmitter(emitter: FsmEventEmitter | null): void {
   fsmEventEmitter = emitter;
 }
 
-/** Auto-revert a test squash applied to TARGET_ROOT if issue.testApplied is true. */
+/** Auto-revert a test squash applied to TARGET_ROOT if issue.testApplied is true.
+ *  Safe: uses reset HEAD + checkout instead of reset --hard + clean -fd to preserve untracked files. */
 function autoRevertTestSquash(issue: IssueEntry): void {
   if (!issue.testApplied) return;
   try {
-    execSync("git reset --hard HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
-    execSync("git clean -fd", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
-    logger.info({ issueId: issue.id }, "[FSM] Auto-reverted test squash from TARGET_ROOT");
+    execSync("git reset HEAD", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+    execSync("git checkout -- .", { cwd: TARGET_ROOT, stdio: "pipe", timeout: 15_000 });
+    logger.info({ issueId: issue.id }, "[FSM] Auto-reverted test squash from TARGET_ROOT (untracked files preserved)");
   } catch (err) {
     logger.warn({ err: String(err), issueId: issue.id }, "[FSM] Failed to auto-revert test squash");
   }

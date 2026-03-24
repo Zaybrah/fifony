@@ -117,12 +117,13 @@ export async function mergeWorkspaceCommand(
     issue.testApplied = false;
     result = { copied: [], deleted: [], skipped: [], conflicts: [] };
   } else {
-    // Clear residual squash from index (safety)
+    // Clear residual squash from index (safety — unstage without destroying untracked files)
     try {
       const indexStatus = execSync("git diff --cached --name-only", { cwd: TARGET_ROOT, encoding: "utf8", stdio: "pipe" }).trim();
       const wtStatus = execSync("git diff --name-only", { cwd: TARGET_ROOT, encoding: "utf8", stdio: "pipe" }).trim();
       if (indexStatus && !wtStatus) {
-        execSync("git reset --hard HEAD", { cwd: TARGET_ROOT, stdio: "pipe" });
+        execSync("git reset HEAD", { cwd: TARGET_ROOT, stdio: "pipe" });
+        execSync("git checkout -- .", { cwd: TARGET_ROOT, stdio: "pipe" });
         logger.info({ issueId: issue.id }, "[Command] Cleared residual squash from index before merge");
       }
     } catch { /* non-critical */ }
