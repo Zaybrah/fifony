@@ -116,7 +116,7 @@ export async function resolvePlanStageConfig(config: RuntimeConfig): Promise<Pla
 // ── Shared: subprocess runner ─────────────────────────────────────────────────
 
 const PLAN_TIMEOUT_MS = 1_800_000;   // 30 minutes
-const PLAN_STALE_OUTPUT_MS = 300_000; // 5 minutes without output growth
+const PLAN_STALE_OUTPUT_MS = 1_800_000; // 30 minutes without output growth
 
 export async function runPlanningProcess(options: {
   command: string;

@@ -15,7 +15,7 @@ const HOOK_RUNTIME_CONFIG: RuntimeConfig = {
   pollIntervalMs: 0,
   workerConcurrency: 1,
   maxConcurrentByState: {},
-  commandTimeoutMs: 300_000,
+  commandTimeoutMs: 1_800_000,
   maxAttemptsDefault: 1,
   maxTurns: 1,
   retryDelayMs: 0,
@@ -132,7 +132,7 @@ export async function runCommandWithTimeout(
     child.stdout?.on("data", onChunk);
     child.stderr?.on("data", onChunk);
 
-    const AGENT_STALE_OUTPUT_MS = 300_000; // 5 minutes without output growth → stuck
+    const AGENT_STALE_OUTPUT_MS = 1_800_000; // 30 minutes without output growth → stuck
 
     const timer = setTimeout(() => {
       timedOut = true;
