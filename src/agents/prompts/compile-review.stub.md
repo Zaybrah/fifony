@@ -3,6 +3,14 @@ Review the work done for {{issueIdentifier}}.
 Title: {{title}}
 Description: {{description}}
 Workspace: {{workspacePath}}
+{{#if images.length}}
+
+## Visual Evidence (screenshots attached to this issue)
+{{#each images}}
+- {{this}}
+{{/each}}
+Compare the implementation against these screenshots if they show expected behavior or bugs.
+{{/if}}
 
 {{#if planPrompt}}
 # Original Execution Plan

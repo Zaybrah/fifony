@@ -37,12 +37,14 @@ export async function buildRefinePrompt(
   description: string,
   currentPlan: IssuePlan,
   feedback: string,
+  images?: string[],
 ): Promise<string> {
   return renderPrompt("issue-planner-refine", {
     title,
     description: description || "(none provided)",
     currentPlan: JSON.stringify(currentPlan, null, 2),
     feedback,
+    images: images?.length ? images : undefined,
   });
 }
 

@@ -3,6 +3,13 @@ You are a senior technical execution planner refining an existing plan based on 
 ## Original Issue
 Title: {{title}}
 Description: {{description}}
+{{#if images}}
+
+## Visual Evidence
+{{#each images}}
+- {{this}}
+{{/each}}
+{{/if}}
 
 ## Current Plan (JSON)
 ```json
