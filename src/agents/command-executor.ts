@@ -166,14 +166,24 @@ export async function runCommandWithTimeout(
 
   // ── Fase 2: PTY Daemon path (non-Docker, daemon script available) ──────────
   if (!config.dockerExecution && DAEMON_SCRIPT) {
+    const socketPath = join(workspacePath, "agent.sock");
+
+    // If a live daemon is already running (e.g. fifony restarted mid-execution),
+    // reattach to it directly — do not spawn a new daemon or wipe the live log.
+    if (existsSync(socketPath)) {
+      const { isDaemonAlive } = await import("./pid-manager.ts");
+      if (isDaemonAlive(workspacePath)) {
+        logger.info({ issueId: issue.id }, "[Agent] Live PTY daemon detected — reattaching to existing session");
+        return attachToDaemon(socketPath, workspacePath, issue, config, started, outputFile, resultFile);
+      }
+      // Daemon is dead — remove the stale socket before spawning fresh
+      try { rmSync(socketPath, { force: true }); } catch {}
+    }
+
     if (resultFile && extraEnv.FIFONY_PRESERVE_RESULT_FILE !== "1") {
       rmSync(resultFile, { force: true });
     }
     writeFileSync(liveLogFile, "", "utf8");
-
-    const socketPath = join(workspacePath, "agent.sock");
-    // Remove stale socket from previous run
-    try { rmSync(socketPath, { force: true }); } catch {}
 
     const daemonArgs = JSON.stringify({
       command: effectiveCommand,

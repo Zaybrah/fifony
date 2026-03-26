@@ -53,10 +53,14 @@ export { runPlanPhase as runPlanningJob, runExecutePhase, runReviewPhase, canDis
 // ── Public functions consumed by queue-workers.ts / api-server.ts ────────
 
 import type { IssueEntry } from "../types.ts";
-import { isAgentStillRunning } from "./pid-manager.ts";
+import { isAgentStillRunning, isDaemonAlive } from "./pid-manager.ts";
 
 export { isAgentStillRunning };
 
 export function issueHasResumableSession(issue: IssueEntry): boolean {
-  return Boolean(issue.workspacePath) && issue.state === "Running";
+  if (!issue.workspacePath || issue.state !== "Running") return false;
+  // Only treat as resumable if the daemon or the bare process is actually alive.
+  // An issue with a workspace path but a dead process is NOT resumable — it
+  // should be caught by the stale check rather than bypassed.
+  return isDaemonAlive(issue.workspacePath) || isAgentStillRunning(issue).alive;
 }
