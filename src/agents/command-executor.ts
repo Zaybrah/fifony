@@ -1,17 +1,61 @@
 import {
   appendFileSync,
+  existsSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { env } from "node:process";
+import { env, execPath } from "node:process";
 import { spawn } from "node:child_process";
+import { createConnection } from "node:net";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import type { IssueEntry, RuntimeConfig } from "../types.ts";
 import { appendFileTail } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
 import { normalizeAgentProvider } from "./providers.ts";
 import { TARGET_ROOT } from "../concerns/constants.ts";
 import { translatePaths, buildDockerRunCommand } from "./docker-runner.ts";
+
+type NodePtyModule = typeof import("node-pty");
+
+// ── Daemon script resolution ──────────────────────────────────────────────────
+
+interface DaemonScript {
+  command: string;
+  args: string[];
+}
+
+function resolveDaemonScript(): DaemonScript | null {
+  const pkgRoot = process.env.FIFONY_PKG_ROOT;
+  if (!pkgRoot) return null;
+
+  // Prefer compiled daemon (production)
+  const compiled = join(pkgRoot, "dist", "agent", "pty-daemon.js");
+  if (existsSync(compiled)) {
+    return { command: execPath, args: [compiled] };
+  }
+
+  // Fall back to tsx source (dev mode)
+  const source = join(pkgRoot, "src", "agents", "pty-daemon.ts");
+  if (existsSync(source)) {
+    try {
+      const require = createRequire(fileURLToPath(import.meta.url));
+      const tsxCli = require.resolve("tsx/cli") as string;
+      return { command: execPath, args: [tsxCli, source] };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+// Resolved once at module load — stable for the lifetime of the process
+const DAEMON_SCRIPT = resolveDaemonScript();
+
+// ── HOOK_RUNTIME_CONFIG ───────────────────────────────────────────────────────
 
 const HOOK_RUNTIME_CONFIG: RuntimeConfig = {
   pollIntervalMs: 0,
@@ -37,6 +81,20 @@ const HOOK_RUNTIME_CONFIG: RuntimeConfig = {
   beforeRemoveHook: "",
 };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Wait for a Unix socket file to appear, up to timeoutMs. */
+async function waitForSocket(socketPath: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(socketPath)) return true;
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+  return false;
+}
+
+// ── Main execution function ───────────────────────────────────────────────────
+
 export async function runCommandWithTimeout(
   command: string,
   workspacePath: string,
@@ -46,60 +104,229 @@ export async function runCommandWithTimeout(
   extraEnv: Record<string, string> = {},
   outputFile?: string,
 ): Promise<{ success: boolean; code: number | null; output: string }> {
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const resultFile = extraEnv.FIFONY_RESULT_FILE;
+  const started = Date.now();
+  const resultFile = extraEnv.FIFONY_RESULT_FILE;
+
+  // Write all FIFONY_* vars to an env file and source it in the command.
+  // This avoids E2BIG: child inherits process.env naturally (no ...env spread),
+  // and our custom vars are loaded from a file instead of argv/env.
+  const allVars: Record<string, string> = {
+    FIFONY_ISSUE_ID: issue.id,
+    FIFONY_ISSUE_IDENTIFIER: issue.identifier,
+    FIFONY_ISSUE_TITLE: issue.title,
+    FIFONY_WORKSPACE_PATH: issue.worktreePath ?? workspacePath,
+    FIFONY_PROMPT_FILE: promptFile,
+  };
+  for (const [key, value] of Object.entries(extraEnv)) {
+    if (value.length > 4000) {
+      const valFile = join(workspacePath, `${key.toLowerCase()}.txt`);
+      writeFileSync(valFile, value, "utf8");
+      allVars[`${key}_FILE`] = valFile;
+    } else {
+      allVars[key] = value;
+    }
+  }
+
+  // Docker mode: translate host paths to container paths in all env vars
+  if (config.dockerExecution) {
+    for (const key of Object.keys(allVars)) {
+      allVars[key] = translatePaths(allVars[key], workspacePath);
+    }
+  }
+
+  const envFilePath = join(workspacePath, ".env.sh");
+  const envFileLines = Object.entries(allVars)
+    .map(([k, v]) => `export ${k}='${String(v).replace(/'/g, "'\\''")}'`)
+    .join("\n");
+  writeFileSync(envFilePath, envFileLines, "utf8");
+
+  let effectiveCommand: string;
+  if (config.dockerExecution && config.dockerImage) {
+    const translatedCmd = translatePaths(command, workspacePath);
+    effectiveCommand = buildDockerRunCommand(
+      translatedCmd,
+      workspacePath,
+      issue.worktreePath,
+      TARGET_ROOT,
+      config.dockerImage,
+    );
+  } else {
+    effectiveCommand = `. "${envFilePath}" && ${command}`;
+  }
+
+  const liveLogFile = join(workspacePath, "live-output.log");
+
+  // Write header to persistent stdout file if requested
+  if (outputFile) {
+    try {
+      const header = `# fifony stdout capture\n# turn: ${extraEnv.FIFONY_TURN_INDEX ?? "?"}\n# provider: ${extraEnv.FIFONY_AGENT_PROVIDER ?? "?"}\n# role: ${extraEnv.FIFONY_AGENT_ROLE ?? "?"}\n# timestamp: ${new Date().toISOString()}\n---\n`;
+      writeFileSync(outputFile, header, "utf8");
+    } catch {}
+  }
+
+  // ── Fase 2: PTY Daemon path (non-Docker, daemon script available) ──────────
+  if (!config.dockerExecution && DAEMON_SCRIPT) {
     if (resultFile && extraEnv.FIFONY_PRESERVE_RESULT_FILE !== "1") {
       rmSync(resultFile, { force: true });
     }
+    writeFileSync(liveLogFile, "", "utf8");
 
-    // Write all FIFONY_* vars to an env file and source it in the command.
-    // This avoids E2BIG: child inherits process.env naturally (no ...env spread),
-    // and our custom vars are loaded from a file instead of argv/env.
-    const allVars: Record<string, string> = {
-      FIFONY_ISSUE_ID: issue.id,
-      FIFONY_ISSUE_IDENTIFIER: issue.identifier,
-      FIFONY_ISSUE_TITLE: issue.title,
-      FIFONY_WORKSPACE_PATH: issue.worktreePath ?? workspacePath,
-      FIFONY_PROMPT_FILE: promptFile,
-    };
-    for (const [key, value] of Object.entries(extraEnv)) {
-      if (value.length > 4000) {
-        const valFile = join(workspacePath, `${key.toLowerCase()}.txt`);
-        writeFileSync(valFile, value, "utf8");
-        allVars[`${key}_FILE`] = valFile;
-      } else {
-        allVars[key] = value;
-      }
-    }
+    const socketPath = join(workspacePath, "agent.sock");
+    // Remove stale socket from previous run
+    try { rmSync(socketPath, { force: true }); } catch {}
 
-    // Docker mode: translate host paths to container paths in all env vars
-    if (config.dockerExecution) {
-      for (const key of Object.keys(allVars)) {
-        allVars[key] = translatePaths(allVars[key], workspacePath);
-      }
-    }
+    const daemonArgs = JSON.stringify({
+      command: effectiveCommand,
+      workspacePath,
+      issueId: issue.id,
+      startedAt: new Date(started).toISOString(),
+      commandSlice: command.slice(0, 200),
+    });
 
-    const envFilePath = join(workspacePath, ".env.sh");
-    const envFileLines = Object.entries(allVars)
-      .map(([k, v]) => `export ${k}='${String(v).replace(/'/g, "'\\''")}'`)
-      .join("\n");
-    writeFileSync(envFilePath, envFileLines, "utf8");
+    const daemonProcess = spawn(DAEMON_SCRIPT.command, [...DAEMON_SCRIPT.args, daemonArgs], {
+      detached: true,
+      stdio: "ignore",
+      cwd: workspacePath,
+    });
+    daemonProcess.unref();
 
-    let effectiveCommand: string;
-    if (config.dockerExecution && config.dockerImage) {
-      const translatedCmd = translatePaths(command, workspacePath);
-      effectiveCommand = buildDockerRunCommand(
-        translatedCmd,
-        workspacePath,
-        issue.worktreePath,
-        TARGET_ROOT,
-        config.dockerImage,
-      );
+    logger.debug({ issueId: issue.id, daemonPid: daemonProcess.pid, command: command.slice(0, 120), cwd: workspacePath }, "[Agent] PTY daemon spawned");
+
+    // Wait for the socket to be ready (daemon creates it before PTY spawn)
+    const socketReady = await waitForSocket(socketPath, 10_000);
+    if (!socketReady) {
+      logger.warn({ issueId: issue.id }, "[Agent] PTY daemon socket not ready — falling back to inline PTY");
+      // Fall through to Fase 1 below
     } else {
-      effectiveCommand = `. "${envFilePath}" && ${command}`;
+      return attachToDaemon(socketPath, workspacePath, issue, config, started, outputFile, resultFile);
     }
+  }
 
+  // ── Fase 1: Inline PTY path (non-Docker, node-pty available, no daemon) ───
+  if (!config.dockerExecution) {
+    let nodePty: NodePtyModule | null = null;
+    try {
+      const mod = await import("node-pty");
+      if (typeof mod.spawn === "function") nodePty = mod;
+    } catch {}
+
+    if (nodePty) {
+      if (resultFile && extraEnv.FIFONY_PRESERVE_RESULT_FILE !== "1") {
+        rmSync(resultFile, { force: true });
+      }
+      writeFileSync(liveLogFile, "", "utf8");
+
+      return new Promise((resolve) => {
+        const ptyProcess = (nodePty as NodePtyModule).spawn("sh", ["-c", effectiveCommand], {
+          name: "xterm-256color",
+          cols: 220,
+          rows: 50,
+          cwd: workspacePath,
+          env: process.env as Record<string, string>,
+        });
+
+        const pid = ptyProcess.pid;
+        const pidFile = join(workspacePath, "agent.pid");
+        if (pid) {
+          logger.debug({ issueId: issue.id, pid, command: command.slice(0, 120), cwd: workspacePath }, "[Agent] Process spawned (PTY)");
+          writeFileSync(pidFile, JSON.stringify({
+            pid,
+            issueId: issue.id,
+            startedAt: new Date(started).toISOString(),
+            command: command.slice(0, 200),
+          }), "utf8");
+        }
+
+        let output = "";
+        let timedOut = false;
+        let outputBytes = 0;
+        let outputHeader = "";
+
+        const onChunk = (chunk: Buffer | string) => {
+          const text = String(chunk);
+          if (outputHeader.length < 2000) outputHeader = (outputHeader + text).slice(0, 2000);
+          output = appendFileTail(output, text, config.logLinesTail);
+          outputBytes += text.length;
+          try { appendFileSync(liveLogFile, text); } catch {}
+          if (outputFile) { try { appendFileSync(outputFile, text); } catch {} }
+          issue.commandOutputTail = output;
+        };
+
+        ptyProcess.onData(onChunk);
+
+        const AGENT_STALE_OUTPUT_MS = 1_800_000;
+        const killPty = () => { try { ptyProcess.kill(); } catch {} };
+
+        const timer = setTimeout(() => {
+          timedOut = true;
+          killPty();
+        }, config.commandTimeoutMs);
+
+        let lastWatchdogBytes = 0;
+        let lastOutputGrowthAt = Date.now();
+        let watchdogKilled = false;
+        const watchdog = setInterval(() => {
+          if (pid) {
+            try { process.kill(pid, 0); } catch {
+              clearInterval(watchdog);
+              clearTimeout(timer);
+              watchdogKilled = true;
+              try { rmSync(pidFile, { force: true }); } catch {}
+              resolve({ success: false, code: null, output: appendFileTail(output, `\nAgent process died unexpectedly (PID ${pid}).`, config.logLinesTail) });
+              return;
+            }
+          }
+          if (outputBytes > lastWatchdogBytes) {
+            lastWatchdogBytes = outputBytes;
+            lastOutputGrowthAt = Date.now();
+          } else if (Date.now() - lastOutputGrowthAt > AGENT_STALE_OUTPUT_MS) {
+            clearInterval(watchdog);
+            clearTimeout(timer);
+            timedOut = true;
+            watchdogKilled = true;
+            killPty();
+            try { rmSync(pidFile, { force: true }); } catch {}
+            resolve({ success: false, code: null, output: appendFileTail(output, `\nAgent process stuck — no output for ${Math.round(AGENT_STALE_OUTPUT_MS / 60_000)} minutes.`, config.logLinesTail) });
+          }
+        }, 30_000);
+
+        const cleanup = () => {
+          clearInterval(watchdog);
+          try { rmSync(pidFile, { force: true }); } catch {}
+        };
+
+        ptyProcess.onExit(({ exitCode }) => {
+          clearTimeout(timer);
+          cleanup();
+          if (watchdogKilled) return;
+          const buildOutput = (suffix: string) => {
+            const tail = appendFileTail(output, suffix, config.logLinesTail);
+            return outputHeader.length > 0 && !tail.startsWith(outputHeader.slice(0, 80))
+              ? `${outputHeader}\n${tail}`
+              : tail;
+          };
+          if (timedOut) {
+            resolve({ success: false, code: null, output: buildOutput(`\nExecution timeout after ${config.commandTimeoutMs}ms.`) });
+            return;
+          }
+          const duration = Math.max(0, Date.now() - started);
+          if (exitCode === 0) {
+            resolve({ success: true, code: exitCode, output: buildOutput(`\nExecution succeeded in ${duration}ms.`) });
+            return;
+          }
+          resolve({ success: false, code: exitCode ?? null, output: buildOutput(`\nCommand exit code ${exitCode ?? "unknown"} after ${duration}ms.`) });
+        });
+      });
+    }
+  }
+
+  // ── Original spawn path (Docker or PTY unavailable) ───────────────────────
+  if (resultFile && extraEnv.FIFONY_PRESERVE_RESULT_FILE !== "1") {
+    rmSync(resultFile, { force: true });
+  }
+  writeFileSync(liveLogFile, "", "utf8");
+
+  return new Promise((resolve) => {
     const child = spawn(effectiveCommand, {
       shell: true,
       cwd: workspacePath,
@@ -131,16 +358,6 @@ export async function runCommandWithTimeout(
     let timedOut = false;
     let outputBytes = 0;
     let outputHeader = ""; // First 2KB — always contains provider header (model name, etc.)
-    const liveLogFile = join(workspacePath, "live-output.log");
-    writeFileSync(liveLogFile, "", "utf8");
-
-    // Write header to persistent stdout file if requested
-    if (outputFile) {
-      try {
-        const header = `# fifony stdout capture\n# turn: ${extraEnv.FIFONY_TURN_INDEX ?? "?"}\n# provider: ${extraEnv.FIFONY_AGENT_PROVIDER ?? "?"}\n# role: ${extraEnv.FIFONY_AGENT_ROLE ?? "?"}\n# timestamp: ${new Date().toISOString()}\n---\n`;
-        writeFileSync(outputFile, header, "utf8");
-      } catch {}
-    }
 
     const onChunk = (chunk: Buffer | string) => {
       const text = String(chunk);
@@ -233,6 +450,141 @@ export async function runCommandWithTimeout(
     });
   });
 }
+
+// ── Daemon socket attachment ──────────────────────────────────────────────────
+
+/**
+ * Connect to a running PTY daemon via its Unix socket and monitor it until exit.
+ * Used both by runCommandWithTimeout (Fase 2 path) and by recoverOrphans reattach.
+ */
+export function attachToDaemon(
+  socketPath: string,
+  workspacePath: string,
+  issue: IssueEntry,
+  config: RuntimeConfig,
+  started: number,
+  outputFile?: string,
+  resultFile?: string,
+): Promise<{ success: boolean; code: number | null; output: string }> {
+  return new Promise((resolve) => {
+    const liveLogFile = join(workspacePath, "live-output.log");
+    const daemonExitFile = join(workspacePath, "daemon.exit.json");
+
+    let output = "";
+    let outputHeader = "";
+    let outputBytes = 0;
+    let timedOut = false;
+    let resolved = false;
+    let sockBuf = "";
+
+    const onChunk = (text: string) => {
+      if (outputHeader.length < 2000) outputHeader = (outputHeader + text).slice(0, 2000);
+      output = appendFileTail(output, text, config.logLinesTail);
+      outputBytes += text.length;
+      // live-output.log is written by the daemon directly — skip here to avoid double writes
+      if (outputFile) { try { appendFileSync(outputFile, text); } catch {} }
+      issue.commandOutputTail = output;
+    };
+
+    const buildOutput = (suffix: string) => {
+      const tail = appendFileTail(output, suffix, config.logLinesTail);
+      return outputHeader.length > 0 && !tail.startsWith(outputHeader.slice(0, 80))
+        ? `${outputHeader}\n${tail}`
+        : tail;
+    };
+
+    const finish = (success: boolean, code: number | null, suffix: string) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      clearInterval(watchdog);
+      sock.destroy();
+      if (resultFile) { try { rmSync(daemonExitFile, { force: true }); } catch {} }
+      resolve({ success, code, output: buildOutput(suffix) });
+    };
+
+    const sock = createConnection(socketPath);
+
+    sock.on("connect", () => {
+      // Request the current output tail in case we connected after some output
+      sock.write(JSON.stringify({ t: "tail" }) + "\n");
+    });
+
+    sock.on("data", (chunk) => {
+      sockBuf += chunk.toString();
+      const lines = sockBuf.split("\n");
+      sockBuf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line) as { t: string; v?: string; c?: number | null; s?: boolean };
+          if (msg.t === "d" && typeof msg.v === "string") {
+            onChunk(msg.v);
+          } else if (msg.t === "tail" && typeof msg.v === "string") {
+            // Prefill output with the current tail (avoid requesting full log)
+            output = msg.v.slice(-config.logLinesTail * 4);
+            if (outputHeader.length === 0) outputHeader = output.slice(0, 2000);
+            outputBytes = output.length;
+            issue.commandOutputTail = output;
+          } else if (msg.t === "x") {
+            const exitCode = msg.c ?? null;
+            const success = exitCode === 0;
+            const duration = Math.max(0, Date.now() - started);
+            const suffix = success
+              ? `\nExecution succeeded in ${duration}ms.`
+              : `\nCommand exit code ${exitCode ?? "unknown"} after ${duration}ms.`;
+            finish(success, exitCode, suffix);
+          }
+        } catch {}
+      }
+    });
+
+    sock.on("error", (err) => {
+      // Socket error — try to recover from daemon.exit.json
+      logger.warn({ issueId: issue.id, err: String(err) }, "[Agent] Daemon socket error");
+      tryRecoverFromExitFile();
+    });
+
+    sock.on("close", () => {
+      if (!resolved) tryRecoverFromExitFile();
+    });
+
+    const tryRecoverFromExitFile = () => {
+      if (resolved) return;
+      try {
+        const raw = readFileSync(daemonExitFile, "utf8");
+        const rec = JSON.parse(raw) as { success: boolean; code: number | null };
+        const duration = Math.max(0, Date.now() - started);
+        finish(rec.success, rec.code, `\nRecovered from daemon exit record after ${duration}ms.`);
+      } catch {
+        finish(false, null, "\nDaemon socket closed unexpectedly and no exit record found.");
+      }
+    };
+
+    const AGENT_STALE_OUTPUT_MS = 1_800_000;
+    let lastWatchdogBytes = 0;
+    let lastOutputGrowthAt = Date.now();
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      sock.write(JSON.stringify({ t: "cancel" }) + "\n");
+      finish(false, null, `\nExecution timeout after ${config.commandTimeoutMs}ms.`);
+    }, config.commandTimeoutMs);
+
+    const watchdog = setInterval(() => {
+      if (outputBytes > lastWatchdogBytes) {
+        lastWatchdogBytes = outputBytes;
+        lastOutputGrowthAt = Date.now();
+      } else if (Date.now() - lastOutputGrowthAt > AGENT_STALE_OUTPUT_MS) {
+        sock.write(JSON.stringify({ t: "cancel" }) + "\n");
+        finish(false, null, `\nAgent process stuck — no output for ${Math.round(AGENT_STALE_OUTPUT_MS / 60_000)} minutes.`);
+      }
+      void timedOut; // suppress unused warning
+    }, 30_000);
+  });
+}
+
+// ── Hook runner ───────────────────────────────────────────────────────────────
 
 export async function runHook(
   command: string,

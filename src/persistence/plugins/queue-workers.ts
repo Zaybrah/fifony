@@ -237,17 +237,19 @@ export async function recoverState(): Promise<void> {
   if (!runtimeState) return;
 
   // 1. Reconcile FSM — persisted FSM state wins over in-memory
-  for (const issue of runtimeState.issues) {
-    const result = await syncIssueStateFromFsm(issue, {
-      reason: "Recovering queue state from FSM source of truth.",
-    });
-    if (result.changed) {
-      logger.warn(
-        { issueId: issue.id, memoryState: result.previousState, fsmState: result.currentState },
-        "[Queue] Reconciling desync — FSM is source of truth",
-      );
-    }
-  }
+  await Promise.all(
+    runtimeState.issues.map(async (issue) => {
+      const result = await syncIssueStateFromFsm(issue, {
+        reason: "Recovering queue state from FSM source of truth.",
+      });
+      if (result.changed) {
+        logger.warn(
+          { issueId: issue.id, memoryState: result.previousState, fsmState: result.currentState },
+          "[Queue] Reconciling desync — FSM is source of truth",
+        );
+      }
+    }),
+  );
 
   // 2. Enqueue all in-progress issues
   for (const issue of runtimeState.issues) {
@@ -280,13 +282,36 @@ export async function recoverState(): Promise<void> {
  */
 export async function recoverOrphans(): Promise<void> {
   if (!runtimeState) return;
-  const { isAgentStillRunning, cleanStalePidFile } = await import("../../agents/agent.ts");
+  const { isAgentStillRunning, cleanStalePidFile, isDaemonAlive, isDaemonSocketReady } = await import("../../agents/agent.ts");
   const { addEvent } = await import("../../domains/issues.ts");
 
   const candidates = runtimeState.issues.filter((i) => i.state === "Running" || i.state === "Queued");
   logger.debug({ count: candidates.length }, "[Queue] Checking for orphaned agent processes");
 
   for (const issue of candidates) {
+    const wp = issue.workspacePath;
+
+    // Check if the PTY daemon is alive — daemon survives fifony crashes and
+    // keeps the agent running + writing to live-output.log
+    if (wp && isDaemonAlive(wp) && isDaemonSocketReady(wp)) {
+      logger.info({ issueId: issue.id }, "[Queue] PTY daemon still alive — reattaching");
+      if (issue.state !== "Running") {
+        try {
+          await transitionIssue(issue, "RUN", { issue, note: "PTY daemon still alive on boot — reattaching." });
+        } catch {
+          syncIssueStateInMemory(issue, "Running", {
+            reason: "PTY daemon still alive; fallback sync to Running after transition failure.",
+          });
+        }
+      }
+      addEvent(runtimeState, issue.id, "info", "PTY daemon still alive — reattached and monitoring.");
+      // Re-enqueue as execute: the dispatcher will call runExecutePhase which
+      // will spawn a new runCommandWithTimeout. Since the daemon is alive,
+      // runCommandWithTimeout connects to the existing socket instead of spawning.
+      await enqueue(issue, "execute");
+      continue;
+    }
+
     const { alive, pid } = isAgentStillRunning(issue);
     if (alive && pid) {
       logger.info({ issueId: issue.id, pid: pid.pid }, "[Queue] Agent still alive — keeping Running");
@@ -301,7 +326,7 @@ export async function recoverOrphans(): Promise<void> {
       }
       addEvent(runtimeState, issue.id, "info", `Orphaned agent (PID ${pid.pid}) still alive — tracking resumed.`);
     } else {
-      if (issue.workspacePath) cleanStalePidFile(issue.workspacePath);
+      if (wp) cleanStalePidFile(wp);
       if (issue.state === "Running") {
         issue.lastError = `Agent process crashed (PID ${pid?.pid}) — not found on boot.`;
         issue.lastFailedPhase = "crash";

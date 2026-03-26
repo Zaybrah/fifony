@@ -18,8 +18,8 @@
 export { addTokenUsage, readAgentDirective, extractTokenUsage, tryParseJsonOutput } from "./directive-parser.ts";
 
 // ── Re-exports from pid-manager ───────────────────────────────────────────
-export { readAgentPid, isProcessAlive, cleanStalePidFile } from "./pid-manager.ts";
-export type { AgentPidInfo } from "./pid-manager.ts";
+export { readAgentPid, isProcessAlive, cleanStalePidFile, isDaemonAlive, isDaemonSocketReady, readDaemonPid, readDaemonExit } from "./pid-manager.ts";
+export type { AgentPidInfo, DaemonExitRecord } from "./pid-manager.ts";
 
 // ── Re-exports from workspace-diff ────────────────────────────────────────
 export { computeDiffStats, inferChangedWorkspacePaths, parseDiffStats } from "../domains/workspace.ts";

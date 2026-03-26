@@ -9,6 +9,9 @@ const __dirname = dirname(__filename);
 const packageRoot = resolve(__dirname, "..");
 const workspaceRoot = env.FIFONY_WORKSPACE_ROOT ?? cwd();
 
+// Make the package root available to all child processes (used by pty-daemon path resolution)
+process.env.FIFONY_PKG_ROOT = packageRoot;
+
 const distCli = resolve(packageRoot, "dist", "cli.js");
 const srcCli = resolve(packageRoot, "src", "cli.ts");
 const forceSource = argv.includes("--dev") || env.NODE_ENV === "development";

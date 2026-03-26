@@ -5,6 +5,7 @@ export default defineConfig({
     cli: "src/cli.ts",
     "agent/run-local": "src/boot.ts",
     "agent/cli-wrapper": "src/agents/cli-wrapper.ts",
+    "agent/pty-daemon": "src/agents/pty-daemon.ts",
     "mcp/server": "src/mcp/server.ts",
   },
   format: "esm",
