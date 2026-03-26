@@ -3,8 +3,6 @@ import { api } from "../api.js";
 
 /**
  * Fetches all service statuses and polls every 3s.
- * Simple polling is more predictable than WS+fallback and avoids
- * the race condition where WS connects but no refresh is triggered.
  */
 export function useServices() {
   const [services, setServices] = useState([]);
@@ -21,12 +19,10 @@ export function useServices() {
     }
   }, []);
 
-  // Initial fetch
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
-  // Poll every 3s — endpoint is cheap (reads PID files only)
   useEffect(() => {
     const id = setInterval(fetchAll, 3_000);
     return () => clearInterval(id);
@@ -36,9 +32,10 @@ export function useServices() {
 }
 
 /**
- * Polling-based log viewer for a single service.
- * Fetches the full tail on mount, then polls for new bytes every 2s.
- * Returns { log, connected } — connected = true once first fetch succeeds.
+ * SSE-based log viewer for a single service.
+ * Connects to the SSE stream endpoint for real-time log delivery.
+ * Falls back to polling if SSE is not supported or fails.
+ * Returns { log, connected } — connected = true once first data arrives.
  */
 export function useServiceLog(id, enabled = false) {
   const [log, setLog] = useState("");
@@ -54,42 +51,84 @@ export function useServiceLog(id, enabled = false) {
     }
 
     let alive = true;
+    let es = null;
+    let pollIntervalId = null;
+    let usingPoll = false;
 
-    const fetchLog = async () => {
-      if (!alive) return;
-      try {
-        const after = sizeRef.current;
-        const res = after > 0
-          ? await api.get(`/services/${id}/log?after=${after}`)
-          : await api.get(`/services/${id}/log`);
+    // ── SSE path ──────────────────────────────────────────────────────────────
+
+    function startPoll() {
+      usingPoll = true;
+      sizeRef.current = 0;
+
+      const fetchLog = async () => {
         if (!alive) return;
+        try {
+          const after = sizeRef.current;
+          const res = after > 0
+            ? await api.get(`/services/${id}/log?after=${after}`)
+            : await api.get(`/services/${id}/log`);
+          if (!alive) return;
 
-        if (after > 0 && res.text !== undefined) {
-          // Incremental: append new bytes
-          if (res.text) setLog((prev) => prev + res.text);
-        } else if (res.logTail !== undefined) {
-          // Full tail (first load or re-init)
-          setLog(res.logTail ?? "");
-          if (res.truncated) {
-            setLog((prev) => `[... ${Math.round((res.logSize - 16384) / 1024)}KB truncated ...]\n${prev}`);
+          if (after > 0 && res.text !== undefined) {
+            if (res.text) setLog((prev) => prev + res.text);
+          } else if (res.logTail !== undefined) {
+            setLog(res.logTail ?? "");
           }
+
+          if (res.logSize !== undefined) sizeRef.current = res.logSize;
+          setConnected(true);
+        } catch {
+          if (!alive) return;
+          setConnected(false);
         }
+      };
 
-        if (res.logSize !== undefined) sizeRef.current = res.logSize;
-        setConnected(true);
+      fetchLog();
+      pollIntervalId = setInterval(fetchLog, 2_000);
+    }
+
+    function startSSE() {
+      try {
+        es = new EventSource(`/api/services/${encodeURIComponent(id)}/stream`);
+
+        es.onmessage = (event) => {
+          if (!alive) return;
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "init") {
+              setLog(msg.text ?? "");
+              sizeRef.current = msg.size ?? 0;
+              setConnected(true);
+            } else if (msg.type === "chunk") {
+              if (msg.text) setLog((prev) => prev + msg.text);
+              sizeRef.current = msg.size ?? sizeRef.current;
+              setConnected(true);
+            } else if (msg.type === "status") {
+              // service stopped/crashed — stay connected to show final log
+              setConnected(true);
+            }
+          } catch { /* malformed message */ }
+        };
+
+        es.onerror = () => {
+          if (!alive) return;
+          // SSE failed — fall back to polling
+          if (es) { es.close(); es = null; }
+          if (!usingPoll) startPoll();
+        };
       } catch {
-        if (!alive) return;
-        setConnected(false);
+        // EventSource not supported or failed to construct
+        startPoll();
       }
-    };
+    }
 
-    // Fetch immediately, then poll every 2s
-    fetchLog();
-    const intervalId = setInterval(fetchLog, 2_000);
+    startSSE();
 
     return () => {
       alive = false;
-      clearInterval(intervalId);
+      if (es) { es.close(); es = null; }
+      if (pollIntervalId) clearInterval(pollIntervalId);
       setConnected(false);
       sizeRef.current = 0;
     };

@@ -1,11 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
-  Server, Play, Square, Terminal, Circle, Loader2, ChevronUp,
+  Server, Play, Square, Terminal, Circle, Loader2,
+  AlertTriangle, ChevronRight, Folder, Hash,
 } from "lucide-react";
 import { api } from "../api.js";
 import { useServices, useServiceLog } from "../hooks/useServices.js";
 import { formatDuration } from "../utils.js";
+import {
+  DrawerBackdrop,
+  DrawerPanel,
+  DrawerSection,
+  DrawerFieldLabel,
+  DrawerCloseButton,
+} from "../components/DrawerPrimitives.jsx";
 
 export const Route = createFileRoute("/services")({
   component: ServicesPage,
@@ -23,7 +31,7 @@ function UptimeCounter({ startedAt, running }) {
     return () => clearInterval(id);
   }, [running, startedAt]);
   if (!running || !startedAt) return null;
-  return <span className="tabular-nums text-xs opacity-50">{formatDuration(elapsed)}</span>;
+  return <>{formatDuration(elapsed)}</>;
 }
 
 // ── ANSI → HTML ────────────────────────────────────────────────────────────────
@@ -39,7 +47,7 @@ function ansiToHtml(text) {
   let out = "";
   let last = 0;
 
-  const escapeHtml = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const flush = (raw) => {
     if (!raw) return;
@@ -68,7 +76,7 @@ function ansiToHtml(text) {
       else if (c === 23) italic = false;
       else if (c >= 30 && c <= 37) fg = ANSI_FG[c - 30];
       else if (c === 38) {
-        if (codes[i] === 5 && i + 1 < codes.length) { /* 256-color: skip */ i += 2; }
+        if (codes[i] === 5 && i + 1 < codes.length) { i += 2; }
         else if (codes[i] === 2 && i + 3 < codes.length) { fg = `rgb(${codes[i+1]},${codes[i+2]},${codes[i+3]})`; i += 4; }
       }
       else if (c === 39) fg = null;
@@ -80,6 +88,19 @@ function ansiToHtml(text) {
   }
   flush(text.slice(last));
   return out;
+}
+
+// ── State metadata ─────────────────────────────────────────────────────────────
+
+function stateInfo(state) {
+  const map = {
+    running:  { dot: "text-success fill-success", strip: "bg-success", badge: "badge-success",          label: "Running",  spinning: false },
+    starting: { dot: "text-warning fill-warning", strip: "bg-warning", badge: "badge-warning",          label: "Starting", spinning: true  },
+    stopping: { dot: "text-warning fill-warning", strip: "bg-warning/60", badge: "badge-warning",       label: "Stopping", spinning: true  },
+    crashed:  { dot: "text-error fill-error",     strip: "bg-error",   badge: "badge-error",            label: "Crashed",  spinning: false },
+    stopped:  { dot: "opacity-20",                strip: "bg-base-300", badge: "badge-ghost opacity-50", label: "Stopped",  spinning: false },
+  };
+  return map[state] ?? map.stopped;
 }
 
 // ── Log viewer ─────────────────────────────────────────────────────────────────
@@ -103,21 +124,24 @@ function LogViewer({ id, running }) {
   }, []);
 
   return (
-    <div className="flex flex-col rounded-xl border border-base-300 overflow-hidden mt-3">
-      <div className="flex items-center justify-between px-4 py-2 bg-base-200/60 border-b border-base-300 shrink-0">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-center justify-between px-4 py-2 bg-base-200/40 border-t border-b border-base-200 shrink-0">
         <div className="flex items-center gap-2">
-          <Terminal className="size-3.5 opacity-40" />
-          <span className="text-xs font-medium opacity-60">Output</span>
+          <Terminal className="size-3.5 opacity-30" />
+          <span className="text-[10px] font-medium opacity-40 uppercase tracking-widest">Output</span>
         </div>
         <div className="flex items-center gap-2">
           {connected
             ? <span className="flex items-center gap-1.5 text-xs text-success"><Circle className="size-2 fill-success" />live</span>
             : running
-              ? <span className="flex items-center gap-1.5 text-xs opacity-40"><Loader2 className="size-2.5 animate-spin" />connecting</span>
-              : <span className="text-xs opacity-30">idle</span>
+              ? <span className="flex items-center gap-1.5 text-xs opacity-35"><Loader2 className="size-2.5 animate-spin" />connecting</span>
+              : <span className="text-xs opacity-25">idle</span>
           }
           {!autoScroll && (
-            <button className="btn btn-xs btn-ghost opacity-50 hover:opacity-100" onClick={() => { setAutoScroll(true); logRef.current?.scrollTo(0, logRef.current.scrollHeight); }}>
+            <button
+              className="btn btn-xs btn-ghost opacity-40 hover:opacity-80"
+              onClick={() => { setAutoScroll(true); logRef.current?.scrollTo(0, logRef.current.scrollHeight); }}
+            >
               ↓ end
             </button>
           )}
@@ -126,19 +150,25 @@ function LogViewer({ id, running }) {
       <pre
         ref={logRef}
         onScroll={handleScroll}
-        className="overflow-y-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-relaxed bg-base-100"
-        style={{ minHeight: "12rem", maxHeight: "28rem" }}
-        dangerouslySetInnerHTML={{ __html: html || '<span style="opacity:0.3">No output yet. Start the service to see logs here.</span>' }}
+        className="flex-1 overflow-y-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-relaxed bg-base-100 min-h-0"
+        dangerouslySetInnerHTML={{
+          __html: html || '<span style="opacity:0.2">No output yet. Start the service to see logs here.</span>',
+        }}
       />
     </div>
   );
 }
 
-// ── Service card ───────────────────────────────────────────────────────────────
+// ── ServiceDrawerBody ──────────────────────────────────────────────────────────
+// Pure content — works both as an inline desktop pane and inside a mobile overlay.
 
-function ServiceCard({ service, onRefresh }) {
+function ServiceDrawerBody({ service, onClose, onRefresh }) {
   const [busy, setBusy] = useState(false);
-  const [logOpen, setLogOpen] = useState(false);
+
+  const state = service.state ?? (service.running ? "running" : "stopped");
+  const info = stateInfo(state);
+  const canStart = state === "stopped" || state === "crashed";
+  const canStop  = state === "running" || state === "starting";
 
   const handleStart = useCallback(async () => {
     setBusy(true);
@@ -152,156 +182,301 @@ function ServiceCard({ service, onRefresh }) {
     finally { setBusy(false); }
   }, [service.id, onRefresh]);
 
-  const state = service.state ?? (service.running ? "running" : "stopped");
-  const dotColor = {
-    running:  "text-success fill-success",
-    starting: "text-warning fill-warning",
-    stopping: "text-warning fill-warning",
-    crashed:  "text-error fill-error",
-    stopped:  "text-base-content/20 fill-base-content/20",
-  }[state] ?? "text-base-content/20 fill-base-content/20";
-
-  const stateLabel = {
-    running:  <span className="text-success font-medium">Running</span>,
-    starting: <span className="text-warning font-medium flex items-center gap-1"><Loader2 className="size-3 animate-spin" />Starting</span>,
-    stopping: <span className="text-warning opacity-70 flex items-center gap-1"><Loader2 className="size-3 animate-spin" />Stopping</span>,
-    crashed:  <span className="text-error font-medium">Crashed</span>,
-    stopped:  <span className="opacity-30">Stopped</span>,
-  }[state] ?? <span className="opacity-30">Stopped</span>;
-
-  const canStart = state === "stopped" || state === "crashed";
-  const canStop  = state === "running" || state === "starting";
-
   return (
-    <div className="card bg-base-200">
-      <div className="card-body p-4 gap-0">
-        <div className="flex items-center gap-3">
-          <Circle className={`size-2.5 shrink-0 ${dotColor}`} />
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Status strip */}
+      <div className={`h-0.5 w-full shrink-0 ${info.strip} opacity-80`} />
+
+      {/* Header */}
+      <DrawerSection className="pt-4 pb-3">
+        <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <span className="font-semibold text-sm">{service.name}</span>
-              {service.cwd && <span className="text-xs opacity-30 font-mono">{service.cwd}</span>}
-            </div>
-            <div className="font-mono text-xs opacity-40 truncate mt-0.5">{service.command}</div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <div className="flex items-center gap-2 text-xs mr-1">
-              {stateLabel}
-              {service.pid && <span className="opacity-30 tabular-nums">PID {service.pid}</span>}
-              <UptimeCounter startedAt={service.startedAt} running={service.running} />
-              {state === "crashed" && service.crashCount > 0 && (
-                <span className="text-error/60 tabular-nums">{service.crashCount}×</span>
+            <div className="flex items-center gap-2 mb-0.5">
+              <Circle className={`size-2 shrink-0 ${info.dot}`} />
+              <span className={`text-xs font-medium ${state === "running" ? "text-success" : state === "crashed" ? "text-error" : state === "starting" || state === "stopping" ? "text-warning" : "opacity-40"}`}>
+                {info.spinning
+                  ? <span className="flex items-center gap-1.5"><Loader2 className="size-3 animate-spin" />{info.label}</span>
+                  : info.label
+                }
+              </span>
+              {service.pid && state === "running" && (
+                <span className="text-xs opacity-25 font-mono tabular-nums">pid {service.pid}</span>
               )}
             </div>
-            {canStop ? (
-              <button className="btn btn-sm btn-ghost text-error hover:bg-error/10" onClick={handleStop} disabled={busy} title="Stop">
-                {busy ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
-              </button>
-            ) : (
-              <button className="btn btn-sm btn-ghost text-success hover:bg-success/10" onClick={handleStart} disabled={busy || state === "stopping"} title="Start">
-                {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
-              </button>
-            )}
-            <button
-              className={`btn btn-sm btn-ghost ${logOpen ? "opacity-100" : "opacity-40 hover:opacity-100"}`}
-              onClick={() => setLogOpen(v => !v)}
-              title="Toggle log"
-            >
-              {logOpen ? <ChevronUp className="size-4" /> : <Terminal className="size-4" />}
-            </button>
+            <h2 className="text-lg font-bold leading-snug truncate">{service.name}</h2>
           </div>
+          <DrawerCloseButton onClick={onClose} label="Close service panel" />
         </div>
+      </DrawerSection>
 
-        {logOpen && <LogViewer id={service.id} running={service.running} />}
-      </div>
+      {/* Controls */}
+      <DrawerSection>
+        <div className="flex items-center gap-3">
+          {canStop ? (
+            <button className="btn btn-sm btn-error gap-1.5" onClick={handleStop} disabled={busy}>
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Square className="size-3.5" />}
+              Stop
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-success gap-1.5" onClick={handleStart} disabled={busy || state === "stopping"}>
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+              Start
+            </button>
+          )}
+          {service.running && service.startedAt && (
+            <span className="text-xs opacity-40 tabular-nums">
+              up <UptimeCounter startedAt={service.startedAt} running={service.running} />
+            </span>
+          )}
+          {state === "crashed" && service.crashCount > 0 && (
+            <span className="flex items-center gap-1.5 text-xs text-error/60">
+              <AlertTriangle className="size-3" />
+              {service.crashCount} crash{service.crashCount !== 1 ? "es" : ""}
+            </span>
+          )}
+        </div>
+      </DrawerSection>
+
+      {/* Info */}
+      <DrawerSection className="space-y-2.5">
+        <div>
+          <DrawerFieldLabel>Command</DrawerFieldLabel>
+          <code className="block text-xs font-mono bg-base-200 px-3 py-2 rounded-lg break-all leading-relaxed opacity-80">
+            {service.command}
+          </code>
+        </div>
+        <div className="flex gap-4 flex-wrap">
+          {service.cwd && (
+            <div className="min-w-0">
+              <DrawerFieldLabel>Dir</DrawerFieldLabel>
+              <div className="flex items-center gap-1.5 text-xs font-mono opacity-50">
+                <Folder className="size-3 shrink-0" />
+                <span className="truncate max-w-[180px]">{service.cwd}</span>
+              </div>
+            </div>
+          )}
+          {service.port && (
+            <div>
+              <DrawerFieldLabel>Port</DrawerFieldLabel>
+              <div className="flex items-center gap-1 text-xs font-mono opacity-50">
+                <Hash className="size-3" />
+                <span>{service.port}</span>
+              </div>
+            </div>
+          )}
+          {service.logSize != null && service.logSize > 0 && (
+            <div>
+              <DrawerFieldLabel>Log</DrawerFieldLabel>
+              <div className="text-xs font-mono opacity-40">{(service.logSize / 1024).toFixed(1)} KB</div>
+            </div>
+          )}
+        </div>
+      </DrawerSection>
+
+      {/* Log viewer */}
+      <LogViewer id={service.id} running={service.running} />
     </div>
   );
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────────
+// ── ServiceDrawer (mobile overlay) ────────────────────────────────────────────
+
+function ServiceDrawer({ service, onClose, onRefresh }) {
+  const [closing, setClosing] = useState(false);
+
+  const handleClose = useCallback(() => {
+    setClosing(true);
+    setTimeout(() => { setClosing(false); onClose(); }, 250);
+  }, [onClose]);
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") handleClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleClose]);
+
+  return (
+    <>
+      <DrawerBackdrop onClick={handleClose} hideOnDesktop />
+      <DrawerPanel closing={closing} width="w-full sm:w-[500px]" onClick={(e) => e.stopPropagation()}>
+        <ServiceDrawerBody service={service} onClose={handleClose} onRefresh={onRefresh} />
+      </DrawerPanel>
+    </>
+  );
+}
+
+// ── ServiceRow ─────────────────────────────────────────────────────────────────
+
+function ServiceRow({ service, selected, onSelect }) {
+  const state = service.state ?? (service.running ? "running" : "stopped");
+  const info = stateInfo(state);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(service.id)}
+      className={`group w-full text-left flex items-center gap-3 px-4 py-3.5 border-b border-base-200/80 last:border-b-0 transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30
+        ${selected ? "bg-base-200" : "hover:bg-base-200/50"}`}
+    >
+      {/* State indicator */}
+      <Circle className={`size-2 shrink-0 ${info.dot} ${info.spinning ? "animate-pulse" : ""}`} />
+
+      {/* Name + command */}
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-sm leading-none mb-1 truncate">{service.name}</div>
+        <div className="font-mono text-[11px] opacity-30 truncate">{service.command}</div>
+      </div>
+
+      {/* Uptime — visible on wider columns */}
+      {service.running && service.startedAt && (
+        <span className="hidden xl:block text-xs tabular-nums opacity-30 shrink-0">
+          <UptimeCounter startedAt={service.startedAt} running />
+        </span>
+      )}
+
+      {/* Badge */}
+      <span className={`badge badge-xs shrink-0 ${info.badge}`}>{info.label}</span>
+
+      {/* Chevron */}
+      <ChevronRight className={`size-3 shrink-0 transition-opacity duration-150 ${selected ? "opacity-40" : "opacity-0 group-hover:opacity-20"}`} />
+    </button>
+  );
+}
+
+// ── SkeletonRow ────────────────────────────────────────────────────────────────
+
+function SkeletonRow() {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3.5 border-b border-base-200/80 animate-pulse">
+      <div className="size-2 rounded-full bg-base-300 shrink-0" />
+      <div className="flex-1 space-y-1.5 min-w-0">
+        <div className="h-3 w-24 rounded bg-base-300" />
+        <div className="h-2 w-40 rounded bg-base-300" />
+      </div>
+      <div className="h-4 w-14 rounded-full bg-base-300 shrink-0" />
+    </div>
+  );
+}
+
+// ── ServicesPage ───────────────────────────────────────────────────────────────
 
 function ServicesPage() {
   const { services, loading, refresh } = useServices();
+  const [selectedId, setSelectedId] = useState(null);
+
+  const selectedService = services.find((s) => s.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (selectedId && !loading && !selectedService) setSelectedId(null);
+  }, [selectedId, selectedService, loading]);
+
+  const handleSelect = useCallback((id) => {
+    setSelectedId((prev) => (prev === id ? null : id));
+  }, []);
+
+  const handleClose = useCallback(() => setSelectedId(null), []);
 
   const handleStartAll = useCallback(async () => {
-    await Promise.all(services.filter((service) => !service.running).map((service) => api.post(`/services/${service.id}/start`, {})));
+    await Promise.all(services.filter((s) => !s.running).map((s) => api.post(`/services/${s.id}/start`, {})));
     await refresh();
   }, [services, refresh]);
 
   const handleStopAll = useCallback(async () => {
-    await Promise.all(services.filter((service) => service.running).map((service) => api.post(`/services/${service.id}/stop`, {})));
+    await Promise.all(services.filter((s) => s.running).map((s) => api.post(`/services/${s.id}/stop`, {})));
     await refresh();
   }, [services, refresh]);
 
-  const anyRunning = services.some((service) => service.running);
-  const allRunning = services.length > 0 && services.every((service) => service.running);
+  const anyRunning   = services.some((s) => s.running);
+  const allRunning   = services.length > 0 && services.every((s) => s.running);
+  const runningCount = services.filter((s) => s.running).length;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 px-4 pb-4 gap-4">
-      {/* Header */}
-      <div className="flex items-center justify-between pt-1">
-        <div className="flex items-center gap-2">
-          <Server className="size-4 opacity-50" />
-          <h1 className="text-sm font-semibold opacity-70 uppercase tracking-widest">Services</h1>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {services.length > 0 && !allRunning && (
-            <button className="btn btn-xs btn-ghost opacity-60 hover:opacity-100" onClick={handleStartAll}>
-              Start all
-            </button>
-          )}
-          {anyRunning && (
-            <button className="btn btn-xs btn-ghost text-error opacity-60 hover:opacity-100" onClick={handleStopAll}>
-              Stop all
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Loading skeleton */}
-      {loading && (
-        <div className="flex flex-col gap-3">
-          {[0, 1].map(i => (
-            <div key={i} className="card bg-base-200 animate-pulse">
-              <div className="card-body p-4 gap-0">
-                <div className="flex items-center gap-3">
-                  <div className="size-2.5 rounded-full bg-base-300 shrink-0" />
-                  <div className="flex-1 flex flex-col gap-1.5">
-                    <div className="h-3.5 w-32 rounded bg-base-300" />
-                    <div className="h-2.5 w-48 rounded bg-base-300" />
-                  </div>
-                  <div className="flex gap-1.5">
-                    <div className="h-8 w-8 rounded-btn bg-base-300" />
-                    <div className="h-8 w-8 rounded-btn bg-base-300" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!loading && services.length === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-4">
-          <Server className="size-10 opacity-10" />
-          <div className="text-center">
-            <p className="text-sm font-medium opacity-70">No services configured</p>
-            <p className="text-xs opacity-40 mt-1">Add services in Settings → Services to launch and monitor them here.</p>
+    <div className="flex-1 flex min-h-0 overflow-hidden">
+      {/* ── Left: service list ──────────────────────────────────────────────── */}
+      <div
+        className={`flex flex-col min-h-0 border-r border-base-200 overflow-y-auto shrink-0
+          ${selectedService
+            ? "hidden lg:flex lg:w-64 xl:w-72"
+            : "flex-1"
+          }`}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-base-200 shrink-0">
+          <div className="flex items-center gap-2">
+            <Server className="size-3.5 opacity-35" />
+            <span className="text-xs font-semibold opacity-55 uppercase tracking-widest">Services</span>
+            {!loading && services.length > 0 && (
+              <span className="text-[11px] opacity-30 tabular-nums">{runningCount}/{services.length}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {services.length > 0 && !allRunning && (
+              <button className="btn btn-xs btn-ghost opacity-50 hover:opacity-90" onClick={handleStartAll}>
+                Start all
+              </button>
+            )}
+            {anyRunning && (
+              <button className="btn btn-xs btn-ghost text-error opacity-50 hover:opacity-90" onClick={handleStopAll}>
+                Stop all
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Loading */}
+        {loading && (
+          <>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </>
+        )}
+
+        {/* Empty */}
+        {!loading && services.length === 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 py-12">
+            <Server className="size-8 opacity-10" />
+            <div className="text-center">
+              <p className="text-sm font-medium opacity-60">No services configured</p>
+              <p className="text-xs opacity-35 mt-1">
+                Add services in Settings → Services to manage them here.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Rows */}
+        {services.map((service) => (
+          <ServiceRow
+            key={service.id}
+            service={service}
+            selected={service.id === selectedId}
+            onSelect={handleSelect}
+          />
+        ))}
+      </div>
+
+      {/* ── Right: detail inline (desktop lg+) ─────────────────────────────── */}
+      {selectedService && (
+        <div className="hidden lg:flex flex-1 flex-col min-h-0">
+          <ServiceDrawerBody
+            key={selectedService.id}
+            service={selectedService}
+            onClose={handleClose}
+            onRefresh={refresh}
+          />
+        </div>
       )}
 
-      {/* Service list */}
-      {services.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {services.map((service) => (
-            <ServiceCard
-              key={service.id}
-              service={service}
-              onRefresh={refresh}
-            />
-          ))}
+      {/* ── Mobile overlay ──────────────────────────────────────────────────── */}
+      {selectedService && (
+        <div className="lg:hidden">
+          <ServiceDrawer
+            key={selectedService.id}
+            service={selectedService}
+            onClose={handleClose}
+            onRefresh={refresh}
+          />
         </div>
       )}
     </div>

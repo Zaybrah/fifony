@@ -9,6 +9,7 @@ import {
   SlidersHorizontal,
   Palette,
   Settings,
+  Server,
 } from "lucide-react";
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { to: "/settings/execution",     label: "Execution",     icon: Cpu },
   { to: "/settings/quality",       label: "Quality",       icon: ShieldCheck },
   { to: "/settings/agents",        label: "Agents",        icon: Users },
+  { to: "/settings/services",      label: "Services",      icon: Server },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/providers",     label: "Providers",     icon: SlidersHorizontal },
   { to: "/settings/appearance",    label: "Appearance",    icon: Palette },

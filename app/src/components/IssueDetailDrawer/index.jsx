@@ -3,6 +3,7 @@ import {
   X, AlertTriangle, Loader, RotateCcw, PlayCircle, GitMerge,
   GitPullRequest, Trash2,
 } from "lucide-react";
+import { DrawerBackdrop } from "../DrawerPrimitives.jsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api.js";
 import { useSwipeToDismiss } from "../../hooks/useSwipeToDismiss.js";
@@ -275,10 +276,11 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
   const isPendingPlanning = issue?.state === "Planning" && !issue?.plan && !issue?.planningError && issue?.planningStatus !== "planning";
 
   return (
-    <div
-      className={`fixed inset-0 z-40 bg-black/35 ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleClose}
-    >
+    <div>
+      <DrawerBackdrop
+        onClick={handleClose}
+        className={closing ? "animate-fade-out" : "animate-fade-in"}
+      />
       <div
         ref={swipeRef}
         className={`fixed top-0 right-0 z-50 h-full w-full md:w-[40vw] md:min-w-[520px] lg:min-w-[600px] bg-base-100 shadow-2xl flex flex-col ${closing ? "animate-slide-out-right" : "animate-slide-in-right"}`}

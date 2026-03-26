@@ -35,4 +35,32 @@ export const api = {
     if (!res.ok) throw new Error(extractError(data, res.status));
     return data || { ok: true };
   },
+
+  /** PUT request with JSON body. Throws on non-2xx with server error message. */
+  async put(path, payload) {
+    const res = await fetch(`/api${path}`, {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    const data = text ? safeJson(text) : null;
+    if (!res.ok) throw new Error(extractError(data, res.status));
+    return data || { ok: true };
+  },
+
+  /** DELETE request. Throws on non-2xx with server error message. */
+  async delete(path) {
+    const res = await fetch(`/api${path}`, {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    });
+    const text = await res.text();
+    const data = text ? safeJson(text) : null;
+    if (!res.ok) throw new Error(extractError(data, res.status));
+    return data || { ok: true };
+  },
 };

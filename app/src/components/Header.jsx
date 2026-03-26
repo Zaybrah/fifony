@@ -10,7 +10,7 @@ const NAV_ITEMS = [
   { to: "/issues", label: "Issues", icon: ListTodo },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/analytics", label: "Analytics", icon: TrendingUp },
-  { to: "/workspace", label: "Services", icon: Server },
+  { to: "/services", label: "Services", icon: Server },
   { to: "/settings", label: "Settings", icon: Sliders },
 ];
 

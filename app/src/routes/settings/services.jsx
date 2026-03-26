@@ -183,7 +183,7 @@ const SERVICE_STATUS_DOT = {
 function ServiceConfigCard({ service, variables, onSave, onDelete, onVariableUpdate, onVariableDelete, onVariableAdd }) {
   const [editing, setEditing] = useState(false);
   const [varsOpen, setVarsOpen] = useState(false);
-  const [draft, setDraft] = useState({ name: service.name, command: service.command, cwd: service.cwd || "", autoStart: !!service.autoStart });
+  const [draft, setDraft] = useState({ name: service.name, command: service.command, cwd: service.cwd || "", autoStart: !!service.autoStart, autoRestart: !!service.autoRestart, maxCrashes: service.maxCrashes ?? 5 });
   const [busy, setBusy] = useState(false);
 
   const state = service.state ?? (service.running ? "running" : "stopped");
@@ -192,7 +192,7 @@ function ServiceConfigCard({ service, variables, onSave, onDelete, onVariableUpd
 
   useEffect(() => {
     if (!editing) {
-      setDraft({ name: service.name, command: service.command, cwd: service.cwd || "", autoStart: !!service.autoStart });
+      setDraft({ name: service.name, command: service.command, cwd: service.cwd || "", autoStart: !!service.autoStart, autoRestart: !!service.autoRestart, maxCrashes: service.maxCrashes ?? 5 });
     }
   }, [service, editing]);
 
@@ -200,7 +200,7 @@ function ServiceConfigCard({ service, variables, onSave, onDelete, onVariableUpd
     if (!draft.name.trim() || !draft.command.trim()) return;
     setBusy(true);
     try {
-      await onSave({ ...service, ...draft, name: draft.name.trim(), command: draft.command.trim(), cwd: draft.cwd.trim() || undefined });
+      await onSave({ ...service, ...draft, name: draft.name.trim(), command: draft.command.trim(), cwd: draft.cwd.trim() || undefined, maxCrashes: draft.autoRestart ? draft.maxCrashes : undefined });
       setEditing(false);
     } finally {
       setBusy(false);
@@ -278,10 +278,28 @@ function ServiceConfigCard({ service, variables, onSave, onDelete, onVariableUpd
               <div className="label py-0.5"><span className="label-text text-xs">Command</span></div>
               <input className="input input-bordered input-sm font-mono text-xs" value={draft.command} onChange={(e) => setDraft((d) => ({ ...d, command: e.target.value }))} placeholder="pnpm dev" />
             </label>
-            <label className="label cursor-pointer justify-start gap-2 p-0">
-              <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={draft.autoStart} onChange={(e) => setDraft((d) => ({ ...d, autoStart: e.target.checked }))} />
-              <span className="label-text text-xs">Auto-start on boot</span>
-            </label>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              <label className="label cursor-pointer justify-start gap-2 p-0">
+                <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={draft.autoStart} onChange={(e) => setDraft((d) => ({ ...d, autoStart: e.target.checked }))} />
+                <span className="label-text text-xs">Auto-start on boot</span>
+              </label>
+              <label className="label cursor-pointer justify-start gap-2 p-0">
+                <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={draft.autoRestart} onChange={(e) => setDraft((d) => ({ ...d, autoRestart: e.target.checked }))} />
+                <span className="label-text text-xs">Auto-restart on crash</span>
+              </label>
+            </div>
+            {draft.autoRestart && (
+              <label className="form-control w-40">
+                <div className="label py-0.5"><span className="label-text text-xs">Max crashes before giving up</span></div>
+                <input
+                  type="number"
+                  className="input input-bordered input-sm"
+                  min={1} max={10}
+                  value={draft.maxCrashes}
+                  onChange={(e) => setDraft((d) => ({ ...d, maxCrashes: Math.min(10, Math.max(1, Number(e.target.value) || 1)) }))}
+                />
+              </label>
+            )}
             <div className="flex gap-2 pt-1">
               <button className="btn btn-xs btn-primary gap-1" onClick={handleSave} disabled={busy}>
                 {busy ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />} Save
@@ -298,7 +316,7 @@ function ServiceConfigCard({ service, variables, onSave, onDelete, onVariableUpd
 // ── Add service card ───────────────────────────────────────────────────────────
 
 function AddServiceForm({ onAdd, onCancel }) {
-  const [draft, setDraft] = useState({ name: "", command: "", cwd: "", autoStart: false });
+  const [draft, setDraft] = useState({ name: "", command: "", cwd: "", autoStart: false, autoRestart: false, maxCrashes: 5 });
   const [detecting, setDetecting] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -326,7 +344,7 @@ function AddServiceForm({ onAdd, onCancel }) {
     const id = `${slug}-${Date.now()}`;
     setBusy(true);
     try {
-      await onAdd({ id, name, command, cwd: draft.cwd.trim() || undefined, autoStart: draft.autoStart });
+      await onAdd({ id, name, command, cwd: draft.cwd.trim() || undefined, autoStart: draft.autoStart, autoRestart: draft.autoRestart, maxCrashes: draft.autoRestart ? draft.maxCrashes : undefined });
     } finally {
       setBusy(false);
     }
@@ -371,10 +389,28 @@ function AddServiceForm({ onAdd, onCancel }) {
           <div className="label py-0.5"><span className="label-text text-xs">Command *</span></div>
           <input className="input input-bordered input-sm font-mono text-xs" value={draft.command} onChange={(e) => setDraft((d) => ({ ...d, command: e.target.value }))} placeholder="pnpm dev" />
         </label>
-        <label className="label cursor-pointer justify-start gap-2 p-0">
-          <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={draft.autoStart} onChange={(e) => setDraft((d) => ({ ...d, autoStart: e.target.checked }))} />
-          <span className="label-text text-xs">Auto-start on boot</span>
-        </label>
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <label className="label cursor-pointer justify-start gap-2 p-0">
+            <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={draft.autoStart} onChange={(e) => setDraft((d) => ({ ...d, autoStart: e.target.checked }))} />
+            <span className="label-text text-xs">Auto-start on boot</span>
+          </label>
+          <label className="label cursor-pointer justify-start gap-2 p-0">
+            <input type="checkbox" className="checkbox checkbox-sm checkbox-primary" checked={draft.autoRestart} onChange={(e) => setDraft((d) => ({ ...d, autoRestart: e.target.checked }))} />
+            <span className="label-text text-xs">Auto-restart on crash</span>
+          </label>
+        </div>
+        {draft.autoRestart && (
+          <label className="form-control w-40">
+            <div className="label py-0.5"><span className="label-text text-xs">Max crashes before giving up</span></div>
+            <input
+              type="number"
+              className="input input-bordered input-sm"
+              min={1} max={10}
+              value={draft.maxCrashes}
+              onChange={(e) => setDraft((d) => ({ ...d, maxCrashes: Math.min(10, Math.max(1, Number(e.target.value) || 1)) }))}
+            />
+          </label>
+        )}
 
         <div className="flex gap-2">
           <button className="btn btn-xs btn-primary gap-1" onClick={handleSave} disabled={busy || !draft.name.trim() || !draft.command.trim()}>
