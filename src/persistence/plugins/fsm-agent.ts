@@ -578,7 +578,7 @@ export function resolveHarnessMode(issue: IssueEntry): HarnessMode {
 }
 
 /** Resolve the effective maxTurns for an issue — user config overrides mode defaults. */
-function resolveMaxTurns(issue: IssueEntry, config: RuntimeState["config"]): number {
+export function resolveMaxTurns(issue: IssueEntry, config: RuntimeState["config"]): number {
   if (config.maxTurns) return config.maxTurns;
   const mode = resolveHarnessMode(issue);
   return DEFAULT_MAX_TURNS_BY_MODE[mode] ?? DEFAULT_MAX_TURNS;

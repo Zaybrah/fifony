@@ -112,7 +112,10 @@ function spawnProcess(
   });
   try { closeSync(logFd); } catch {}
   child.unref();
-  return { pid: child.pid!, command };
+  if (child.pid === undefined) {
+    throw new Error(`Failed to spawn service process: ${command}`);
+  }
+  return { pid: child.pid, command };
 }
 
 // ── Status derivation ─────────────────────────────────────────────────────────

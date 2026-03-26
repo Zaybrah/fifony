@@ -25,6 +25,7 @@ import {
 } from "./session-state.ts";
 import { readAgentDirective, addTokenUsage } from "./directive-parser.ts";
 import { buildTurnPrompt, buildProviderBasePrompt, buildRetryContext, resolveContextWindow } from "./prompt-builder.ts";
+import { resolveMaxTurns } from "../persistence/plugins/fsm-agent.ts";
 import { runCommandWithTimeout, runHook } from "./command-executor.ts";
 import { record as recordTokens } from "../domains/tokens.ts";
 import { buildContextMarkdown, buildTraceFromContext } from "./context-engine.ts";
@@ -60,7 +61,7 @@ export async function runAgentSession(
   basePromptText: string,
   basePromptFile: string,
 ): Promise<AgentSessionResult> {
-  const maxTurns = clamp(state.config.maxTurns, 1, 16);
+  const maxTurns = resolveMaxTurns(issue, state.config);
   const attempt = issue.attempts + 1;
   const sessionLookupKey = buildProviderSessionKey(issue, attempt, provider, cycle);
   const loadedSession = await loadAgentSessionState(sessionLookupKey, issue, attempt, maxTurns);
@@ -224,14 +225,17 @@ export async function runAgentSession(
   const hasOverflowSignal = ctxOverflowSignals.some((s) =>
     turnResult.output.toLowerCase().includes(s),
   );
-  const cumulativeTokens = issue.tokenUsage?.totalTokens ?? 0;
-  const contextWindow = resolveContextWindow(issue.tokenUsage?.model);
-  const contextPct = contextWindow ? Math.round((cumulativeTokens / contextWindow) * 100) : null;
+  // Use this turn's inputTokens — that reflects the actual context window consumed
+  // by this request (full conversation history + prompt). Cumulative totalTokens is wrong
+  // because it sums output tokens across all historical turns, not the current request size.
+  const turnInputTokens = directive.tokenUsage?.inputTokens ?? 0;
+  const contextWindow = resolveContextWindow(directive.tokenUsage?.model ?? issue.tokenUsage?.model);
+  const contextPct = (contextWindow && turnInputTokens > 0) ? Math.round((turnInputTokens / contextWindow) * 100) : null;
   const isNearLimit = (contextPct !== null && contextPct >= 80) || hasOverflowSignal;
   if (isNearLimit && directive.status === "continue") {
     const reason = hasOverflowSignal
       ? "Context overflow signal detected in output"
-      : `Context at ~${contextPct}% (${cumulativeTokens.toLocaleString()} / ${contextWindow?.toLocaleString()} tokens)`;
+      : `Context at ~${contextPct}% (${turnInputTokens.toLocaleString()} input tokens / ${contextWindow?.toLocaleString()} window)`;
     logger.warn({ issueId: issue.id, identifier: issue.identifier, turn: turnIndex, contextPct, reason }, "[Agent] Context pressure — steering next turn toward checkpoint");
     addEvent(state, issue.id, "info", `Context pressure on turn ${turnIndex}: ${reason}. Next turn will prioritize checkpointing.`);
     // Override nextPrompt to steer the agent toward compacting its work
