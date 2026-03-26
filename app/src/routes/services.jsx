@@ -105,11 +105,12 @@ function stateInfo(state) {
 
 // ── Log viewer ─────────────────────────────────────────────────────────────────
 
-function LogViewer({ id, running }) {
-  const { log, connected } = useServiceLog(id, true);
+function LogViewer({ id, running, state }) {
+  const { log, connected, error } = useServiceLog(id, true);
   const logRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const html = useMemo(() => (log ? ansiToHtml(log) : ""), [log]);
+  const hasLog = Boolean(log && log.trim());
 
   useEffect(() => {
     if (autoScroll && logRef.current) {
@@ -133,6 +134,12 @@ function LogViewer({ id, running }) {
         <div className="flex items-center gap-2">
           {connected
             ? <span className="flex items-center gap-1.5 text-xs text-success"><Circle className="size-2 fill-success" />live</span>
+            : error
+              ? <span className="text-xs text-error/70">error</span>
+            : hasLog && state === "crashed"
+              ? <span className="flex items-center gap-1.5 text-xs text-error/70"><Circle className="size-2 fill-current" />crash log</span>
+            : hasLog
+              ? <span className="text-xs opacity-45">saved log</span>
             : running
               ? <span className="flex items-center gap-1.5 text-xs opacity-35"><Loader2 className="size-2.5 animate-spin" />connecting</span>
               : <span className="text-xs opacity-25">idle</span>
@@ -152,7 +159,9 @@ function LogViewer({ id, running }) {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-relaxed bg-base-100 min-h-0"
         dangerouslySetInnerHTML={{
-          __html: html || '<span style="opacity:0.2">No output yet. Start the service to see logs here.</span>',
+          __html: html || (error
+            ? `<span style="color:color-mix(in srgb, currentColor 60%, transparent)">${String(error).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`
+            : '<span style="opacity:0.2">No output yet. Start the service to see logs here.</span>'),
         }}
       />
     </div>
@@ -274,7 +283,7 @@ function ServiceDrawerBody({ service, onClose, onRefresh }) {
       </DrawerSection>
 
       {/* Log viewer */}
-      <LogViewer id={service.id} running={service.running} />
+      <LogViewer id={service.id} running={service.running} state={state} />
     </div>
   );
 }
@@ -297,8 +306,15 @@ function ServiceDrawer({ service, onClose, onRefresh }) {
 
   return (
     <>
-      <DrawerBackdrop onClick={handleClose} hideOnDesktop />
-      <DrawerPanel closing={closing} width="w-full sm:w-[500px]" onClick={(e) => e.stopPropagation()}>
+      <DrawerBackdrop
+        onClick={handleClose}
+        className={closing ? "animate-fade-out" : "animate-fade-in"}
+      />
+      <DrawerPanel
+        closing={closing}
+        width="w-full sm:w-[500px] lg:w-[40vw] lg:min-w-[520px] xl:min-w-[600px]"
+        onClick={(e) => e.stopPropagation()}
+      >
         <ServiceDrawerBody service={service} onClose={handleClose} onRefresh={onRefresh} />
       </DrawerPanel>
     </>
@@ -393,13 +409,7 @@ function ServicesPage() {
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
       {/* ── Left: service list ──────────────────────────────────────────────── */}
-      <div
-        className={`flex flex-col min-h-0 border-r border-base-200 overflow-y-auto shrink-0
-          ${selectedService
-            ? "hidden lg:flex lg:w-64 xl:w-72"
-            : "flex-1"
-          }`}
-      >
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-base-200 shrink-0">
           <div className="flex items-center gap-2">
@@ -456,28 +466,14 @@ function ServicesPage() {
         ))}
       </div>
 
-      {/* ── Right: detail inline (desktop lg+) ─────────────────────────────── */}
+      {/* ── Overlay drawer ─────────────────────────────────────────────────── */}
       {selectedService && (
-        <div className="hidden lg:flex flex-1 flex-col min-h-0">
-          <ServiceDrawerBody
-            key={selectedService.id}
-            service={selectedService}
-            onClose={handleClose}
-            onRefresh={refresh}
-          />
-        </div>
-      )}
-
-      {/* ── Mobile overlay ──────────────────────────────────────────────────── */}
-      {selectedService && (
-        <div className="lg:hidden">
-          <ServiceDrawer
-            key={selectedService.id}
-            service={selectedService}
-            onClose={handleClose}
-            onRefresh={refresh}
-          />
-        </div>
+        <ServiceDrawer
+          key={selectedService.id}
+          service={selectedService}
+          onClose={handleClose}
+          onRefresh={refresh}
+        />
       )}
     </div>
   );

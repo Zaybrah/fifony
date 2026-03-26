@@ -32,10 +32,11 @@ function UptimeCounter({ startedAt, running }) {
 
 // ── Log viewer ────────────────────────────────────────────────────────────────
 
-function LogViewer({ id, visible }) {
-  const { log, connected } = useServiceLog(id, visible);
+function LogViewer({ id, visible, state }) {
+  const { log, connected, error } = useServiceLog(id, visible);
   const logRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const hasLog = Boolean(log && log.trim());
 
   useEffect(() => {
     if (autoScroll && logRef.current) {
@@ -59,7 +60,13 @@ function LogViewer({ id, visible }) {
         <div className="flex items-center gap-1.5">
           {connected
             ? <span className="flex items-center gap-1 text-xs text-success"><Circle className="size-2 fill-success" /> live</span>
-            : <span className="text-xs opacity-40">idle</span>
+            : error
+              ? <span className="text-xs text-error/70">error</span>
+            : hasLog && state === "crashed"
+              ? <span className="text-xs text-error/70">crash log</span>
+              : hasLog
+                ? <span className="text-xs opacity-45">saved log</span>
+                : <span className="text-xs opacity-40">idle</span>
           }
         </div>
       </div>
@@ -68,7 +75,7 @@ function LogViewer({ id, visible }) {
         onScroll={handleScroll}
         className="text-xs font-mono p-3 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed"
       >
-        {log || <span className="opacity-30">No output yet.</span>}
+        {log || (error ? <span className="text-error/70">{error}</span> : <span className="opacity-30">No output yet.</span>)}
       </pre>
     </div>
   );
@@ -170,7 +177,7 @@ function ServiceCard({ service, onRefresh }) {
         </div>
       </div>
 
-      {showLog && <LogViewer id={service.id} visible={showLog} />}
+      {showLog && <LogViewer id={service.id} visible={showLog} state={state} />}
     </div>
   );
 }

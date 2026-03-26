@@ -32,107 +32,66 @@ export function useServices() {
 }
 
 /**
- * SSE-based log viewer for a single service.
- * Connects to the SSE stream endpoint for real-time log delivery.
- * Falls back to polling if SSE is not supported or fails.
+ * Polls the log endpoint every second for live log delivery.
+ * Uses incremental fetching (?after=N) to avoid re-sending the entire log.
  * Returns { log, connected } — connected = true once first data arrives.
  */
 export function useServiceLog(id, enabled = false) {
   const [log, setLog] = useState("");
   const [connected, setConnected] = useState(false);
+  const [error, setError] = useState(null);
   const sizeRef = useRef(0);
 
   useEffect(() => {
     if (!enabled || !id) {
       setLog("");
       setConnected(false);
+      setError(null);
       sizeRef.current = 0;
       return;
     }
 
     let alive = true;
-    let es = null;
-    let pollIntervalId = null;
-    let usingPoll = false;
+    sizeRef.current = 0;
+    setError(null);
 
-    // ── SSE path ──────────────────────────────────────────────────────────────
-
-    function startPoll() {
-      usingPoll = true;
-      sizeRef.current = 0;
-
-      const fetchLog = async () => {
-        if (!alive) return;
-        try {
-          const after = sizeRef.current;
-          const res = after > 0
-            ? await api.get(`/services/${id}/log?after=${after}`)
-            : await api.get(`/services/${id}/log`);
-          if (!alive) return;
-
-          if (after > 0 && res.text !== undefined) {
-            if (res.text) setLog((prev) => prev + res.text);
-          } else if (res.logTail !== undefined) {
-            setLog(res.logTail ?? "");
-          }
-
-          if (res.logSize !== undefined) sizeRef.current = res.logSize;
-          setConnected(true);
-        } catch {
-          if (!alive) return;
-          setConnected(false);
-        }
-      };
-
-      fetchLog();
-      pollIntervalId = setInterval(fetchLog, 2_000);
-    }
-
-    function startSSE() {
+    const fetchLog = async () => {
+      if (!alive) return;
       try {
-        es = new EventSource(`/api/services/${encodeURIComponent(id)}/stream`);
+        const after = sizeRef.current;
+        const encId = encodeURIComponent(id);
+        const res = after > 0
+          ? await api.get(`/services/${encId}/log?after=${after}`)
+          : await api.get(`/services/${encId}/log`);
+        if (!alive) return;
 
-        es.onmessage = (event) => {
-          if (!alive) return;
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === "init") {
-              setLog(msg.text ?? "");
-              sizeRef.current = msg.size ?? 0;
-              setConnected(true);
-            } else if (msg.type === "chunk") {
-              if (msg.text) setLog((prev) => prev + msg.text);
-              sizeRef.current = msg.size ?? sizeRef.current;
-              setConnected(true);
-            } else if (msg.type === "status") {
-              // service stopped/crashed — stay connected to show final log
-              setConnected(true);
-            }
-          } catch { /* malformed message */ }
-        };
+        if (after > 0 && res.text !== undefined) {
+          if (res.text) setLog((prev) => prev + res.text);
+        } else if (res.logTail !== undefined) {
+          setLog(res.logTail ?? "");
+        }
 
-        es.onerror = () => {
-          if (!alive) return;
-          // SSE failed — fall back to polling
-          if (es) { es.close(); es = null; }
-          if (!usingPoll) startPoll();
-        };
-      } catch {
-        // EventSource not supported or failed to construct
-        startPoll();
+        if (res.logSize !== undefined) sizeRef.current = res.logSize;
+        setError(null);
+        setConnected(true);
+      } catch (err) {
+        if (!alive) return;
+        setConnected(false);
+        setError(err instanceof Error ? err.message : "Failed to load logs.");
       }
-    }
+    };
 
-    startSSE();
+    fetchLog();
+    const intervalId = setInterval(fetchLog, 1_000);
 
     return () => {
       alive = false;
-      if (es) { es.close(); es = null; }
-      if (pollIntervalId) clearInterval(pollIntervalId);
+      clearInterval(intervalId);
       setConnected(false);
+      setError(null);
       sizeRef.current = 0;
     };
   }, [id, enabled]);
 
-  return { log, connected };
+  return { log, connected, error };
 }
