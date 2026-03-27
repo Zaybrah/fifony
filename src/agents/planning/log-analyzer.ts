@@ -186,17 +186,22 @@ function extractJsonFromOutput<T>(raw: string): T | null {
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
-      // Unwrap CLI envelope: Claude --output-format json wraps the schema
-      // response in a `result` field that can be either an object or a string.
+      // Unwrap Claude CLI --output-format json envelope.
+      // With --json-schema the payload lands in `structured_output`;
+      // without it, `result` holds the text (try parsing it too).
       if (parsed && typeof parsed === "object") {
-        const r = (parsed as Record<string, unknown>).result ?? (parsed as Record<string, unknown>).response;
-        if (r && typeof r === "object") return r as T;
-        if (typeof r === "string") {
-          const clean = r.trim().replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-          for (const inner of extractJsonObjects(clean)) {
-            try { return JSON.parse(inner) as T; } catch {}
+        const p = parsed as Record<string, unknown>;
+        for (const key of ["structured_output", "result", "response", "output"]) {
+          const r = p[key];
+          if (!r) continue;
+          if (typeof r === "object") return r as T;
+          if (typeof r === "string") {
+            const clean = r.trim().replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+            for (const inner of extractJsonObjects(clean)) {
+              try { return JSON.parse(inner) as T; } catch {}
+            }
+            try { return JSON.parse(r) as T; } catch {}
           }
-          try { return JSON.parse(r) as T; } catch {}
         }
       }
       return parsed as T;
