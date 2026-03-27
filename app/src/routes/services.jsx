@@ -233,6 +233,10 @@ function ServiceDrawerBody({ service, onClose, onRefresh }) {
 
   const stateColor = state === "running" ? "text-success" : state === "crashed" ? "text-error" : state === "starting" || state === "stopping" ? "text-warning" : "opacity-35";
 
+  // Diagnosis panel visibility + severity
+  const hasDiagnosisPanel = Boolean(fixDiagnosis && !fixDiagnosis.healthy);
+  const diagnosisCritical = Boolean(hasDiagnosisPanel && (fixDiagnosis?.error || state === "crashed"));
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Thin accent strip */}
@@ -298,49 +302,79 @@ function ServiceDrawerBody({ service, onClose, onRefresh }) {
             disabled={detecting || fixing}
           >
             {detecting ? <Loader2 className="size-3 animate-spin" /> : <Scan className="size-3" />}
-            Detect
+            {detecting ? "Scanning…" : "Detect"}
           </button>
+          {detectResult && detectResult !== "error" && (
+            detectResult.found ? (
+              <span className="flex items-center gap-1 text-[11px] text-success">
+                <CheckCircle2 className="size-3" />
+                {detectResult.healthcheck?.endpoint ?? `port ${detectResult.healthcheck?.port}`}
+              </span>
+            ) : (
+              <span className="text-[11px] opacity-30">no config detected</span>
+            )
+          )}
+          <div className="flex-1" />
+          <div className="w-px h-3 bg-base-content/10 mx-0.5 shrink-0" />
           <button
             className="btn btn-xs btn-ghost h-6 min-h-0 gap-1 px-2 text-[11px] opacity-50 hover:opacity-90"
             onClick={handleAnalyze}
             disabled={fixing || detecting}
           >
             {fixing ? <Loader2 className="size-3 animate-spin" /> : <Wrench className="size-3" />}
-            Analyze
+            {fixing ? "Analyzing…" : "Analyze"}
           </button>
-          {detectResult && detectResult !== "error" && (
-            detectResult.found ? (
-              <span className="flex items-center gap-1 text-[11px] text-success ml-1">
-                <CheckCircle2 className="size-3" />
-                {detectResult.healthcheck?.endpoint ?? `port ${detectResult.healthcheck?.port}`}
-              </span>
-            ) : (
-              <span className="text-[11px] opacity-30 ml-1">no config detected</span>
-            )
-          )}
           {fixDiagnosis?.healthy && (
-            <span className="flex items-center gap-1 text-[11px] text-success/70 ml-1">
-              <CheckCircle2 className="size-3 shrink-0" />No issues detected
+            <span className="flex items-center gap-1 text-[11px] text-success/70">
+              <CheckCircle2 className="size-3 shrink-0" />Clean
             </span>
-          )}
-          {fixDiagnosis?.error && (
-            <span className="flex items-center gap-1 text-[11px] text-error/70 ml-1 truncate" title={fixDiagnosis.error}>
-              <AlertTriangle className="size-3 shrink-0" />{fixDiagnosis.error}
-            </span>
-          )}
-          {fixDiagnosis && !fixDiagnosis.healthy && !fixDiagnosis.error && (
-            <button
-              className="flex items-center gap-1 text-[11px] text-warning/80 hover:text-warning ml-1 truncate underline-offset-2 hover:underline"
-              onClick={() => setFixDrawer({ open: true, defaultValues: { title: fixDiagnosis.title, description: fixDiagnosis.description, issueType: fixDiagnosis.issueType } })}
-              title={fixDiagnosis.title}
-            >
-              <AlertTriangle className="size-3 shrink-0" />
-              <span className="truncate max-w-[180px]">{fixDiagnosis.title}</span>
-              <ChevronRight className="size-3 shrink-0 opacity-60" />
-            </button>
           )}
         </div>
       )}
+
+      {/* ── Diagnosis panel — slides in when Analyze finds a problem ────────── */}
+      <div
+        className="grid shrink-0"
+        style={{
+          gridTemplateRows: hasDiagnosisPanel ? "1fr" : "0fr",
+          transition: "grid-template-rows 220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+      >
+        <div className="overflow-hidden">
+          <div className={`flex items-start gap-2.5 px-3 py-2.5 border-b ${diagnosisCritical ? "bg-error/5 border-error/20" : "bg-warning/5 border-warning/20"}`}>
+            <AlertTriangle className={`size-3.5 shrink-0 mt-0.5 ${diagnosisCritical ? "text-error" : "text-warning"}`} />
+            <div className="flex-1 min-w-0">
+              {fixDiagnosis?.error ? (
+                <p className="text-xs leading-relaxed opacity-70">{fixDiagnosis.error}</p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium leading-snug">{fixDiagnosis?.title}</p>
+                  {fixDiagnosis?.description && (
+                    <p className="text-xs opacity-50 mt-0.5 line-clamp-2 leading-relaxed">{fixDiagnosis.description}</p>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {!fixDiagnosis?.error && fixDiagnosis?.title && (
+                <button
+                  className={`btn btn-xs h-6 min-h-0 gap-1 px-2.5 ${diagnosisCritical ? "btn-error" : "btn-warning"}`}
+                  onClick={() => setFixDrawer({ open: true, defaultValues: { title: fixDiagnosis.title, description: fixDiagnosis.description, issueType: fixDiagnosis.issueType } })}
+                >
+                  Create Issue
+                  <ChevronRight className="size-3" />
+                </button>
+              )}
+              <button
+                className="btn btn-ghost btn-xs btn-circle h-5 min-h-0 w-5 opacity-30 hover:opacity-70"
+                onClick={() => setFixDiagnosis(null)}
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Log viewer */}
       <LogViewer id={service.id} running={service.running} state={state} />
