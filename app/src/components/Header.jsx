@@ -1,8 +1,6 @@
 import { useRef, useEffect, useState, useLayoutEffect, useCallback } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Kanban, ListTodo, Activity, Bot, TrendingUp, Sliders, Server } from "lucide-react";
-import { timeAgo } from "../utils.js";
-import NotificationCenter from "./NotificationCenter.jsx";
+import { Kanban, ListTodo, Bot, TrendingUp, Sliders, Server } from "lucide-react";
 import { buildQueueTitle } from "../project-meta.js";
 
 const NAV_ITEMS = [
@@ -83,7 +81,7 @@ function displayRepoName(sourceRepo) {
   return name;
 }
 
-export function Header({ issueCount, sourceRepo, queueTitle, updatedAt, onToggleEvents, eventsOpen, wsStatus, notifications, issues }) {
+export function Header({ issueCount, sourceRepo, queueTitle, updatedAt, wsStatus, issues }) {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const navRef = useRef(null);
@@ -131,31 +129,11 @@ export function Header({ issueCount, sourceRepo, queueTitle, updatedAt, onToggle
 
       <div className="flex-none">
         <ul className="menu menu-horizontal px-1 items-center gap-0">
-          {notifications && (
-            <li>
-              <span className="py-1 px-2">
-                <NotificationCenter
-                  notifications={notifications.notifications}
-                  unreadCount={notifications.unreadCount}
-                  onDismiss={notifications.dismissNotification}
-                  onMarkAllRead={notifications.markAllRead}
-                />
-              </span>
-            </li>
-          )}
-          <li>
-            <button
-              className={`tooltip tooltip-bottom py-1 px-2 hidden md:flex ${eventsOpen ? "active" : ""}`}
-              data-tip="Events"
-              onClick={onToggleEvents}
-            >
-              <Activity className="size-4" />
-            </button>
-          </li>
           <li className="hidden md:flex">
-            <span className="text-xs opacity-40 py-1 px-2 flex items-center gap-1.5">
-              <WsStatusDot status={wsStatus} />
-              {timeAgo(updatedAt)}
+            <span className="tooltip tooltip-bottom py-1 px-2" data-tip={`Live: ${wsStatus}`}>
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-base-content/10 bg-base-200/70">
+                <WsStatusDot status={wsStatus} />
+              </span>
             </span>
           </li>
         </ul>

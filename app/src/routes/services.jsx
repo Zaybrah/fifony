@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
-  Server, Play, Square, Terminal, Circle, Loader2,
-  AlertTriangle, ChevronRight, Folder, Hash, Scan, Wrench, CheckCircle2,
+  Server, Play, Square, Terminal, Circle, Loader2, X,
+  AlertTriangle, ChevronRight, Folder, Scan, Wrench, CheckCircle2,
 } from "lucide-react";
 import { api } from "../api.js";
 import { useDashboard } from "../context/DashboardContext";
@@ -225,131 +225,94 @@ function ServiceDrawerBody({ service, onClose, onRefresh }) {
     }
   }, [service.id, showToast]);
 
+  const stateColor = state === "running" ? "text-success" : state === "crashed" ? "text-error" : state === "starting" || state === "stopping" ? "text-warning" : "opacity-35";
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Status strip */}
-      <div className={`h-0.5 w-full shrink-0 ${info.strip} opacity-80`} />
+      {/* Thin accent strip */}
+      <div className={`h-px w-full shrink-0 ${info.strip} opacity-60`} />
 
-      {/* Header */}
-      <DrawerSection className="pt-4 pb-3">
-        <div className="flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <Circle className={`size-2 shrink-0 ${info.dot}`} />
-              <span className={`text-xs font-medium ${state === "running" ? "text-success" : state === "crashed" ? "text-error" : state === "starting" || state === "stopping" ? "text-warning" : "opacity-40"}`}>
-                {info.spinning
-                  ? <span className="flex items-center gap-1.5"><Loader2 className="size-3 animate-spin" />{info.label}</span>
-                  : info.label
-                }
-              </span>
-              {service.pid && state === "running" && (
-                <span className="text-xs opacity-25 font-mono tabular-nums">pid {service.pid}</span>
-              )}
-            </div>
-            <h2 className="text-lg font-bold leading-snug truncate">{service.name}</h2>
-          </div>
-          <DrawerCloseButton onClick={onClose} label="Close service panel" />
-        </div>
-      </DrawerSection>
+      {/* ── Row 1: title + state + action + close ───────────────────────────── */}
+      <div className="flex items-center gap-2 px-3 py-2 shrink-0">
+        <Circle className={`size-1.5 shrink-0 ${info.dot} ${info.spinning ? "animate-pulse" : ""}`} />
+        <span className="font-semibold text-sm truncate flex-1 leading-none">{service.name}</span>
+        {service.pid && state === "running" && (
+          <span className="text-[11px] font-mono opacity-25 tabular-nums shrink-0">pid {service.pid}</span>
+        )}
+        <span className={`text-[11px] font-medium shrink-0 ${stateColor}`}>
+          {info.spinning
+            ? <span className="flex items-center gap-1"><Loader2 className="size-3 animate-spin" />{info.label}</span>
+            : info.label}
+        </span>
+        {canStop ? (
+          <button className="btn btn-xs btn-error h-6 min-h-0 gap-1 px-2 shrink-0" onClick={handleStop} disabled={busy}>
+            {busy ? <Loader2 className="size-3 animate-spin" /> : <Square className="size-3" />}
+            Stop
+          </button>
+        ) : (
+          <button className="btn btn-xs btn-success h-6 min-h-0 gap-1 px-2 shrink-0" onClick={handleStart} disabled={busy || state === "stopping"}>
+            {busy ? <Loader2 className="size-3 animate-spin" /> : <Play className="size-3" />}
+            Start
+          </button>
+        )}
+        <button onClick={onClose} className="btn btn-ghost btn-xs btn-circle h-6 min-h-0 w-6 opacity-40 hover:opacity-80 shrink-0">
+          <X className="size-3.5" />
+        </button>
+      </div>
 
-      {/* Controls */}
-      <DrawerSection>
-        <div className="flex items-center gap-3">
-          {canStop ? (
-            <button className="btn btn-sm btn-error gap-1.5" onClick={handleStop} disabled={busy}>
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Square className="size-3.5" />}
-              Stop
-            </button>
-          ) : (
-            <button className="btn btn-sm btn-success gap-1.5" onClick={handleStart} disabled={busy || state === "stopping"}>
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-              Start
-            </button>
-          )}
-          {service.running && service.startedAt && (
-            <span className="text-xs opacity-40 tabular-nums">
-              up <UptimeCounter startedAt={service.startedAt} running={service.running} />
-            </span>
-          )}
-          {state === "crashed" && service.crashCount > 0 && (
-            <span className="flex items-center gap-1.5 text-xs text-error/60">
-              <AlertTriangle className="size-3" />
-              {service.crashCount} crash{service.crashCount !== 1 ? "es" : ""}
-            </span>
-          )}
-        </div>
-      </DrawerSection>
+      {/* ── Row 2: command + meta ────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-t border-base-200/60 shrink-0 min-w-0">
+        <code className="text-[11px] font-mono opacity-50 truncate flex-1 leading-none">{service.command}</code>
+        {service.cwd && (
+          <span className="flex items-center gap-1 text-[11px] font-mono opacity-30 shrink-0">
+            <Folder className="size-3" />{service.cwd}
+          </span>
+        )}
+        {service.logSize != null && service.logSize > 0 && (
+          <span className="text-[11px] font-mono opacity-25 shrink-0 tabular-nums">{(service.logSize / 1024).toFixed(1)}KB</span>
+        )}
+        {service.running && service.startedAt && (
+          <span className="text-[11px] opacity-30 shrink-0 tabular-nums">
+            <UptimeCounter startedAt={service.startedAt} running={service.running} />
+          </span>
+        )}
+        {state === "crashed" && service.crashCount > 0 && (
+          <span className="flex items-center gap-1 text-[11px] text-error/50 shrink-0">
+            <AlertTriangle className="size-3" />{service.crashCount}
+          </span>
+        )}
+      </div>
 
-      {/* Info */}
-      <DrawerSection className="space-y-2.5">
-        <div>
-          <DrawerFieldLabel>Command</DrawerFieldLabel>
-          <code className="block text-xs font-mono bg-base-200 px-3 py-2 rounded-lg break-all leading-relaxed opacity-80">
-            {service.command}
-          </code>
-        </div>
-        <div className="flex gap-4 flex-wrap">
-          {service.cwd && (
-            <div className="min-w-0">
-              <DrawerFieldLabel>Dir</DrawerFieldLabel>
-              <div className="flex items-center gap-1.5 text-xs font-mono opacity-50">
-                <Folder className="size-3 shrink-0" />
-                <span className="truncate max-w-[180px]">{service.cwd}</span>
-              </div>
-            </div>
-          )}
-          {service.port && (
-            <div>
-              <DrawerFieldLabel>Port</DrawerFieldLabel>
-              <div className="flex items-center gap-1 text-xs font-mono opacity-50">
-                <Hash className="size-3" />
-                <span>{service.port}</span>
-              </div>
-            </div>
-          )}
-          {service.logSize != null && service.logSize > 0 && (
-            <div>
-              <DrawerFieldLabel>Log</DrawerFieldLabel>
-              <div className="text-xs font-mono opacity-40">{(service.logSize / 1024).toFixed(1)} KB</div>
-            </div>
-          )}
-        </div>
-      </DrawerSection>
-
-      {/* AI actions */}
+      {/* ── Row 3: AI toolbar (only when useful) ────────────────────────────── */}
       {(state === "running" || state === "crashed") && (
-        <DrawerSection>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              className="btn btn-xs btn-ghost gap-1.5 opacity-60 hover:opacity-100"
-              onClick={handleDetect}
-              disabled={detecting || fixing}
-              title="Detect host/port from log using AI"
-            >
-              {detecting ? <Loader2 className="size-3.5 animate-spin" /> : <Scan className="size-3.5" />}
-              Detect Config
-            </button>
-            <button
-              className="btn btn-xs btn-ghost gap-1.5 opacity-60 hover:opacity-100"
-              onClick={handleFix}
-              disabled={fixing || detecting}
-              title="Analyze log and create a fix issue"
-            >
-              {fixing ? <Loader2 className="size-3.5 animate-spin" /> : <Wrench className="size-3.5" />}
-              Fix
-            </button>
-            {detectResult && detectResult !== "error" && (
-              detectResult.found ? (
-                <span className="flex items-center gap-1.5 text-xs text-success">
-                  <CheckCircle2 className="size-3.5" />
-                  {detectResult.healthcheck?.endpoint ?? `port ${detectResult.healthcheck?.port}`}
-                </span>
-              ) : (
-                <span className="text-xs opacity-40">Could not detect config</span>
-              )
-            )}
-          </div>
-        </DrawerSection>
+        <div className="flex items-center gap-0.5 px-2 py-1 border-t border-base-200/60 bg-base-200/20 shrink-0">
+          <button
+            className="btn btn-xs btn-ghost h-6 min-h-0 gap-1 px-2 text-[11px] opacity-50 hover:opacity-90"
+            onClick={handleDetect}
+            disabled={detecting || fixing}
+          >
+            {detecting ? <Loader2 className="size-3 animate-spin" /> : <Scan className="size-3" />}
+            Detect
+          </button>
+          <button
+            className="btn btn-xs btn-ghost h-6 min-h-0 gap-1 px-2 text-[11px] opacity-50 hover:opacity-90"
+            onClick={handleFix}
+            disabled={fixing || detecting}
+          >
+            {fixing ? <Loader2 className="size-3 animate-spin" /> : <Wrench className="size-3" />}
+            Fix
+          </button>
+          {detectResult && detectResult !== "error" && (
+            detectResult.found ? (
+              <span className="flex items-center gap-1 text-[11px] text-success ml-1">
+                <CheckCircle2 className="size-3" />
+                {detectResult.healthcheck?.endpoint ?? `port ${detectResult.healthcheck?.port}`}
+              </span>
+            ) : (
+              <span className="text-[11px] opacity-30 ml-1">no config detected</span>
+            )
+          )}
+        </div>
       )}
 
       {/* Log viewer */}

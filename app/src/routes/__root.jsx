@@ -139,7 +139,6 @@ function RootLayout() {
   useHotkeys("shift+/", () => setShortcutsHelpOpen((v) => !v), { description: "Keyboard shortcuts help", metadata: { group: "global" } });
   useHotkeys("mod+k", () => setCommandPaletteOpen((v) => !v), { preventDefault: true, enableOnFormTags: true, description: "Command palette", metadata: { group: "palette" } });
   useHotkeys("r", () => ctx.refresh(), { enabled: noDrawer, description: "Refresh", metadata: { group: "global" } }, [ctx, noDrawer]);
-  useHotkeys("e", () => ctx.toggleEvents(), { enabled: noDrawer, description: "Toggle events", metadata: { group: "global" } }, [ctx, noDrawer]);
 
   // ── Navigation ──────────────────────────────────────────────────────
   useHotkeys("n", () => ctx.setIsCreateOpen(true), { enabled: noDrawer, description: "New issue", metadata: { group: "navigation" } }, [ctx, noDrawer]);
@@ -212,7 +211,6 @@ function RootLayout() {
           sourceRepo={ctx.data.sourceRepoUrl}
           updatedAt={ctx.data.updatedAt}
           wsStatus={ctx.wsStatus}
-          notifications={ctx.notifications}
           issues={ctx.issues}
         />
         <PwaBanner pwa={ctx.pwa} />
