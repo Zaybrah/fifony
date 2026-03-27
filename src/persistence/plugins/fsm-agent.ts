@@ -388,6 +388,8 @@ export async function runPlanPhase(
   issue.planningError = undefined;
   issue.updatedAt = now();
   markIssueDirty(issue.id);
+  // Immediately push state so the frontend shows the planning indicator right away.
+  import("../store.ts").then(({ persistState }) => persistState(state).catch(() => {})).catch(() => {});
 
   // Ensure workspace directory exists (no git worktree — planning only needs file storage)
   mkdirSync(workspaceDir, { recursive: true });
@@ -545,13 +547,25 @@ export async function runPlanPhase(
       addEvent(state, issue.id, "info", `Plan tokens (${issue.identifier}): ${usage.totalTokens.toLocaleString()} [${usage.model}]`);
     }
 
-    // Transition Planning → PendingApproval. Without this, the issue stays
-    // in Planning state indefinitely — the PLANNED event was never fired.
-    try {
-      const { transitionIssue } = await import("../../domains/issues.ts");
-      await transitionIssue(issue, "PLANNED", { issue });
-    } catch (transErr) {
-      logger.warn({ err: transErr, issueId: issue.id }, "[AgentFSM] PLANNED transition failed after plan generation");
+    // Guard: if this plan job's issue reference is stale (user deleted + re-created
+    // the issue while this job was running), skip the FSM transition entirely.
+    // A stale job holds a reference to the OLD object (no longer in state.issues),
+    // so transitioning it would corrupt the new issue's state in the DB while the
+    // in-memory new issue stays stuck in Planning.
+    const liveIssue = state.issues.find((i) => i.id === issue.id);
+    if (liveIssue !== issue) {
+      logger.warn({ issueId: issue.id, identifier: issue.identifier }, "[AgentFSM] Plan job completed for stale issue reference — skipping PLANNED transition");
+    } else {
+      // Transition Planning → PendingApproval. Without this, the issue stays
+      // in Planning state indefinitely — the PLANNED event was never fired.
+      try {
+        const { transitionIssue } = await import("../../domains/issues.ts");
+        await transitionIssue(issue, "PLANNED", { issue });
+        // executeTransition already calls triggerImmediatePersist() after the transition,
+        // so the frontend sees PendingApproval without waiting for the 5s persist interval.
+      } catch (transErr) {
+        logger.warn({ err: transErr, issueId: issue.id }, "[AgentFSM] PLANNED transition failed after plan generation");
+      }
     }
   } catch (error) {
     issue.planningStatus = "idle";
@@ -1688,6 +1702,7 @@ export async function runExecutePhase(
     await transitionIssueCommand({ issue, target: "Running", note: `Agent started for ${issue.identifier}.` }, container);
     container.eventStore.addEvent(issue.id, "progress", `Runner started for ${issue.identifier}.`);
   }
+  // executeTransition already calls triggerImmediatePersist() after the Running transition.
 
   let workflowConfig: WorkflowConfig | null = null;
   try {

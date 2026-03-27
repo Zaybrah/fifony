@@ -18,6 +18,22 @@ export function setFsmEventEmitter(emitter: FsmEventEmitter | null): void {
   fsmEventEmitter = emitter;
 }
 
+// ── Immediate-broadcast callback (injected after init to avoid circular deps) ──
+// Called after every successful FSM transition so the frontend sees state changes
+// without waiting up to 5s for the periodic persist interval.
+type PersistNowFn = () => void;
+let persistNowFn: PersistNowFn | null = null;
+
+export function setPersistNowFn(fn: PersistNowFn | null): void {
+  persistNowFn = fn;
+}
+
+function triggerImmediatePersist(): void {
+  if (persistNowFn) {
+    try { persistNowFn(); } catch { /* non-critical */ }
+  }
+}
+
 /** Remove any managed isolated test workspace associated with the issue. */
 function cleanupActiveTestWorkspace(issue: IssueEntry): void {
   if (!issue.testApplied) return;
@@ -683,6 +699,7 @@ export async function executeTransition(
   }
 
   markDirtyAndInvalidate(issue.id);
+  triggerImmediatePersist();
 
   return { previousState: previous };
 }
