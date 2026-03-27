@@ -60,6 +60,7 @@ export const ISSUE_DRAWER_TABS = [
 export function getDefaultIssueDrawerTab(issueState) {
   if (issueState === "Planning" || issueState === "PendingApproval") return "planning";
   if (issueState === "Reviewing" || issueState === "PendingDecision") return "review";
+  if (issueState === "Cancelled" || issueState === "Blocked") return "review";
   return "overview";
 }
 
