@@ -7,7 +7,7 @@ import {
 import { api } from "../api.js";
 import { useDashboard } from "../context/DashboardContext";
 import { CreateIssueDrawer } from "../components/CreateIssueForm.jsx";
-import { useServices, useServiceLog } from "../hooks/useServices.js";
+import { useServices } from "../hooks/useServices.js";
 import { formatDuration } from "../utils.js";
 import {
   DrawerBackdrop,
@@ -107,13 +107,79 @@ function stateInfo(state) {
 
 // ── Log viewer ─────────────────────────────────────────────────────────────────
 
+const REFRESH_PRESETS = [
+  { label: "Off", value: 0 },
+  { label: "5s",  value: 5_000 },
+  { label: "10s", value: 10_000 },
+  { label: "30s", value: 30_000 },
+  { label: "1m",  value: 60_000 },
+  { label: "5m",  value: 300_000 },
+];
+
 function LogViewer({ id, running, state }) {
-  const { log, connected, error } = useServiceLog(id, true);
+  const [log, setLog] = useState("");
+  const [logSize, setLogSize] = useState(0);
+  const [status, setStatus] = useState("idle"); // idle | loading | live | error
+  const [error, setError] = useState(null);
+  const [interval, setInterval_] = useState(5_000);
   const logRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const html = useMemo(() => (log ? ansiToHtml(log) : ""), [log]);
   const hasLog = Boolean(log && log.trim());
+  const lastSizeRef = useRef(0);
 
+  // Initial full fetch
+  const fetchFull = useCallback(async () => {
+    if (!id) return;
+    setStatus("loading");
+    setError(null);
+    try {
+      const res = await api.get(`/services/${encodeURIComponent(id)}/log`);
+      setLog(res.logTail ?? "");
+      lastSizeRef.current = res.logSize ?? 0;
+      setLogSize(res.logSize ?? 0);
+      setStatus("live");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load logs.");
+      setStatus("error");
+    }
+  }, [id]);
+
+  // Incremental fetch — only new bytes since last known position
+  const fetchIncremental = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await api.get(`/services/${encodeURIComponent(id)}/log?after=${lastSizeRef.current}`);
+      if (res.text) {
+        setLog((prev) => prev + res.text);
+        lastSizeRef.current = res.logSize ?? lastSizeRef.current;
+        setLogSize(res.logSize ?? lastSizeRef.current);
+      } else if (res.logSize < lastSizeRef.current) {
+        // Log was truncated (service restarted) — re-fetch full
+        fetchFull();
+      }
+    } catch {
+      /* non-critical — will retry on next interval */
+    }
+  }, [id, fetchFull]);
+
+  // Mount: fetch full log
+  useEffect(() => {
+    setLog("");
+    lastSizeRef.current = 0;
+    setLogSize(0);
+    setStatus("idle");
+    if (id) fetchFull();
+  }, [id, fetchFull]);
+
+  // Polling at selected interval
+  useEffect(() => {
+    if (!interval || !id) return;
+    const timer = setInterval(fetchIncremental, interval);
+    return () => clearInterval(timer);
+  }, [interval, id, fetchIncremental]);
+
+  // Auto-scroll
   useEffect(() => {
     if (autoScroll && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -126,6 +192,18 @@ function LogViewer({ id, running, state }) {
     setAutoScroll(scrollTop + clientHeight >= scrollHeight - 40);
   }, []);
 
+  const statusBadge = status === "loading"
+    ? <span className="flex items-center gap-1.5 text-xs opacity-40"><Loader2 className="size-2.5 animate-spin" />loading</span>
+    : status === "error"
+      ? <span className="text-xs text-error/70">error</span>
+    : hasLog && state === "crashed"
+      ? <span className="flex items-center gap-1.5 text-xs text-error/70"><Circle className="size-2 fill-current" />crash log</span>
+    : interval > 0 && status === "live"
+      ? <span className="flex items-center gap-1.5 text-xs text-success"><Circle className="size-2 fill-success" />live</span>
+    : hasLog
+      ? <span className="text-xs opacity-45">paused</span>
+    : <span className="text-xs opacity-25">no output</span>;
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center justify-between px-4 py-2 bg-base-200/40 border-t border-b border-base-200 shrink-0">
@@ -134,18 +212,30 @@ function LogViewer({ id, running, state }) {
           <span className="text-[10px] font-medium opacity-40 uppercase tracking-widest">Output</span>
         </div>
         <div className="flex items-center gap-2">
-          {connected
-            ? <span className="flex items-center gap-1.5 text-xs text-success"><Circle className="size-2 fill-success" />live</span>
-            : error
-              ? <span className="text-xs text-error/70">error</span>
-            : hasLog && state === "crashed"
-              ? <span className="flex items-center gap-1.5 text-xs text-error/70"><Circle className="size-2 fill-current" />crash log</span>
-            : hasLog
-              ? <span className="text-xs opacity-45">saved log</span>
-            : running
-              ? <span className="flex items-center gap-1.5 text-xs opacity-35"><Loader2 className="size-2.5 animate-spin" />connecting</span>
-              : <span className="text-xs opacity-25">idle</span>
-          }
+          {statusBadge}
+          {/* Refresh interval selector */}
+          <div className="flex items-center gap-0.5 border border-base-300 rounded overflow-hidden ml-1">
+            {REFRESH_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => setInterval_(p.value)}
+                className={`px-1.5 py-0.5 text-[10px] font-mono transition-colors ${
+                  interval === p.value
+                    ? "bg-primary text-primary-content"
+                    : "hover:bg-base-300 opacity-50 hover:opacity-100"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <button
+            className="btn btn-xs btn-ghost opacity-40 hover:opacity-80 px-1.5"
+            onClick={fetchFull}
+            title="Reload full log"
+          >
+            ↺
+          </button>
           {!autoScroll && (
             <button
               className="btn btn-xs btn-ghost opacity-40 hover:opacity-80"
