@@ -174,7 +174,12 @@ export async function startApiServer(
     docs: { enabled: true, title: "Fifony API", version: "1.0.0", description: "Local orchestration API for Fifony" },
     cors: { enabled: true, origin: "*" },
     security: { enabled: false },
-    logging: { enabled: !QUIET_MODE, excludePaths: ["/health", "/status", "/**/*.js", "/**/*.css", "/**/*.svg"] },
+    logging: {
+      enabled: !QUIET_MODE,
+      logLevel: devPort ? "debug" : "info",
+      excludePaths: ["/health", "/status", "/**/*.js", "/**/*.css", "/**/*.svg"],
+    },
+    websocket: { logLevel: devPort ? "debug" : "warn" },
     compression: { enabled: true, threshold: 1024 },
     health: { enabled: true },
     resources: {

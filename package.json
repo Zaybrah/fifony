@@ -70,15 +70,15 @@
     "raffel": "^1.0.19",
     "react-hotkeys-hook": "^5.2.4",
     "recker": "^1.0.86",
-    "s3db.js": "21.3.19",
+    "s3db.js": "21.3.20",
     "web-push": "^3.6.7",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-query": "^5.95.2",
-    "@tanstack/react-router": "^1.168.4",
-    "@tanstack/router-plugin": "^1.167.5",
+    "@tanstack/react-router": "^1.168.7",
+    "@tanstack/router-plugin": "^1.167.8",
     "@vitejs/plugin-react": "^6.0.1",
     "daisyui": "^5.5.19",
     "lucide-react": "^1.7.0",
@@ -89,6 +89,6 @@
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
-    "vite": "^8.0.2"
+    "vite": "^8.0.3"
   }
 }
