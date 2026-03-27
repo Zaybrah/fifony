@@ -1,6 +1,8 @@
 import { now } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
 import { computeMetrics } from "../domains/metrics.ts";
+import { STATE_ROOT } from "../concerns/constants.ts";
+import { startServiceLogBroadcasting } from "../persistence/plugins/service-log-broadcaster.ts";
 import type { RuntimeState } from "../types.ts";
 
 // ── WebSocket broadcast (same port via listeners) ────────────────────────────
@@ -216,6 +218,9 @@ export function makeWebSocketConfig(state: RuntimeState) {
           send(JSON.stringify({ type: "pong", timestamp: now() }));
         } else if (msg.type === "service:log:subscribe" && typeof msg.id === "string") {
           subscribeServiceLogRoom(socketId, msg.id);
+          // Ensure the file watcher is active — it may not be if the server restarted
+          // while the service was already running, or if the page opened mid-run.
+          startServiceLogBroadcasting(msg.id, STATE_ROOT);
           logger.debug({ socketId, serviceId: msg.id }, "[WebSocket] Subscribed to service log room");
         } else if (msg.type === "service:log:unsubscribe" && typeof msg.id === "string") {
           unsubscribeServiceLogRoom(socketId, msg.id);

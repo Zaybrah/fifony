@@ -7,7 +7,8 @@ import {
 import { api } from "../api.js";
 import { useDashboard } from "../context/DashboardContext";
 import { CreateIssueDrawer } from "../components/CreateIssueForm.jsx";
-import { useServices } from "../hooks/useServices.js";
+import { useServices, onServiceLog, dispatchServiceLog } from "../hooks/useServices.js";
+import { subscribeServiceLog, unsubscribeServiceLog } from "../hooks.js";
 import { formatDuration } from "../utils.js";
 import {
   DrawerBackdrop,
@@ -108,7 +109,7 @@ function stateInfo(state) {
 // ── Log viewer ─────────────────────────────────────────────────────────────────
 
 const REFRESH_PRESETS = [
-  { label: "Off", value: 0 },
+  { label: "WS",  value: 0 },       // WebSocket push — no polling
   { label: "5s",  value: 5_000 },
   { label: "10s", value: 10_000 },
   { label: "30s", value: 30_000 },
@@ -121,7 +122,7 @@ function LogViewer({ id, running, state }) {
   const [logSize, setLogSize] = useState(0);
   const [status, setStatus] = useState("idle"); // idle | loading | live | error
   const [error, setError] = useState(null);
-  const [interval, setInterval_] = useState(5_000);
+  const [pollInterval, setPollInterval] = useState(0); // 0 = WS-only, no HTTP poll
   const logRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const html = useMemo(() => (log ? ansiToHtml(log) : ""), [log]);
@@ -154,30 +155,43 @@ function LogViewer({ id, running, state }) {
         setLog((prev) => prev + res.text);
         lastSizeRef.current = res.logSize ?? lastSizeRef.current;
         setLogSize(res.logSize ?? lastSizeRef.current);
-      } else if (res.logSize < lastSizeRef.current) {
-        // Log was truncated (service restarted) — re-fetch full
-        fetchFull();
+      } else if ((res.logSize ?? lastSizeRef.current) < lastSizeRef.current) {
+        fetchFull(); // Log truncated — service restarted
       }
     } catch {
       /* non-critical — will retry on next interval */
     }
   }, [id, fetchFull]);
 
-  // Mount: fetch full log
+  // Mount: fetch full log + subscribe to WS log room
   useEffect(() => {
     setLog("");
     lastSizeRef.current = 0;
     setLogSize(0);
     setStatus("idle");
-    if (id) fetchFull();
+    if (!id) return;
+
+    fetchFull();
+    subscribeServiceLog(id);
+
+    const unsub = onServiceLog(id, (chunk) => {
+      setLog((prev) => prev + chunk);
+      lastSizeRef.current += new TextEncoder().encode(chunk).length;
+      setStatus("live");
+    });
+
+    return () => {
+      unsubscribeServiceLog(id);
+      unsub();
+    };
   }, [id, fetchFull]);
 
-  // Polling at selected interval
+  // Polling at selected interval (fallback / user preference)
   useEffect(() => {
-    if (!interval || !id) return;
-    const timer = setInterval(fetchIncremental, interval);
+    if (!pollInterval || !id) return;
+    const timer = setInterval(fetchIncremental, pollInterval);
     return () => clearInterval(timer);
-  }, [interval, id, fetchIncremental]);
+  }, [pollInterval, id, fetchIncremental]);
 
   // Auto-scroll
   useEffect(() => {
@@ -218,9 +232,9 @@ function LogViewer({ id, running, state }) {
             {REFRESH_PRESETS.map((p) => (
               <button
                 key={p.value}
-                onClick={() => setInterval_(p.value)}
+                onClick={() => setPollInterval(p.value)}
                 className={`px-1.5 py-0.5 text-[10px] font-mono transition-colors ${
-                  interval === p.value
+                  pollInterval === p.value
                     ? "bg-primary text-primary-content"
                     : "hover:bg-base-300 opacity-50 hover:opacity-100"
                 }`}
