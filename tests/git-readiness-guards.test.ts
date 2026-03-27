@@ -95,7 +95,7 @@ describe("git readiness guards", () => {
   it("approvePlanCommand rejects contractual plans before touching git when negotiation is not approved", async () => {
     const issue = makeIssue("Planning", {
       plan: makePlan({ harnessMode: "contractual", executionContract: { ...makePlan().executionContract, checkpointPolicy: "checkpointed" } }),
-      contractNegotiationStatus: "failed",
+      contractNegotiationStatus: "pending",
     });
 
     await assert.rejects(
