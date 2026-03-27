@@ -533,6 +533,9 @@ export async function runPlanPhase(
     const workflowConfig = getWorkflowConfig(await loadRuntimeSettings());
     await runContractNegotiation(state, issue, workflowConfig, workspaceDir);
 
+    // Contract negotiation is a quality check — its failure does not block the plan.
+    // Clear any planningError it may have set so the user sees a clean PendingApproval.
+    issue.planningError = undefined;
     issue.planningStatus = "idle";
     issue.planningStartedAt = undefined;
     issue.updatedAt = now();
@@ -540,6 +543,15 @@ export async function runPlanPhase(
     addEvent(state, issue.id, "progress", `Plan v${pv} generated for ${issue.identifier}: ${plan.steps.length} steps, complexity: ${plan.estimatedComplexity}.`);
     if (usage.totalTokens > 0) {
       addEvent(state, issue.id, "info", `Plan tokens (${issue.identifier}): ${usage.totalTokens.toLocaleString()} [${usage.model}]`);
+    }
+
+    // Transition Planning → PendingApproval. Without this, the issue stays
+    // in Planning state indefinitely — the PLANNED event was never fired.
+    try {
+      const { transitionIssue } = await import("../../domains/issues.ts");
+      await transitionIssue(issue, "PLANNED", { issue });
+    } catch (transErr) {
+      logger.warn({ err: transErr, issueId: issue.id }, "[AgentFSM] PLANNED transition failed after plan generation");
     }
   } catch (error) {
     issue.planningStatus = "idle";
