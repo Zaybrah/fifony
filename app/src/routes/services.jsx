@@ -212,7 +212,7 @@ function LogViewer({ id, running, state }) {
       ? <span className="text-xs text-error/70">error</span>
     : hasLog && state === "crashed"
       ? <span className="flex items-center gap-1.5 text-xs text-error/70"><Circle className="size-2 fill-current" />crash log</span>
-    : interval > 0 && status === "live"
+    : pollInterval > 0 && status === "live"
       ? <span className="flex items-center gap-1.5 text-xs text-success"><Circle className="size-2 fill-success" />live</span>
     : hasLog
       ? <span className="text-xs opacity-45">paused</span>
