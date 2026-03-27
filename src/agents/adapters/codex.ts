@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan } from "../../types.ts";
+import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan, ProviderCapabilities } from "../../types.ts";
 import type { CompiledExecution } from "./types.ts";
 import type { ProviderAdapter, ProviderCommandOptions } from "./registry.ts";
 import { renderPrompt } from "../prompting.ts";
@@ -12,7 +12,7 @@ import {
   parseCodexUsageFromStatus,
 } from "./usage.ts";
 
-const CODEX_CAPABILITIES = {
+const CODEX_CAPABILITIES: ProviderCapabilities = {
   readOnlyExecution: "none",
   structuredOutput: {
     mode: "prompt-contract",
@@ -21,7 +21,7 @@ const CODEX_CAPABILITIES = {
   imageInput: "cli-flag",
   usageReporting: "cli-command",
   nativeSubagents: "runtime-only",
-} as const;
+};
 
 export const CODEX_USAGE_COMMAND = "/status";
 export const collectCodexUsageFromCli = (): Promise<ProviderUsageSnapshot | null> =>

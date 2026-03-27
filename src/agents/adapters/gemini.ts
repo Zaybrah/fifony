@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan } from "../../types.ts";
+import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan, ProviderCapabilities } from "../../types.ts";
 import type { CompiledExecution } from "./types.ts";
 import type { ProviderAdapter, ProviderCommandOptions } from "./registry.ts";
 import { renderPrompt } from "../prompting.ts";
@@ -12,7 +12,7 @@ import {
   parseGeminiUsageFromStatus,
 } from "./usage.ts";
 
-const GEMINI_CAPABILITIES = {
+const GEMINI_CAPABILITIES: ProviderCapabilities = {
   readOnlyExecution: "approval",
   structuredOutput: {
     mode: "prompt-contract",
@@ -21,7 +21,7 @@ const GEMINI_CAPABILITIES = {
   imageInput: "prompt-inline",
   usageReporting: "cli-command",
   nativeSubagents: "runtime-only",
-} as const;
+};
 
 export const GEMINI_USAGE_COMMAND = "/stats session";
 export const collectGeminiUsageFromCli = (): Promise<ProviderUsageSnapshot | null> =>

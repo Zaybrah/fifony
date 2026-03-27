@@ -151,6 +151,7 @@ async function main() {
     events: [],
     metrics: { total: 0, planning: 0, queued: 0, inProgress: 0, blocked: 0, done: 0, merged: 0, cancelled: 0, activeWorkers: 0 },
     notes: [],
+    variables: [],
     booting: true,
   };
 

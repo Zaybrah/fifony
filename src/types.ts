@@ -15,6 +15,7 @@ export type IssueState =
 
 export type RuntimeEventType =
   | "info"
+  | "warn"
   | "state"
   | "progress"
   | "error"
@@ -592,6 +593,14 @@ export type MilestoneProgressSummary = {
   progressPercent: number;
 };
 
+export type VariableEntry = {
+  id: string;        // "${scope}:${key}"
+  key: string;
+  value: string;
+  scope: string;     // "global" | service id
+  updatedAt: string;
+};
+
 export type MilestoneEntry = {
   id: string;
   slug: string;
@@ -638,6 +647,7 @@ export type RuntimeState = {
   events: RuntimeEvent[];
   metrics: RuntimeMetrics;
   notes: string[];
+  variables: VariableEntry[];
 };
 
 export type BlueprintNodeType =

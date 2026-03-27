@@ -401,6 +401,7 @@ async function recoverStateFromIssueResource(): Promise<RuntimeState | null> {
       events: [],
       metrics: getMetrics(issues),
       notes: ["State recovered from individual issue records after corruption."],
+      variables: [],
     };
   } catch (error) {
     logger.warn(`Failed to recover issues from s3db: ${String(error)}`);

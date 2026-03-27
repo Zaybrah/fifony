@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan } from "../../types.ts";
+import type { IssueEntry, AgentProviderDefinition, RuntimeConfig, IssuePlan, ProviderCapabilities } from "../../types.ts";
 import type { CompiledExecution } from "./types.ts";
 import type { ProviderAdapter, ProviderCommandOptions } from "./registry.ts";
 import { renderPrompt } from "../prompting.ts";
@@ -12,7 +12,7 @@ import {
   parseClaudeUsageFromStatus,
 } from "./usage.ts";
 
-const CLAUDE_CAPABILITIES = {
+const CLAUDE_CAPABILITIES: ProviderCapabilities = {
   readOnlyExecution: "plan",
   structuredOutput: {
     mode: "json-schema",
@@ -21,7 +21,7 @@ const CLAUDE_CAPABILITIES = {
   imageInput: "prompt-inline",
   usageReporting: "cli-command",
   nativeSubagents: "native",
-} as const;
+};
 
 export const CLAUDE_USAGE_COMMAND = "/usage";
 export const collectClaudeUsageFromCli = (): Promise<ProviderUsageSnapshot | null> =>
