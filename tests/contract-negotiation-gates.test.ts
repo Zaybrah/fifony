@@ -94,6 +94,59 @@ describe("contract negotiation parser", () => {
     assert.equal(decision?.concerns.length, 1);
     assert.match(buildContractNegotiationFeedback(decision!), /Required contract fixes/i);
   });
+
+  it("extracts from --output-format json envelope with trailing garbage", () => {
+    // Simulates real CLI output: JSON envelope on one line + ANSI escapes + fifony suffix
+    const innerResult = [
+      "Review commentary here.",
+      "",
+      "```json contract_decision",
+      JSON.stringify({
+        status: "approved",
+        summary: "Contract looks good.",
+        rationale: "All criteria are testable.",
+        concerns: [],
+      }, null, 2),
+      "```",
+      "",
+      "`FIFONY_STATUS=continue`",
+    ].join("\n");
+
+    const envelope = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: innerResult,
+      session_id: "test-123",
+      total_cost_usd: 0.1,
+    });
+
+    // Real output has ANSI terminal cleanup sequences and fifony suffix after the JSON
+    const rawOutput = `${envelope}\n\x1b[?1006l\x1b[?1003l\x1b[?25h\nExecution succeeded in 5000ms.`;
+
+    const decision = extractContractDecision(rawOutput);
+    assert.ok(decision, "should parse contract_decision from JSON envelope with trailing garbage");
+    assert.equal(decision?.status, "approved");
+    assert.equal(decision?.concerns.length, 0);
+  });
+
+  it("extracts from truncated envelope via regex fallback", () => {
+    const innerResult = [
+      "```json contract_decision",
+      JSON.stringify({ status: "revise", summary: "Fix it.", rationale: "Broken.", concerns: [
+        { id: "NC-1", severity: "blocking", area: "steps", problem: "Missing step.", requiredChange: "Add step." },
+      ] }, null, 2),
+      "```",
+    ].join("\n");
+
+    // Simulate truncated output: prefix garbage breaks JSON.parse, but "result" field is still visible
+    const fullEnvelope = JSON.stringify({ type: "result", result: innerResult });
+    const truncated = `…broken prefix ${fullEnvelope.slice(fullEnvelope.indexOf('"result"'))}`;
+
+    const decision = extractContractDecision(truncated);
+    assert.ok(decision, "should parse via regex fallback on truncated envelope");
+    assert.equal(decision?.status, "revise");
+    assert.equal(decision?.concerns.length, 1);
+  });
 });
 
 describe("contract negotiation readiness", () => {

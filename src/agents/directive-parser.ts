@@ -59,6 +59,48 @@ export function addTokenUsage(issue: IssueEntry, usage?: AgentTokenUsage, role?:
   issue.usage.tokens[model] = (issue.usage.tokens[model] || 0) + usage.totalTokens;
 }
 
+/** Extract the "result" field from a --output-format json CLI envelope.
+ *  Handles trailing garbage (ANSI escapes, fifony suffixes) that break JSON.parse. */
+export function extractJsonEnvelopeResult(text: string): string | null {
+  try {
+    const env = JSON.parse(text.trim()) as Record<string, unknown>;
+    if (env && typeof env === "object" && typeof env.result === "string") return env.result;
+  } catch { /* trailing garbage — fall through */ }
+
+  // Isolate the JSON object: first '{' to last '}'
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  const end = text.lastIndexOf("}");
+  if (end <= start) return null;
+  try {
+    const env = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+    if (env && typeof env === "object" && typeof env.result === "string") return env.result;
+  } catch { /* still not valid JSON */ }
+
+  // Last resort: regex-extract the result field and manually unescape the JSON string
+  const m = text.match(/"result"\s*:\s*"([\s\S]+)/);
+  if (m) {
+    let raw = "";
+    let i = 0;
+    const src = m[1];
+    while (i < src.length) {
+      if (src[i] === "\\" && i + 1 < src.length) {
+        const next = src[i + 1];
+        if (next === "n") { raw += "\n"; i += 2; continue; }
+        if (next === "t") { raw += "\t"; i += 2; continue; }
+        if (next === '"') { raw += '"'; i += 2; continue; }
+        if (next === "\\") { raw += "\\"; i += 2; continue; }
+        raw += next; i += 2; continue;
+      }
+      if (src[i] === '"') break;
+      raw += src[i]; i += 1;
+    }
+    if (raw.length > 100) return raw;
+  }
+
+  return null;
+}
+
 export function extractOutputMarker(output: string, name: string): string {
   const match = output.match(new RegExp(`^${name}=(.+)$`, "im"));
   return match?.[1]?.trim() ?? "";

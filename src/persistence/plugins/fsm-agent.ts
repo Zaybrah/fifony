@@ -35,7 +35,7 @@ import {
 import { addEvent, computeMetrics, getNextRetryAt } from "../../domains/issues.ts";
 import { compileReview, buildExecutionAudit, persistExecutionAudit } from "../../agents/adapters/index.ts";
 import { generatePlan } from "../../agents/planning/issue-planner.ts";
-import { addTokenUsage } from "../../agents/directive-parser.ts";
+import { addTokenUsage, extractJsonEnvelopeResult } from "../../agents/directive-parser.ts";
 import { runAgentSession, runAgentPipeline } from "../../agents/agent-pipeline.ts";
 import { computeDiffStats } from "../../domains/workspace.ts";
 import { runValidationGate } from "../../domains/validation.ts";
@@ -584,13 +584,18 @@ export async function runPlanPhase(
 // ── Review grading helpers ────────────────────────────────────────────────────
 
 function extractGradingReport(text: string): GradingReport | null {
-  const match = text.match(/```json grading_report\n([\s\S]+?)```/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[1]) as GradingReport;
-  } catch {
-    return null;
+  const candidates = [text];
+  const envelopeResult = extractJsonEnvelopeResult(text);
+  if (envelopeResult) candidates.push(envelopeResult);
+
+  for (const candidate of candidates) {
+    const match = candidate.match(/```json grading_report\n([\s\S]+?)```/);
+    if (!match) continue;
+    try {
+      return JSON.parse(match[1]) as GradingReport;
+    } catch { continue; }
   }
+  return null;
 }
 
 function buildGradingFailureSummary(report: GradingReport, failureScope: "all" | "blocking" = "all"): string {
