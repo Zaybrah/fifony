@@ -26,7 +26,7 @@ import { SessionsTab } from "./tabs/SessionsTab.jsx";
 
 // ── DrawerFooter ─────────────────────────────────────────────────────────────
 
-function DrawerFooter({ issue, onStateChange, onRetry, onMerge, onPush, mergeBusy, mergeError, mergeNotice, mergeMode }) {
+function DrawerFooter({ issue, onStateChange, onRetry, onMerge, onPush, onReplan, replanBusy, mergeBusy, mergeError, mergeNotice, mergeMode }) {
   const footerStyle = { paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" };
   const [executeBusy, setExecuteBusy] = useState(false);
   const [executeError, setExecuteError] = useState(null);
@@ -77,6 +77,17 @@ function DrawerFooter({ issue, onStateChange, onRetry, onMerge, onPush, mergeBus
           >
             {executeBusy ? <><Loader className="size-4 animate-spin" /> Starting...</> : <><PlayCircle className="size-4" /> Execute</>}
           </button>
+          {executeError && (
+            <button
+              className="btn btn-ghost btn-sm gap-1.5"
+              onClick={onReplan}
+              disabled={replanBusy}
+              title="Re-run planning to fix the issue"
+            >
+              {replanBusy ? <Loader className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
+              Replan
+            </button>
+          )}
         </div>
       </div>
     );
@@ -413,6 +424,8 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
           issue={issue}
           onStateChange={onStateChange}
           onRetry={onRetry}
+          onReplan={handleReplanFromDrawer}
+          replanBusy={replanBusy}
           onMerge={handleMerge}
           onPush={handlePush}
           mergeBusy={mergeBusy}

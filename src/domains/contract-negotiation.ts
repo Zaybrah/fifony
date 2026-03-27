@@ -33,7 +33,7 @@ export function getPlanExecutionBlocker(issue: Pick<IssueEntry, "identifier" | "
     return `Cannot advance ${issue.identifier} while contract negotiation is still running.`;
   }
 
-  if (issue.contractNegotiationStatus !== "approved") {
+  if (issue.contractNegotiationStatus !== "approved" && issue.contractNegotiationStatus !== "failed") {
     const status = issue.contractNegotiationStatus ?? "pending";
     return `Cannot advance ${issue.identifier} because contractual harness requires approved contract negotiation. Current status: ${status}.`;
   }
