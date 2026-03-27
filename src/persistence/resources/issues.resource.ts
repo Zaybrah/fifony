@@ -53,13 +53,7 @@ function respond(c: unknown, result: { body: unknown; status?: number }, created
     return result.body;
   }
   const context = c as ApiContext;
-  if (result.status) {
-    return context.json(result.body, result.status);
-  }
-  if (createdStatus) {
-    return context.json(result.body, createdStatus);
-  }
-  return result.body;
+  return context.json(result.body, result.status ?? createdStatus ?? 200);
 }
 
 async function getIssueSessions(c: unknown) {
@@ -318,11 +312,16 @@ async function approveIssue(c: unknown) {
   const issue = findIssue(context.state, issueId);
   if (!issue) return { status: 404, body: { ok: false, error: "Issue not found" } };
 
-  const container = getContainer();
-  await approvePlanCommand({ issue }, container);
-  const { persistState } = await import("../store.ts");
-  await persistState(context.state);
-  return { body: { ok: true, issue } };
+  try {
+    const container = getContainer();
+    await approvePlanCommand({ issue }, container);
+    const { persistState } = await import("../store.ts");
+    await persistState(context.state);
+    return { body: { ok: true, issue } };
+  } catch (error) {
+    logger.error({ err: error }, `Failed to approve issue ${issueId}`);
+    return { status: 400, body: { ok: false, error: error instanceof Error ? error.message : String(error) } };
+  }
 }
 
 async function executeIssue(c: unknown) {
@@ -332,11 +331,16 @@ async function executeIssue(c: unknown) {
   const issue = findIssue(context.state, issueId);
   if (!issue) return { status: 404, body: { ok: false, error: "Issue not found" } };
 
-  const container = getContainer();
-  await executeIssueCommand({ issue }, container);
-  const { persistState } = await import("../store.ts");
-  await persistState(context.state);
-  return { body: { ok: true, issue } };
+  try {
+    const container = getContainer();
+    await executeIssueCommand({ issue }, container);
+    const { persistState } = await import("../store.ts");
+    await persistState(context.state);
+    return { body: { ok: true, issue } };
+  } catch (error) {
+    logger.error({ err: error }, `Failed to execute issue ${issueId}`);
+    return { status: 400, body: { ok: false, error: error instanceof Error ? error.message : String(error) } };
+  }
 }
 
 async function replanIssue(c: unknown) {
@@ -346,11 +350,16 @@ async function replanIssue(c: unknown) {
   const issue = findIssue(context.state, issueId);
   if (!issue) return { status: 404, body: { ok: false, error: "Issue not found" } };
 
-  const container = getContainer();
-  await replanIssueCommand({ issue }, container);
-  const { persistState } = await import("../store.ts");
-  await persistState(context.state);
-  return { body: { ok: true, issue } };
+  try {
+    const container = getContainer();
+    await replanIssueCommand({ issue }, container);
+    const { persistState } = await import("../store.ts");
+    await persistState(context.state);
+    return { body: { ok: true, issue } };
+  } catch (error) {
+    logger.error({ err: error }, `Failed to replan issue ${issueId}`);
+    return { status: 400, body: { ok: false, error: error instanceof Error ? error.message : String(error) } };
+  }
 }
 
 async function mergeIssue(c: unknown) {
