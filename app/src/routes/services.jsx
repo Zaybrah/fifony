@@ -349,7 +349,7 @@ function ServiceDrawerBody({ service, onClose, onRefresh }) {
       <CreateIssueDrawer
         open={fixDrawer.open}
         onClose={() => setFixDrawer({ open: false, defaultValues: null })}
-        onSubmit={async (data) => { await createIssue(data); setFixDrawer({ open: false, defaultValues: null }); }}
+        onSubmit={async (data) => { await createIssue.mutateAsync(data); setFixDrawer({ open: false, defaultValues: null }); }}
         defaultValues={fixDrawer.defaultValues}
         onToast={showToast}
       />
