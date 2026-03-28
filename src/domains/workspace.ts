@@ -732,6 +732,30 @@ function ensureWorktreeCommitted(issue: IssueEntry): void {
 
 export { ensureWorktreeCommitted };
 
+/** Auto-stash dirty TARGET_ROOT state before merge operations.
+ *  Returns true if a stash was created (caller must pop after). */
+function autoStashTargetIfDirty(): boolean {
+  const status = execSync("git status --porcelain", { cwd: TARGET_ROOT, encoding: "utf8" }).trim();
+  if (!status) return false;
+  try {
+    execSync("git stash push -m \"fifony: auto-stash before merge\"", { cwd: TARGET_ROOT, stdio: "pipe" });
+    logger.info("[Workspace] Auto-stashed dirty TARGET_ROOT before merge");
+    return true;
+  } catch (err) {
+    logger.warn({ err: String(err) }, "[Workspace] Failed to auto-stash TARGET_ROOT");
+    return false;
+  }
+}
+
+function autoStashPop(): void {
+  try {
+    execSync("git stash pop", { cwd: TARGET_ROOT, stdio: "pipe" });
+    logger.info("[Workspace] Restored auto-stashed changes after merge");
+  } catch (err) {
+    logger.warn({ err: String(err) }, "[Workspace] Failed to pop stash — changes preserved in stash list");
+  }
+}
+
 /** Merge a worktree branch into TARGET_ROOT using git merge --no-ff.
  *  When abortOnConflict is false, conflict markers are left in place for agent resolution. */
 function mergeWorktree(issue: IssueEntry, abortOnConflict = true): MergeResult {
@@ -743,10 +767,7 @@ function mergeWorktree(issue: IssueEntry, abortOnConflict = true): MergeResult {
     throw new Error(`Cannot merge ${issue.identifier}: current branch is ${currentBranch}, expected ${issue.baseBranch}.`);
   }
 
-  const targetStatus = execSync("git status --porcelain", { cwd: TARGET_ROOT, encoding: "utf8" }).trim();
-  if (targetStatus) {
-    throw new Error(`Cannot merge ${issue.identifier}: target repository has uncommitted changes.`);
-  }
+  const stashed = autoStashTargetIfDirty();
 
   // Collect changed files before merging (for the result summary)
   try {
@@ -784,6 +805,7 @@ function mergeWorktree(issue: IssueEntry, abortOnConflict = true): MergeResult {
     }
   }
 
+  if (stashed) autoStashPop();
   return result;
 }
 
@@ -829,10 +851,7 @@ export function dryMerge(issue: IssueEntry): DryMergeResult {
     throw new Error(`Cannot preview merge: current branch is ${currentBranch}, expected ${issue.baseBranch}.`);
   }
 
-  const targetStatus = execSync("git status --porcelain", { cwd: TARGET_ROOT, encoding: "utf8" }).trim();
-  if (targetStatus) {
-    throw new Error(`Cannot preview merge: target repository has uncommitted changes.`);
-  }
+  const stashed = autoStashTargetIfDirty();
 
   let conflictFiles: string[] = [];
   let willConflict = false;
@@ -877,6 +896,7 @@ export function dryMerge(issue: IssueEntry): DryMergeResult {
     changedFiles = diffOut.trim().split("\n").filter(Boolean).length;
   } catch {}
 
+  if (stashed) autoStashPop();
   return { willConflict, conflictFiles, canMerge: !willConflict, changedFiles };
 }
 
