@@ -114,7 +114,7 @@ export class ServiceGraphAccumulator {
     const edges: ServiceGraphEdge[] = [];
     for (const e of this.edges.values()) {
       const sorted = [...e.latency.values].sort((a, b) => a - b);
-      const p95Idx = Math.min(Math.floor(sorted.length * 0.95), sorted.length - 1);
+      const pct = (p: number) => sorted.length > 0 ? sorted[Math.min(Math.floor(sorted.length * p), sorted.length - 1)] : 0;
       const topPaths = [...e.pathCounts.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, MAX_TOP_PATHS)
@@ -126,7 +126,10 @@ export class ServiceGraphAccumulator {
         requestCount: e.requestCount,
         errorCount: e.errorCount,
         avgLatencyMs: e.latency.count > 0 ? Math.round(e.latency.sum / e.latency.count) : 0,
-        p95LatencyMs: sorted.length > 0 ? sorted[p95Idx] : 0,
+        p50LatencyMs: pct(0.5),
+        p90LatencyMs: pct(0.9),
+        p95LatencyMs: pct(0.95),
+        p99LatencyMs: pct(0.99),
         lastSeenAt: e.lastSeenAt,
         topPaths,
       });
