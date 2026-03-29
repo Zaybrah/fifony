@@ -76,12 +76,6 @@ export function useMesh() {
 
   const counterRef = useRef(0);
 
-  // Slow poll fallback for graph (30s) in case WS misses updates
-  useEffect(() => {
-    const id = setInterval(fetchGraph, 30_000);
-    return () => clearInterval(id);
-  }, [fetchGraph]);
-
   const toggleMesh = useCallback(async (enabled) => {
     try {
       const res = await api.post("/mesh/toggle", { enabled });
