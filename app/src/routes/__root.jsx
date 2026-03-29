@@ -196,7 +196,7 @@ function RootLayout() {
   const toastMessage = typeof ctx.toast === "string" ? ctx.toast : ctx.toast?.message;
 
   return (
-      <div className="min-h-screen flex flex-col">
+      <div className="flex flex-col" style={{ minHeight: '100dvh' }}>
         {ctx.toast && (
           <div className="toast toast-end toast-top z-50">
             <div className={`alert text-sm shadow-lg ${toastType === "success" ? "alert-success" : toastType === "error" ? "alert-error" : "alert-info"} ${ctx.toastExiting ? "animate-toast-out" : "animate-toast-in"}`}>
@@ -220,7 +220,7 @@ function RootLayout() {
         />
         <PwaBanner pwa={ctx.pwa} />
 
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex flex-col min-h-0 pb-20 md:pb-0">
           <ViewTransition>
             <Outlet />
           </ViewTransition>

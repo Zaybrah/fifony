@@ -8,7 +8,14 @@
 /* Fifony Dashboard — layout helpers + micro-interactions */
 
 html, body, #root {
-  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: 100vh; /* fallback for older browsers */
+}
+
+@supports (min-height: 100dvh) {
+  html, body, #root {
+    min-height: 100dvh;
+  }
 }
 
 body {
