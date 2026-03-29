@@ -117,6 +117,8 @@ export function useRuntimeWebSocket(onMessage) {
 
       setStatus("connecting");
 
+      let pingInterval = null;
+
       ws.onopen = () => {
         setStatus("connected");
         _activeSend = (data) => ws.send(data);
@@ -131,6 +133,11 @@ export function useRuntimeWebSocket(onMessage) {
         for (const serviceId of _serviceLogSubs) {
           try { ws.send(JSON.stringify({ type: "service:log:subscribe", id: serviceId })); } catch {}
         }
+        // Heartbeat — keeps connection alive through proxies/NATs
+        clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+          try { ws.send(JSON.stringify({ type: "ping" })); } catch {}
+        }, 25_000);
       };
 
       ws.onmessage = (e) => {
@@ -156,6 +163,7 @@ export function useRuntimeWebSocket(onMessage) {
       ws.onclose = () => {
         setStatus("disconnected");
         _activeSend = null;
+        clearInterval(pingInterval);
         if (alive) {
           timer = setTimeout(connect, backoff);
           backoff = Math.min(backoff * 2, MAX_BACKOFF);
