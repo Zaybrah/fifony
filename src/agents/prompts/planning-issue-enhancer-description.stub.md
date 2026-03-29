@@ -12,13 +12,15 @@ Visual evidence (attached screenshots for context):
 {{/if}}
 
 Rules:
-- Keep it concise but include meaningful acceptance criteria tailored to the issue type.
-- For "bug": focus on problem description, expected behavior, and steps to reproduce.
-- For "feature": focus on goal, acceptance criteria, and any relevant notes.
-- For "refactor": describe current state, desired state, and scope.
-- For "docs": describe what to document and target audience.
-- For "chore": describe the task and why it's needed now.
-- Use markdown formatting appropriate for the type (## headings, bullet points).
+- SIMPLICITY FIRST: describe the smallest change that solves the problem. Do NOT suggest refactoring, re-architecting, or expanding scope beyond what was asked.
+- Keep it short — 3-8 lines max. No walls of text. No essays.
+- For "bug": what's broken, what's expected. That's it.
+- For "feature": what to add, where. No elaboration on alternatives or future work.
+- For "refactor": current state → desired state. Minimal scope.
+- For "docs": what to document.
+- For "chore": what to do and why.
+- Do NOT add acceptance criteria, test plans, or implementation details — the planner handles that.
+- Use bullet points. No ## headings unless truly needed.
 - The value should be in Portuguese if the input is in Portuguese; otherwise in English.
 
 After your analysis, return a single JSON code block as the LAST thing in your output:

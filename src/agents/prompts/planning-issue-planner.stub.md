@@ -47,22 +47,23 @@ Visual evidence (attached screenshots for context):
 {{/if}}
 {{#unless fast}}
 
+CRITICAL — SIMPLICITY PRINCIPLE:
+- Plan the SMALLEST change that solves the issue. Nothing more.
+- Do NOT refactor surrounding code, add abstractions, or expand scope.
+- A bug fix = fix the bug. A feature = add that one feature. A chore = do the chore.
+- Prefer 1-3 steps. Only go up to 5-8 for genuinely complex work.
+- Default to `solo` or `standard` harnessMode. Only use `contractual` for truly high-risk work (security, data loss, FSM changes). A missing link, a config change, or a UI tweak is NEVER contractual.
+- If the fix is obvious (add a line, change a value, restore deleted code), say so directly. Don't dress it up with architectural analysis.
+
 Quality rules:
-- Be concrete, not generic. No vague phrases like 'implement' or 'improve' without detail.
-- Break work into actionable steps (2-8 steps). Each step describes WHAT, not HOW.
-- Each step must have a clear 'doneWhen' acceptance criterion.
-- Choose a `harnessMode` deliberately:
-  `solo` for trivial, low-risk work;
-  `standard` for normal multi-file work;
-  `contractual` for high-risk, UI-critical, workflow/FSM, integration, or high-complexity work.
-  IMPORTANT: trivial/low complexity tasks MUST use `solo` or `standard` — NEVER `contractual`. A missing dependency install, a typo fix, or a config change does not need contract negotiation regardless of which files are involved.
-- Produce structured `acceptanceCriteria`. Every criterion must include category, verificationMethod, evidenceExpected, blocking, and weight.
-- Produce an `executionContract` that fixes deliverables, required checks, required evidence, focus areas, and checkpoint policy before execution begins.
-- Identify assumptions, constraints, unknowns, and risks.
-- For unknowns, specify what question needs answering and how to resolve it.
+- Be concrete, not generic. Each step describes WHAT to change and WHERE.
+- Each step must have a clear 'doneWhen' — one sentence.
+- Keep `acceptanceCriteria` minimal: 1-3 criteria for trivial/low tasks, 3-5 for medium, up to 8 for high.
+- Keep `executionContract` proportional to complexity. A trivial fix needs a trivial contract.
+- Only list `unknowns` and `risks` that are REAL — not hypothetical. Empty arrays are fine.
 - Suggest file paths that are likely relevant to the changes.
 
-Complexity estimation:
+Complexity estimation (be honest — most issues are trivial or low):
 - trivial: < 5 min, single-file cosmetic change
 - low: 5-15 min, small focused change
 - medium: 15-60 min, multi-file change with testing
@@ -72,7 +73,6 @@ Effort suggestion:
 - low: simple fixes, no deep reasoning needed
 - medium: standard development work
 - high: complex architecture, security, or cross-cutting changes
-- Set per-role if different: planner, executor, reviewer
 {{/unless}}
 
 ## Instructions
