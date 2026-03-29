@@ -63,8 +63,7 @@ export function useMesh() {
         const next = [...prev, entry];
         return next.length > 500 ? next.slice(-500) : next;
       });
-      // Refresh the graph every 10 entries to update edge stats
-      if (counterRef.current++ % 10 === 0) fetchGraph();
+      fetchGraph();
     };
     meshEntrySubs.add(handler);
 
@@ -73,8 +72,6 @@ export function useMesh() {
       sendWsMessage({ type: "mesh:unsubscribe" });
     };
   }, [fetchGraph]);
-
-  const counterRef = useRef(0);
 
   const toggleMesh = useCallback(async (enabled) => {
     try {
