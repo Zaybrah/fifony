@@ -155,8 +155,20 @@ export function useRuntimeWebSocket(onMessage) {
           if (qk) qc.setQueriesData({ queryKey: qk }, msg.data);
           return;
         }
-        // Update ALL runtime-state query variants (e.g. ["runtime-state", false], ["runtime-state", true])
-        qc.setQueriesData({ queryKey: ["runtime-state"] }, (cur) => applyWsPayload(cur || {}, msg));
+        // Only apply full-state/delta payloads to the runtime-state cache here.
+        // Other message types (issue:transition, service:log, pong, etc.) are
+        // handled by onMessage or are not state data — spreading them into the
+        // cache via applyWsPayload pollutes it with unrelated fields and can
+        // cause stale-data races when a useQuery refetch resolves concurrently.
+        const isStatePayload = msg.type === "connected" || msg.type === "state:update" || msg.type === "state:delta";
+        if (isStatePayload || msg.type === "issue:transition") {
+          // Cancel any in-flight HTTP polls so their stale responses don't
+          // overwrite the fresh WS data we're about to apply.
+          qc.cancelQueries({ queryKey: ["runtime-state"] });
+        }
+        if (isStatePayload) {
+          qc.setQueriesData({ queryKey: ["runtime-state"] }, (cur) => applyWsPayload(cur || {}, msg));
+        }
         if (onMessage) onMessage(msg);
       };
 
