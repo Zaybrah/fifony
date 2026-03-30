@@ -3,7 +3,7 @@ import {
   X, AlertTriangle, Loader, RotateCcw, PlayCircle, GitMerge,
   GitPullRequest, Trash2, MessageSquare,
 } from "lucide-react";
-import { ChatDrawer } from "../ChatDrawer.jsx";
+import { useNavigate } from "@tanstack/react-router";
 import { DrawerBackdrop } from "../DrawerPrimitives.jsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api.js";
@@ -172,7 +172,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
   const [mergeNotice, setMergeNotice] = useState(null);
   const [replanBusy, setReplanBusy] = useState(false);
   const [replanError, setReplanError] = useState(null);
-  const [chatOpen, setChatOpen] = useState(false);
+  const navigate = useNavigate();
   const tabsContainerRef = useRef(null);
   const { data: workflowConfig } = useWorkflowConfig();
 
@@ -330,7 +330,7 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
               <button
                 type="button"
                 className="btn btn-sm btn-ghost btn-circle opacity-40 hover:opacity-80"
-                onClick={() => setChatOpen(true)}
+                onClick={() => navigate({ to: `/chat/${issue.id}` })}
                 aria-label="Chat about issue"
                 title="Chat about this issue"
               >
@@ -449,12 +449,6 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
         />
       </div>
 
-      {/* Chat drawer — layered on top of the issue detail drawer */}
-      <ChatDrawer
-        issue={displayIssue}
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-      />
     </div>
   );
 }

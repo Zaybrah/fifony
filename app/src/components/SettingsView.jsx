@@ -55,7 +55,7 @@ function ThemeSection({ theme, onThemeChange }) {
   );
 }
 
-function ConcurrencySection({ concurrency, setConcurrency, saveConcurrency, savePending }) {
+function ConcurrencySection({ concurrency, setConcurrency, saveConcurrency }) {
   return (
     <div className="card bg-base-200">
       <div className="card-body gap-4 p-6">
@@ -64,7 +64,7 @@ function ConcurrencySection({ concurrency, setConcurrency, saveConcurrency, save
           Worker Concurrency
         </h3>
         <p className="text-xs opacity-50">
-          Number of parallel workers executing issues simultaneously (1–10).
+          Number of parallel workers executing issues simultaneously (1–10). Changes are saved automatically.
         </p>
         <div className="flex items-center gap-2">
           <input
@@ -73,15 +73,8 @@ function ConcurrencySection({ concurrency, setConcurrency, saveConcurrency, save
             min={1}
             max={10}
             value={concurrency}
-            onChange={(e) => setConcurrency(e.target.value)}
+            onChange={(e) => { setConcurrency(e.target.value); saveConcurrency(); }}
           />
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={saveConcurrency}
-            disabled={savePending}
-          >
-            {savePending ? <span className="loading loading-spinner loading-xs" /> : "Save"}
-          </button>
         </div>
       </div>
     </div>

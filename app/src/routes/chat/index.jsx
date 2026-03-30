@@ -13,12 +13,12 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
-import { useChat } from "../hooks/useChat.js";
-import { ChatActionCard } from "../components/ChatActionCard.jsx";
-import { useDashboard } from "../context/DashboardContext.jsx";
-import { api } from "../api.js";
+import { useChat } from "../../hooks/useChat.js";
+import { ChatActionCard } from "../../components/ChatActionCard.jsx";
+import { useDashboard } from "../../context/DashboardContext.jsx";
+import { api } from "../../api.js";
 
-export const Route = createFileRoute("/chat")({
+export const Route = createFileRoute("/chat/")({
   component: ChatPage,
 });
 
@@ -480,6 +480,22 @@ function ChatPage() {
 
   const isSending = chat.isSending || isSendingWithIssue;
   const error = chat.error || sendError;
+
+  // ── Listen for /chat/:issueId redirect ──────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => {
+      const id = e.detail?.issueId;
+      if (id && id !== selectedIssueId) {
+        setSelectedIssueId(id);
+        setIssueMessages([]);
+        setSendError(null);
+        chat.selectSession(null);
+        setMobileTab("chat");
+      }
+    };
+    window.addEventListener("spark:chat:select-issue", handler);
+    return () => window.removeEventListener("spark:chat:select-issue", handler);
+  }, [selectedIssueId, chat]);
 
   // ── Scroll behavior ────────────────────────────────────────────────────
   const scrollToBottom = useCallback(() => {

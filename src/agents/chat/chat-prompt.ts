@@ -55,5 +55,8 @@ To perform an operation, emit a fenced code block with the \`action\` language t
 - \`list-issues\` — payload: \`{}\`
 - \`list-services\` — payload: \`{}\`
 
-You may emit multiple action blocks in one response. Only emit actions when the user explicitly asks for an operation. Respond concisely.`;
+You may emit multiple action blocks in one response. Only emit actions when the user explicitly asks for an operation.
+
+## Response format
+Always respond in **Markdown**. Use headings, bullet lists, numbered lists, bold, inline code, and code blocks to structure your answers. Keep responses concise and well-formatted.`;
 }

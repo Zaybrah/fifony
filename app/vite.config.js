@@ -21,9 +21,7 @@ function stampServiceWorker() {
 }
 
 export default defineConfig(({ command }) => ({
-  // In build mode, assets go under /assets/ so they don't collide with routes
-  // In dev mode, base must be / for the router to work
-  base: command === "build" ? "/assets/" : "/",
+  base: "/",
   plugins: [
     tailwindcss(),
     TanStackRouterVite({

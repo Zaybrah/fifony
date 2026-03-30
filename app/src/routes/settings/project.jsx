@@ -11,6 +11,7 @@ import {
   Flame,
   Loader2,
   CheckCircle,
+  Check,
   PencilLine,
   Radio,
   GitBranch,
@@ -42,10 +43,11 @@ function ProjectSettings() {
   const [initBusy, setInitBusy] = useState(false);
   const [initError, setInitError] = useState(null);
 
-  const [savingProject, setSavingProject] = useState(false);
-  const [savingDelivery, setSavingDelivery] = useState(false);
-  const [savingBranch, setSavingBranch] = useState(false);
-  const [validationMessage, setValidationMessage] = useState("");
+  // Auto-save indicators
+  const [projectSaved, setProjectSaved] = useState(false);
+  const [deliverySaved, setDeliverySaved] = useState(false);
+  const autoSaveProjectTimer = useRef(null);
+  const autoSaveDeliveryTimer = useRef(null);
 
   const runtimeMetaRef = useRef(null);
 
@@ -59,6 +61,11 @@ function ProjectSettings() {
       updatedAt: new Date().toISOString(),
     }));
   }, [qc]);
+
+  useEffect(() => () => {
+    if (autoSaveProjectTimer.current) clearTimeout(autoSaveProjectTimer.current);
+    if (autoSaveDeliveryTimer.current) clearTimeout(autoSaveDeliveryTimer.current);
+  }, []);
 
   useEffect(() => {
     setLoadingGit(true);
@@ -130,54 +137,49 @@ function ProjectSettings() {
     }
   }, []);
 
-  const saveProjectName = useCallback(async () => {
-    const normalized = normalizeProjectName(projectName);
-    if (!normalized) {
-      setValidationMessage("Project name cannot be empty.");
-      return;
-    }
+  const flash = useCallback((setter) => {
+    setter(true);
+    setTimeout(() => setter(false), 1400);
+  }, []);
 
-    setSavingProject(true);
-    setValidationMessage("");
-    try {
-      await api.post(`/settings/${encodeURIComponent(PROJECT_SETTING_ID)}`, {
-        scope: "system",
-        value: normalized,
-        source: "user",
-      });
-      persistSetting(PROJECT_SETTING_ID, normalized, "system");
-      setProjectName(normalized);
-      setValidationMessage("Project name updated.");
-      setTimeout(() => setValidationMessage(""), 1400);
-    } finally {
-      setSavingProject(false);
-    }
-  }, [projectName, persistSetting]);
+  const autoSaveProjectName = useCallback((name) => {
+    if (autoSaveProjectTimer.current) clearTimeout(autoSaveProjectTimer.current);
+    const normalized = normalizeProjectName(name);
+    if (!normalized) return;
+    autoSaveProjectTimer.current = setTimeout(async () => {
+      try {
+        await api.post(`/settings/${encodeURIComponent(PROJECT_SETTING_ID)}`, {
+          scope: "system",
+          value: normalized,
+          source: "user",
+        });
+        persistSetting(PROJECT_SETTING_ID, normalized, "system");
+        flash(setProjectSaved);
+      } catch {}
+    }, 600);
+  }, [persistSetting, flash]);
 
-  const saveDeliveryConfig = useCallback(async () => {
-    setSavingDelivery(true);
-    setValidationMessage("");
-    try {
-      await api.post(`/settings/${encodeURIComponent("runtime.mergeMode")}`, {
-        scope: "runtime",
-        value: mergeMode,
-        source: "user",
-      });
-      persistSetting("runtime.mergeMode", mergeMode, "runtime");
+  const autoSaveDelivery = useCallback((mode, baseBranch) => {
+    if (autoSaveDeliveryTimer.current) clearTimeout(autoSaveDeliveryTimer.current);
+    autoSaveDeliveryTimer.current = setTimeout(async () => {
+      try {
+        await api.post(`/settings/${encodeURIComponent("runtime.mergeMode")}`, {
+          scope: "runtime",
+          value: mode,
+          source: "user",
+        });
+        persistSetting("runtime.mergeMode", mode, "runtime");
 
-      await api.post(`/settings/${encodeURIComponent("runtime.prBaseBranch")}`, {
-        scope: "runtime",
-        value: prBaseBranch.trim(),
-        source: "user",
-      });
-      persistSetting("runtime.prBaseBranch", prBaseBranch.trim(), "runtime");
-
-      setValidationMessage("Delivery settings updated.");
-      setTimeout(() => setValidationMessage(""), 1400);
-    } finally {
-      setSavingDelivery(false);
-    }
-  }, [mergeMode, prBaseBranch, persistSetting]);
+        await api.post(`/settings/${encodeURIComponent("runtime.prBaseBranch")}`, {
+          scope: "runtime",
+          value: baseBranch.trim(),
+          source: "user",
+        });
+        persistSetting("runtime.prBaseBranch", baseBranch.trim(), "runtime");
+        flash(setDeliverySaved);
+      } catch {}
+    }, 600);
+  }, [persistSetting, flash]);
 
   const startBranchEdit = useCallback(() => {
     setEditingBranch(true);
@@ -192,7 +194,6 @@ function ProjectSettings() {
     if (!isValidInput || trimmedInput === currentBranch) return;
 
     setBranchBusy(true);
-    setSavingBranch(true);
     setBranchError(null);
     try {
       const res = await api.post("/git/switch", { branchName: trimmedInput });
@@ -200,7 +201,6 @@ function ProjectSettings() {
       setCurrentBranch(trimmedInput);
       setBranchResult({ branch: trimmedInput, created: !!res.created });
       setEditingBranch(false);
-      setSavingBranch(false);
       if (!prBaseBranch && mergeMode === "push-pr") {
         setPrBaseBranch(trimmedInput);
       }
@@ -213,7 +213,6 @@ function ProjectSettings() {
       }
     } catch (err) {
       setBranchError(err instanceof Error ? err.message : String(err));
-      setSavingBranch(false);
     } finally {
       setBranchBusy(false);
     }
@@ -248,21 +247,18 @@ function ProjectSettings() {
           <p className="text-xs opacity-50">Match your workspace identity and queue naming.</p>
 
           <label className="form-control w-full gap-2">
-            <span className="label-text text-sm font-medium">Project name</span>
+            <span className="label-text text-sm font-medium flex items-center gap-2">
+              Project name
+              {projectSaved && <span className="badge badge-success badge-xs gap-1 font-normal"><Check className="size-3" /> saved</span>}
+            </span>
             <input
               type="text"
               className="input input-bordered w-full"
               value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
+              onChange={(e) => { setProjectName(e.target.value); autoSaveProjectName(e.target.value); }}
               placeholder="Project name"
             />
           </label>
-
-          <div>
-            <button className="btn btn-sm btn-primary" onClick={saveProjectName} disabled={savingProject || !normalizeProjectName(projectName)}>
-              {savingProject ? <Loader2 className="size-3 animate-spin" /> : "Save project name"}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -380,17 +376,18 @@ function ProjectSettings() {
           <div className="flex items-center gap-2">
             <GitPullRequest className="size-4 opacity-50" />
             <h2 className="card-title text-sm">Delivery mode</h2>
+            {deliverySaved && <span className="badge badge-success badge-xs gap-1 font-normal"><Check className="size-3" /> saved</span>}
           </div>
           <p className="text-xs opacity-50">Pick how completed issues are integrated.</p>
 
           <div className="flex gap-3">
             <label className={`flex-1 cursor-pointer rounded-xl border-2 p-3 text-center text-sm font-medium transition-colors ${mergeMode === "local" ? "border-primary bg-primary/10" : "border-base-300 bg-base-100"}`}>
-              <input type="radio" name="settings-merge-mode" className="hidden" checked={mergeMode === "local"} onChange={() => setMergeMode("local")} />
+              <input type="radio" name="settings-merge-mode" className="hidden" checked={mergeMode === "local"} onChange={() => { setMergeMode("local"); autoSaveDelivery("local", prBaseBranch); }} />
               <GitMerge className="size-4 mx-auto mb-1 opacity-60" />
               Local merge
             </label>
             <label className={`flex-1 cursor-pointer rounded-xl border-2 p-3 text-center text-sm font-medium transition-colors ${mergeMode === "push-pr" ? "border-primary bg-primary/10" : "border-base-300 bg-base-100"}`}>
-              <input type="radio" name="settings-merge-mode" className="hidden" checked={mergeMode === "push-pr"} onChange={() => setMergeMode("push-pr")} />
+              <input type="radio" name="settings-merge-mode" className="hidden" checked={mergeMode === "push-pr"} onChange={() => { setMergeMode("push-pr"); autoSaveDelivery("push-pr", prBaseBranch); }} />
               <GitPullRequest className="size-4 mx-auto mb-1 opacity-60" />
               Push PR
             </label>
@@ -404,23 +401,14 @@ function ProjectSettings() {
                 className="input input-bordered w-full text-sm font-mono"
                 placeholder={currentBranch || "main"}
                 value={prBaseBranch}
-                onChange={(e) => setPrBaseBranch(e.target.value)}
+                onChange={(e) => { setPrBaseBranch(e.target.value); autoSaveDelivery(mergeMode, e.target.value); }}
               />
               <p className="text-xs opacity-40">Branch that PRs target.</p>
             </label>
           )}
-
-          <button className="btn btn-sm btn-primary" onClick={saveDeliveryConfig} disabled={savingDelivery}>
-            {savingDelivery ? <Loader2 className="size-3 animate-spin" /> : "Save delivery settings"}
-          </button>
         </div>
       </div>
 
-      {validationMessage && (
-        <div className="alert alert-success py-2 text-xs">
-          {validationMessage}
-        </div>
-      )}
     </div>
   );
 }

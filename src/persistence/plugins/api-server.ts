@@ -119,15 +119,7 @@ export async function startApiServer(
     if (!existsSync(FRONTEND_INDEX)) {
       return new Response("Not found", { status: 404 });
     }
-    const html = readFileSync(FRONTEND_INDEX, "utf8")
-      .replace('href="/assets/manifest.webmanifest"', 'href="/manifest.webmanifest"')
-      .replaceAll('href="/assets/icon.svg"', 'href="/icon.svg"')
-      .replaceAll('href="/assets/favicon.png"', 'href="/favicon.png"')
-      .replaceAll('href="/assets/icon-16.png"', 'href="/icon-16.png"')
-      .replaceAll('href="/assets/icon-32.png"', 'href="/icon-32.png"')
-      .replaceAll('href="/assets/apple-touch-icon.png"', 'href="/apple-touch-icon.png"')
-      .replaceAll('content="/assets/og-image.png"', 'content="/og-image.png"');
-    return new Response(html, {
+    return new Response(readFileSync(FRONTEND_INDEX, "utf8"), {
       headers: {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-cache",
@@ -202,7 +194,7 @@ export async function startApiServer(
     static: [{
       driver: "filesystem",
       path: "/assets",
-      root: FRONTEND_DIR,
+      root: `${FRONTEND_DIR}/assets`,
       pwa: false,
       config: { etag: true },
     }],

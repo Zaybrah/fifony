@@ -47,12 +47,19 @@ export function useMesh() {
     } catch {}
   }, [fetchGraph]);
 
-  // Initial fetch
+  // Initial fetch — only call graph/traffic if proxy is running
   useEffect(() => {
-    Promise.all([fetchGraph(), fetchTraffic(), fetchStatus()]).finally(() =>
-      setLoading(false),
-    );
-  }, [fetchGraph, fetchTraffic, fetchStatus]);
+    (async () => {
+      try {
+        const res = await api.get("/mesh/status");
+        if (res) setStatus(res);
+        if (res?.running) {
+          await Promise.all([fetchGraph(), fetchTraffic()]);
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, [fetchGraph, fetchTraffic]);
 
   // Subscribe to mesh WS room
   useEffect(() => {
