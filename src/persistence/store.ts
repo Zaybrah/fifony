@@ -30,6 +30,7 @@ import {
   setIssueResourceStateApi,
   issueStateMachineConfig,
 } from "./plugins/fsm-issue.ts";
+import { serviceStateMachineConfig } from "./plugins/fsm-service.ts";
 
 let loadedS3dbModule: S3dbModule | null = null;
 let stateDb: S3dbDatabase | null = null;
@@ -46,6 +47,7 @@ let variablesResource: S3dbResource | null = null;
 let contextFragmentResource: S3dbResource | null = null;
 let activeApiPlugin: { stop?: () => Promise<void> } | null = null;
 let activeStateMachinePlugin: { stop?: () => Promise<void> } | null = null;
+let activeServiceStateMachinePlugin: { stop?: () => Promise<void> } | null = null;
 let activeEcPlugin: S3dbModule["EventualConsistencyPlugin"] extends new (...a: never[]) => infer R ? R | null : null = null;
 
 import {
@@ -226,6 +228,21 @@ export async function initStateStore(): Promise<void> {
     } as any);
   } else {
     logger.warn("StateMachinePlugin not available. Issue transitions will use local logic only.");
+  }
+
+  // ── Service State Machine Plugin ────────────────────────────────────────────
+  if (StateMachinePlugin) {
+    try {
+      const serviceSmPlugin = await stateDb.usePlugin(
+        new StateMachinePlugin(serviceStateMachineConfig) as unknown,
+        "service-state-machine",
+      ) as Record<string, unknown>;
+
+      activeServiceStateMachinePlugin = serviceSmPlugin as { stop?: () => Promise<void> };
+      logger.info("Service StateMachinePlugin installed.");
+    } catch (error) {
+      logger.warn(`Service StateMachinePlugin failed to install: ${String(error)}`);
+    }
   }
 
   // EventualConsistency plugin for token usage analytics
@@ -721,6 +738,15 @@ export async function closeStateStore(): Promise<void> {
       logger.warn(`Failed to stop EventualConsistency plugin: ${String(error)}`);
     } finally {
       activeEcPlugin = null;
+    }
+  }
+  if (activeServiceStateMachinePlugin?.stop) {
+    try {
+      await activeServiceStateMachinePlugin.stop();
+    } catch (error) {
+      logger.warn(`Failed to stop Service StateMachine plugin: ${String(error)}`);
+    } finally {
+      activeServiceStateMachinePlugin = null;
     }
   }
   if (activeStateMachinePlugin?.stop) {

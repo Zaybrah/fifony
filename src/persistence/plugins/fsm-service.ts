@@ -18,6 +18,7 @@ import { buildServiceCommand } from "../../domains/service-env.ts";
 import type { ServiceEnvironment } from "../../domains/service-env.ts";
 import { getTrafficProxyPort } from "./traffic-proxy-server.ts";
 import { buildProxyEnvVars } from "../../domains/traffic-proxy.ts";
+import { S3DB_SERVICES_RESOURCE } from "../../concerns/constants.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -302,7 +303,7 @@ function autoRestartBackoffMs(crashCount: number): number {
   return Math.min(Math.pow(2, crashCount) * 1_000, 60_000);
 }
 
-// ── FSM Watcher Tick ──────────────────────────────────────────────────────────
+// ── FSM Watcher Tick (LEGACY — being replaced by serviceStateMachineConfig) ──
 
 function tickOne(
   entry: ServiceEntry,
@@ -459,7 +460,7 @@ export function tickServiceWatcher(
   return transitions;
 }
 
-// ── Watcher lifecycle ─────────────────────────────────────────────────────────
+// ── Watcher lifecycle (LEGACY — being replaced by serviceStateMachineConfig) ──
 
 export function initServiceWatcher(
   getEntries: () => ServiceEntry[],
@@ -519,3 +520,344 @@ export function reconcileServiceStates(entries: ServiceEntry[], fifonyDir: strin
     }
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Declarative StateMachinePlugin config (mirrors issueStateMachineConfig) ──
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const SERVICE_STATE_MACHINE_ID = "service-lifecycle";
+
+/** Watcher interval for function triggers — same as SERVICE_WATCHER_INTERVAL_MS. */
+const TRIGGER_INTERVAL_MS = SERVICE_WATCHER_INTERVAL_MS;
+
+// ── Injected runtime context ────────────────────────────────────────────────
+// The state machine config is static, but actions need runtime refs (fifonyDir,
+// targetRoot, globalEnv, service entries). These are injected after boot.
+
+type ServiceRuntimeContext = {
+  fifonyDir: string;
+  targetRoot: string;
+  getEntries: () => ServiceEntry[];
+  getGlobalEnv: () => ServiceEnvironment;
+  onTransition?: (t: ServiceTransition) => void;
+};
+
+let serviceRuntime: ServiceRuntimeContext | null = null;
+
+export function setServiceRuntime(ctx: ServiceRuntimeContext | null): void {
+  serviceRuntime = ctx;
+}
+
+export function getServiceRuntime(): ServiceRuntimeContext | null {
+  return serviceRuntime;
+}
+
+/** Shape injected by StateMachinePlugin into action/guard callbacks. */
+type ServiceMachine = {
+  database: any;
+  machineId: string;
+  entityId: string;
+};
+
+/** Resolve the ServiceEntry for an entity (by id) from the runtime context. */
+function resolveServiceEntry(entityId: string): ServiceEntry | null {
+  if (!serviceRuntime) return null;
+  return (serviceRuntime.getEntries() ?? []).find((e) => e.id === entityId) ?? null;
+}
+
+// ── Config ──────────────────────────────────────────────────────────────────
+
+export const serviceStateMachineConfig = {
+  persistTransitions: true,
+  workerId: `fifony-svc-${process.pid}`,
+  lockTimeout: 5_000,
+  lockTTL: 30,
+  enableFunctionTriggers: true,
+  triggerCheckInterval: TRIGGER_INTERVAL_MS,
+
+  stateMachines: {
+    [SERVICE_STATE_MACHINE_ID]: {
+      resource: S3DB_SERVICES_RESOURCE,
+      stateField: "state",
+      initialState: "stopped",
+      autoCleanup: false,
+
+      states: {
+        stopped: {
+          on: { START: "starting" },
+        },
+
+        starting: {
+          on: {
+            GRACE_ELAPSED: "running",
+            PROCESS_DIED: "crashed",
+            STOP: "stopping",
+          },
+          entry: "spawnService",
+          triggers: [{
+            type: "function" as const,
+            interval: TRIGGER_INTERVAL_MS,
+            condition: async (context: Record<string, unknown>, entityId: string): Promise<boolean> => {
+              if (!serviceRuntime) return false;
+              const info = readPidInfo(serviceRuntime.fifonyDir, entityId);
+              if (!info) return false;
+              const alive = isProcessAlive(info.pid);
+              if (!alive) return true; // will fire PROCESS_DIED
+              const ageMs = Date.now() - Date.parse(info.startedAt);
+              return ageMs >= STARTING_GRACE_MS; // will fire GRACE_ELAPSED
+            },
+            sendEvent: "GRACE_ELAPSED", // default event; overridden by eventName resolver below
+            eventName: (context: Record<string, unknown>): string => {
+              // Determine which event to fire based on process state
+              const entityId = (context as any).entityId ?? (context as any).id ?? "";
+              if (!serviceRuntime || !entityId) return "PROCESS_DIED";
+              const info = readPidInfo(serviceRuntime.fifonyDir, entityId as string);
+              if (!info || !isProcessAlive(info.pid)) return "PROCESS_DIED";
+              return "GRACE_ELAPSED";
+            },
+          }],
+        },
+
+        running: {
+          on: {
+            PROCESS_DIED: "crashed",
+            STOP: "stopping",
+          },
+          triggers: [{
+            type: "function" as const,
+            interval: TRIGGER_INTERVAL_MS,
+            condition: async (context: Record<string, unknown>, entityId: string): Promise<boolean> => {
+              if (!serviceRuntime) return false;
+              const info = readPidInfo(serviceRuntime.fifonyDir, entityId);
+              if (!info) return true; // no pid info means dead
+              return !isProcessAlive(info.pid);
+            },
+            sendEvent: "PROCESS_DIED",
+          }],
+        },
+
+        stopping: {
+          on: {
+            PROCESS_EXITED: "stopped",
+            KILL_TIMEOUT: "stopped",
+          },
+          entry: "sendSigterm",
+          triggers: [{
+            type: "function" as const,
+            interval: TRIGGER_INTERVAL_MS,
+            condition: async (context: Record<string, unknown>, entityId: string): Promise<boolean> => {
+              if (!serviceRuntime) return false;
+              const info = readPidInfo(serviceRuntime.fifonyDir, entityId);
+              if (!info) return true; // already gone
+              const alive = isProcessAlive(info.pid);
+              if (!alive) return true; // exited
+              // Check kill timeout
+              const stoppingAgeMs = info.stoppingAt
+                ? Date.now() - Date.parse(info.stoppingAt)
+                : STOPPING_KILL_MS + 1;
+              return stoppingAgeMs >= STOPPING_KILL_MS;
+            },
+            sendEvent: "PROCESS_EXITED", // default
+            eventName: (context: Record<string, unknown>): string => {
+              const entityId = (context as any).entityId ?? (context as any).id ?? "";
+              if (!serviceRuntime || !entityId) return "PROCESS_EXITED";
+              const info = readPidInfo(serviceRuntime.fifonyDir, entityId as string);
+              if (!info || !isProcessAlive(info.pid)) return "PROCESS_EXITED";
+              // Still alive but kill timeout expired
+              return "KILL_TIMEOUT";
+            },
+          }],
+        },
+
+        crashed: {
+          on: {
+            AUTO_RESTART: "starting",
+            START: "starting",
+            STOP: "stopping",
+          },
+          entry: "recordCrash",
+          triggers: [{
+            type: "function" as const,
+            interval: TRIGGER_INTERVAL_MS,
+            condition: async (context: Record<string, unknown>, entityId: string): Promise<boolean> => {
+              if (!serviceRuntime) return false;
+              const entry = resolveServiceEntry(entityId);
+              if (!entry) return false;
+              const info = readPidInfo(serviceRuntime.fifonyDir, entityId);
+              if (!info) return false;
+              const autoRestart = entry.autoRestart ?? false;
+              const maxCrashes = entry.maxCrashes ?? 5;
+              if (!autoRestart || (info.crashCount ?? 0) >= maxCrashes) return false;
+              // Backoff elapsed?
+              const nextRetryMs = info.nextRetryAt ? Date.parse(info.nextRetryAt) : 0;
+              return Date.now() >= nextRetryMs;
+            },
+            sendEvent: "AUTO_RESTART",
+          }],
+        },
+      },
+    },
+  },
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  // (context, event, machine) — context is the payload from send()
+
+  actions: {
+    spawnService: async (context: Record<string, unknown>, _event: string, machine: ServiceMachine) => {
+      if (!serviceRuntime) {
+        logger.warn({ entityId: machine.entityId }, "[ServiceFSM] spawnService called but runtime not set");
+        return;
+      }
+      const entry = resolveServiceEntry(machine.entityId);
+      if (!entry) {
+        logger.warn({ entityId: machine.entityId }, "[ServiceFSM] spawnService — entry not found");
+        return;
+      }
+
+      const { fifonyDir, targetRoot } = serviceRuntime;
+      const globalEnv = serviceRuntime.getGlobalEnv();
+
+      // Kill existing process if any (idempotent)
+      const existing = readPidInfo(fifonyDir, entry.id);
+      if (existing && isProcessAlive(existing.pid)) {
+        try { process.kill(-existing.pid, "SIGKILL"); } catch {}
+        try { process.kill(existing.pid, "SIGKILL"); } catch {}
+      }
+
+      const spawned = spawnProcess(entry, targetRoot, fifonyDir, globalEnv);
+
+      // Determine crash count: manual START resets, AUTO_RESTART preserves
+      const isAutoRestart = _event === "AUTO_RESTART";
+      const prevCrashCount = existing?.crashCount ?? 0;
+
+      writePidInfo(fifonyDir, entry.id, {
+        pid: spawned.pid,
+        command: spawned.command,
+        startedAt: now(),
+        state: "starting",
+        crashCount: isAutoRestart ? prevCrashCount : 0,
+      });
+
+      logger.info(
+        { id: entry.id, pid: spawned.pid, event: _event },
+        `[ServiceFSM] spawnService → starting (${isAutoRestart ? "auto-restart" : "manual"})`,
+      );
+
+      serviceRuntime.onTransition?.({
+        id: entry.id,
+        from: (context as any).previousState ?? "none",
+        to: "starting",
+        pid: spawned.pid,
+        reason: isAutoRestart ? `auto-restart (crash #${prevCrashCount})` : "manual start",
+      });
+    },
+
+    sendSigterm: async (context: Record<string, unknown>, _event: string, machine: ServiceMachine) => {
+      if (!serviceRuntime) return;
+      const { fifonyDir } = serviceRuntime;
+      const info = readPidInfo(fifonyDir, machine.entityId);
+      if (!info) return;
+
+      if (isProcessAlive(info.pid)) {
+        try { process.kill(-info.pid, "SIGTERM"); } catch {}
+      }
+
+      writePidInfo(fifonyDir, machine.entityId, {
+        ...info,
+        state: "stopping",
+        stoppingAt: now(),
+      });
+
+      logger.info({ id: machine.entityId, pid: info.pid }, "[ServiceFSM] sendSigterm → stopping");
+
+      serviceRuntime.onTransition?.({
+        id: machine.entityId,
+        from: (context as any).previousState ?? "running",
+        to: "stopping",
+        pid: info.pid,
+        reason: "manual stop",
+      });
+    },
+
+    recordCrash: async (context: Record<string, unknown>, _event: string, machine: ServiceMachine) => {
+      if (!serviceRuntime) return;
+      const { fifonyDir } = serviceRuntime;
+      const entry = resolveServiceEntry(machine.entityId);
+      const info = readPidInfo(fifonyDir, machine.entityId);
+      if (!info) return;
+
+      const crashCount = (info.crashCount ?? 0) + 1;
+      const maxCrashes = entry?.maxCrashes ?? 5;
+      const autoRestart = entry?.autoRestart ?? false;
+      const nextRetryAt =
+        autoRestart && crashCount < maxCrashes
+          ? new Date(Date.now() + autoRestartBackoffMs(crashCount)).toISOString()
+          : undefined;
+
+      writePidInfo(fifonyDir, machine.entityId, {
+        ...info,
+        state: "crashed",
+        crashCount,
+        lastCrashAt: now(),
+        nextRetryAt,
+      });
+
+      logger.warn(
+        { id: machine.entityId, crashCount, nextRetryAt },
+        "[ServiceFSM] recordCrash → crashed",
+      );
+
+      serviceRuntime.onTransition?.({
+        id: machine.entityId,
+        from: (context as any).previousState ?? "running",
+        to: "crashed",
+        pid: null,
+        reason: `process died (crash #${crashCount})`,
+      });
+    },
+
+    cleanupStopped: async (_context: Record<string, unknown>, _event: string, machine: ServiceMachine) => {
+      if (!serviceRuntime) return;
+      removePidInfo(serviceRuntime.fifonyDir, machine.entityId);
+      logger.info({ id: machine.entityId }, "[ServiceFSM] cleanupStopped — pid file removed");
+    },
+
+    forceKill: async (_context: Record<string, unknown>, _event: string, machine: ServiceMachine) => {
+      if (!serviceRuntime) return;
+      const { fifonyDir } = serviceRuntime;
+      const info = readPidInfo(fifonyDir, machine.entityId);
+      if (info && isProcessAlive(info.pid)) {
+        try { process.kill(-info.pid, "SIGKILL"); } catch {}
+        try { process.kill(info.pid, "SIGKILL"); } catch {}
+      }
+      removePidInfo(fifonyDir, machine.entityId);
+      logger.info({ id: machine.entityId }, "[ServiceFSM] forceKill → SIGKILL sent, pid file removed");
+    },
+  },
+
+  // ── Guards ─────────────────────────────────────────────────────────────────
+
+  guards: {
+    graceElapsed: async (context: Record<string, unknown>, _event: string, machine: ServiceMachine): Promise<boolean> => {
+      if (!serviceRuntime) return false;
+      const info = readPidInfo(serviceRuntime.fifonyDir, machine.entityId);
+      if (!info) return false;
+      if (!isProcessAlive(info.pid)) return false;
+      const ageMs = Date.now() - Date.parse(info.startedAt);
+      return ageMs >= STARTING_GRACE_MS;
+    },
+
+    canAutoRestart: async (context: Record<string, unknown>, _event: string, machine: ServiceMachine): Promise<boolean> => {
+      if (!serviceRuntime) return false;
+      const entry = resolveServiceEntry(machine.entityId);
+      if (!entry) return false;
+      const info = readPidInfo(serviceRuntime.fifonyDir, machine.entityId);
+      if (!info) return false;
+      const autoRestart = entry.autoRestart ?? false;
+      const maxCrashes = entry.maxCrashes ?? 5;
+      if (!autoRestart || (info.crashCount ?? 0) >= maxCrashes) return false;
+      const nextRetryMs = info.nextRetryAt ? Date.parse(info.nextRetryAt) : 0;
+      return Date.now() >= nextRetryMs;
+    },
+  },
+};

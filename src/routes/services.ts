@@ -524,4 +524,30 @@ export function registerServiceRoutes(
       return c.json({ ok: false, error: String(err) }, 500);
     }
   });
+
+  // POST /api/services/:id/insights — AI reads log and provides health insights
+  app.post("/api/services/:id/insights", async (c) => {
+    const id = c.req.param("id");
+    const entry = (state.config.services ?? []).find((e) => e.id === id);
+    if (!entry) return c.json({ ok: false, error: "Service not found." }, 404);
+
+    try {
+      const logTail = readServiceLogTail(id, STATE_ROOT, 16_384);
+      if (!logTail.trim()) {
+        return c.json({ ok: false, error: "Service log is empty — start the service first." }, 400);
+      }
+
+      const { analyzeLogForInsights } = await import("../agents/planning/log-analyzer.ts");
+      const insights = await analyzeLogForInsights(logTail, entry.name, state.config);
+
+      if (!insights) {
+        return c.json({ ok: false, error: "Could not parse AI response." }, 422);
+      }
+
+      return c.json({ ok: true, insights });
+    } catch (err) {
+      logger.error({ err, id }, "[Service] insights analysis failed");
+      return c.json({ ok: false, error: String(err) }, 500);
+    }
+  });
 }
