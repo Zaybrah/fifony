@@ -26,9 +26,10 @@ function resolveAiJailSuffix(): string {
   throw new Error(`Unsupported platform for ai-jail: ${os}-${cpu}`);
 }
 
-// ── Generic download helper ──────────────────────────────────────────────────
+// ── Generic download helpers ─────────────────────────────────────────────────
 
-function downloadBinary(url: string, destDir: string, binaryName: string): void {
+/** Download a tarball and extract a binary from it. */
+function downloadTarball(url: string, destDir: string, binaryName: string): void {
   mkdirSync(destDir, { recursive: true });
   execSync(
     `curl -fsSL "${url}" | tar xz -C "${destDir}"`,
@@ -39,6 +40,19 @@ function downloadBinary(url: string, destDir: string, binaryName: string): void 
     throw new Error(`Binary ${binaryName} not found at ${binPath} after extraction`);
   }
   chmodSync(binPath, 0o755);
+}
+
+/** Download a raw binary directly. */
+function downloadRawBinary(url: string, destPath: string): void {
+  mkdirSync(join(destPath, ".."), { recursive: true });
+  execSync(
+    `curl -fsSL -o "${destPath}" "${url}"`,
+    { stdio: "pipe", timeout: 120_000 },
+  );
+  if (!existsSync(destPath)) {
+    throw new Error(`Binary not found at ${destPath} after download`);
+  }
+  chmodSync(destPath, 0o755);
 }
 
 // ── bwrap (bubblewrap) ───────────────────────────────────────────────────────
@@ -54,12 +68,12 @@ export function isBwrapAvailable(): boolean {
   return false;
 }
 
-/** Download bwrap from forattini-dev/bubblewrap releases. */
+/** Download bwrap from forattini-dev/bubblewrap releases (raw binary). */
 function downloadBwrap(): void {
   const linuxArch = resolveLinuxArch();
-  const url = `https://github.com/forattini-dev/bubblewrap/releases/latest/download/bwrap-linux-${linuxArch}.tar.gz`;
+  const url = `https://github.com/forattini-dev/bubblewrap/releases/latest/download/bwrap-linux-${linuxArch}`;
   logger.info({ url, dest: BWRAP_BIN }, "[Sandbox] Downloading bubblewrap");
-  downloadBinary(url, BIN_DIR, "bwrap");
+  downloadRawBinary(url, BWRAP_BIN);
   logger.info("[Sandbox] bubblewrap installed successfully");
 }
 
@@ -96,7 +110,7 @@ function downloadAiJail(): void {
   const suffix = resolveAiJailSuffix();
   const url = `https://github.com/akitaonrails/ai-jail/releases/latest/download/ai-jail-${suffix}.tar.gz`;
   logger.info({ url, dest: AI_JAIL_BIN }, "[Sandbox] Downloading ai-jail");
-  downloadBinary(url, BIN_DIR, "ai-jail");
+  downloadTarball(url, BIN_DIR, "ai-jail");
   const version = getAiJailVersion();
   logger.info({ version }, "[Sandbox] ai-jail installed successfully");
 }
