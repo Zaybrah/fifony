@@ -53,13 +53,13 @@ describe("product contract: SPA routes", () => {
     // Map routes to expected file paths
     const routeFiles: Record<string, string> = {
       "/onboarding": join(routeDir, "onboarding.jsx"),
-      "/chat": join(routeDir, "chat", "index.jsx"),
+      "/chat": join(routeDir, "chat", "index.lazy.jsx"),
       "/kanban": join(routeDir, "kanban.jsx"),
       "/issues": join(routeDir, "issues.jsx"),
       "/milestones": join(routeDir, "milestones.jsx"),
       "/analytics": join(routeDir, "analytics.lazy.jsx"),
-      "/agents": join(routeDir, "agents.jsx"),
-      "/services": join(routeDir, "services.jsx"),
+      "/agents": join(routeDir, "agents.lazy.jsx"),
+      "/services": join(routeDir, "services.lazy.jsx"),
       "/settings": join(routeDir, "settings.jsx"),
       "/settings/project": join(settingsDir, "project.jsx"),
       "/settings/system": join(settingsDir, "system.jsx"),

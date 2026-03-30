@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Send,
@@ -18,7 +18,7 @@ import { ChatActionCard } from "../../components/ChatActionCard.jsx";
 import { useDashboard } from "../../context/DashboardContext.jsx";
 import { api } from "../../api.js";
 
-export const Route = createFileRoute("/chat/")({
+export const Route = createLazyFileRoute("/chat/")({
   component: ChatPage,
 });
 

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   Server, Play, Square, Terminal, Circle, Loader2, X,
@@ -30,7 +30,7 @@ import {
   DrawerCloseButton,
 } from "../components/DrawerPrimitives.jsx";
 
-export const Route = createFileRoute("/services")({
+export const Route = createLazyFileRoute("/services")({
   component: ServicesPage,
 });
 

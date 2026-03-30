@@ -1,8 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute } from "@tanstack/react-router";
 import { useDashboard } from "../context/DashboardContext";
 import RuntimeView from "../components/RuntimeView";
 
-export const Route = createFileRoute("/agents")({
+export const Route = createLazyFileRoute("/agents")({
   component: RuntimePage,
 });
 
