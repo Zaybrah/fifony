@@ -1,4 +1,4 @@
-import { Zap, Gauge, Brain, Flame, Search } from "lucide-react";
+import { Zap, Gauge, Brain, Flame, Search, Sparkles, MessageSquare, Activity } from "lucide-react";
 
 // ── Step labels ───────────────────────────────────────────────────────────────
 
@@ -60,25 +60,10 @@ export const THEMES = [
 // ── Pipeline roles ────────────────────────────────────────────────────────────
 
 export const PIPELINE_ROLES = [
-  {
-    role: "planner",
-    label: "Planner",
-    description: "Scopes the issue, breaks it into steps, and decides the approach",
-    icon: Brain,
-    color: "text-info",
-  },
-  {
-    role: "executor",
-    label: "Executor",
-    description: "Implements the plan — writes code, edits files, runs commands",
-    icon: Zap,
-    color: "text-primary",
-  },
-  {
-    role: "reviewer",
-    label: "Reviewer",
-    description: "Validates the result — checks correctness, scope, and quality",
-    icon: Search,
-    color: "text-secondary",
-  },
+  { role: "enhancer",  label: "Enhance",  description: "Improve issue title and description",       icon: Sparkles,      color: "text-warning" },
+  { role: "chatter",   label: "Chat",     description: "Conversational AI for discussions",          icon: MessageSquare, color: "text-info" },
+  { role: "planner",   label: "Plan",     description: "Scope the issue and create execution plan",  icon: Brain,         color: "text-info" },
+  { role: "executor",  label: "Execute",  description: "Implement the plan — write code, run commands", icon: Zap,       color: "text-primary" },
+  { role: "reviewer",  label: "Review",   description: "Validate correctness, scope, and quality",   icon: Search,        color: "text-secondary" },
+  { role: "services",  label: "Services", description: "AI-powered service log analysis",            icon: Activity,      color: "text-success" },
 ];

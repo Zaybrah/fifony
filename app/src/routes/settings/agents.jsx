@@ -1,122 +1,57 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api.js";
 import { SETTINGS_QUERY_KEY, upsertSettingPayload } from "../../hooks.js";
-import { Sparkles, MessageSquare, Lightbulb, Play, Eye, Activity, RotateCcw, Loader2, Check } from "lucide-react";
+import { Sparkles, MessageSquare, Brain, Zap, Search, Activity, RotateCcw, Loader2, Check, CircleCheck, CircleX } from "lucide-react";
+import { EFFORT_OPTIONS } from "../../components/OnboardingWizard/constants.js";
 
 const STAGES = [
-  { key: "enhance",  label: "Enhance",  icon: Sparkles,      description: "Improve issue title and description",   accent: "warning" },
-  { key: "chat",     label: "Chat",     icon: MessageSquare, description: "Conversational AI for issue discussion", accent: "info" },
-  { key: "plan",     label: "Plan",     icon: Lightbulb,     description: "Generate the execution plan",            accent: "info" },
-  { key: "execute",  label: "Execute",  icon: Play,          description: "Implement the changes",                  accent: "primary" },
-  { key: "review",   label: "Review",   icon: Eye,           description: "Review the implementation",              accent: "secondary" },
-  { key: "services", label: "Services", icon: Activity,      description: "AI-powered service log analysis",        accent: "success" },
+  { key: "enhance",  role: "enhancer",  label: "Enhance",  icon: Sparkles,      description: "Improve issue title and description",       accent: "warning" },
+  { key: "chat",     role: "chatter",   label: "Chat",     icon: MessageSquare, description: "Conversational AI for discussions",          accent: "info" },
+  { key: "plan",     role: "planner",   label: "Plan",     icon: Brain,         description: "Scope the issue and create execution plan",  accent: "info" },
+  { key: "execute",  role: "executor",  label: "Execute",  icon: Zap,           description: "Implement the plan — write code, run commands", accent: "primary" },
+  { key: "review",   role: "reviewer",  label: "Review",   icon: Search,        description: "Validate correctness, scope, and quality",   accent: "secondary" },
+  { key: "services", role: "services",  label: "Services", icon: Activity,      description: "AI-powered service log analysis",            accent: "success" },
 ];
 
-const EFFORTS = [
-  { value: "low",        label: "Low",        hint: "Faster, cheaper — best for simple tasks" },
-  { value: "medium",     label: "Medium",     hint: "Balanced — good default for most work" },
-  { value: "high",       label: "High",       hint: "Deep reasoning — for complex or risky changes" },
-  { value: "extra-high", label: "Extra High", hint: "Maximum budget — slowest, most expensive" },
-];
-
-const ACCENT_MAP = {
-  info:      { border: "border-info/30",      bg: "bg-info/10",      text: "text-info",      badge: "badge-info" },
-  primary:   { border: "border-primary/30",   bg: "bg-primary/10",   text: "text-primary",   badge: "badge-primary" },
-  secondary: { border: "border-secondary/30", bg: "bg-secondary/10", text: "text-secondary", badge: "badge-secondary" },
-  warning:   { border: "border-warning/30",   bg: "bg-warning/10",   text: "text-warning",   badge: "badge-warning" },
-  success:   { border: "border-success/30",   bg: "bg-success/10",   text: "text-success",   badge: "badge-success" },
+const COLOR_MAP = {
+  warning:   "text-warning",
+  info:      "text-info",
+  primary:   "text-primary",
+  secondary: "text-secondary",
+  success:   "text-success",
 };
 
-function StageBlock({ stage, config, providers, modelsByProvider, onChange, saving }) {
-  const Icon = stage.icon;
-  const models = modelsByProvider[config.provider] || [];
-  const availableProviders = (providers || []).filter((p) => p.available);
-  const colors = ACCENT_MAP[stage.accent];
-  const selectedEffort = EFFORTS.find((e) => e.value === config.effort);
-
+function EffortPills({ options, value, onChange }) {
   return (
-    <div className={`card bg-base-200 border-l-4 ${colors.border} animate-fade-in`}>
-      <div className="card-body p-4 gap-3">
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center justify-center size-9 rounded-lg ${colors.bg}`}>
-            <Icon className={`size-4.5 ${colors.text}`} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-sm">{stage.label}</h3>
-              <span className={`badge badge-xs ${colors.badge} badge-outline`}>{config.provider}</span>
-              {saving && (
-                <span className="text-xs text-success flex items-center gap-1 animate-fade-in">
-                  <Check className="size-3" /> saved
-                </span>
-              )}
-            </div>
-            <p className="text-xs opacity-50">{stage.description}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <label className="form-control">
-            <div className="label py-0.5">
-              <span className="label-text text-xs opacity-60">Provider</span>
-            </div>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={config.provider}
-              onChange={(e) => {
-                const newProvider = e.target.value;
-                const newModels = modelsByProvider[newProvider] || [];
-                const newEffort = newProvider !== "codex" && config.effort === "extra-high" ? "high" : config.effort;
-                onChange({ ...config, provider: newProvider, model: newModels[0]?.id || "", effort: newEffort });
-              }}
-            >
-              {availableProviders.map((p) => (
-                <option key={p.name} value={p.name}>{p.name}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="form-control">
-            <div className="label py-0.5">
-              <span className="label-text text-xs opacity-60">Model</span>
-            </div>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={config.model}
-              onChange={(e) => onChange({ ...config, model: e.target.value })}
-            >
-              {models.length === 0 && (
-                <option value={config.model}>{config.model || "(detecting...)"}</option>
-              )}
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.label}{m.tier ? ` — ${m.tier}` : ""}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="form-control">
-            <div className="label py-0.5">
-              <span className="label-text text-xs opacity-60">Thinking depth</span>
-            </div>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={config.effort}
-              onChange={(e) => onChange({ ...config, effort: e.target.value })}
-            >
-              {EFFORTS.filter((e) => config.provider !== "gemini" || e.value !== "extra-high").map((e) => (
-                <option key={e.value} value={e.value}>{e.label}</option>
-              ))}
-            </select>
-            {selectedEffort && (
-              <p className="text-[11px] opacity-40 mt-1 leading-snug">{selectedEffort.hint}</p>
-            )}
-          </label>
-        </div>
-      </div>
+    <div className="flex gap-1 flex-wrap">
+      {options.map((opt) => {
+        const active = opt.value === value;
+        const Icon = opt.icon;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${
+              active
+                ? `${opt.color} border-current bg-base-300`
+                : "text-base-content/35 border-base-content/10 hover:border-base-content/30 hover:text-base-content/60"
+            }`}
+          >
+            <Icon className="size-2.5" />
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
+}
+
+function getEffortOptionsForProvider(provider) {
+  if (provider === "gemini") return EFFORT_OPTIONS.filter((o) => o.value !== "extra-high");
+  return EFFORT_OPTIONS;
 }
 
 export const Route = createFileRoute("/settings/agents")({
@@ -132,6 +67,32 @@ function PipelineSettings() {
   const [savingStage, setSavingStage] = useState(null);
   const [restoring, setRestoring] = useState(false);
   const saveTimer = useRef(null);
+
+  const availableProviders = useMemo(() => (providers || []).filter((p) => p.available), [providers]);
+
+  // Compute whether all stages share the same provider
+  const allSameProvider = useMemo(() => {
+    if (!workflow) return false;
+    const first = workflow[STAGES[0].key]?.provider;
+    return first && STAGES.every((s) => workflow[s.key]?.provider === first);
+  }, [workflow]);
+
+  // Bulk effort: only show options supported by all current providers
+  const bulkEffortOptions = useMemo(() => {
+    if (!workflow) return EFFORT_OPTIONS;
+    const supports = STAGES.map((s) => new Set(getEffortOptionsForProvider(workflow[s.key]?.provider).map((o) => o.value)));
+    const common = [...supports[0]].filter((v) => supports.every((set) => set.has(v)));
+    const ordered = EFFORT_OPTIONS.filter((o) => common.includes(o.value));
+    return ordered.length > 0 ? ordered : EFFORT_OPTIONS;
+  }, [workflow]);
+
+  const normalizedBulkEffort = useMemo(() => {
+    if (!workflow) return "medium";
+    const vals = STAGES.map((s) => workflow[s.key]?.effort);
+    const same = vals.every((v) => v === vals[0]) ? vals[0] : null;
+    const target = same || bulkEffortOptions[0]?.value || "medium";
+    return bulkEffortOptions.some((o) => o.value === target) ? target : "medium";
+  }, [workflow, bulkEffortOptions]);
 
   const syncCache = useCallback((nextWorkflow) => {
     qc.setQueryData(SETTINGS_QUERY_KEY, (current) => upsertSettingPayload(current, {
@@ -174,6 +135,32 @@ function PipelineSettings() {
     setWorkflow((prev) => {
       const next = { ...prev, [stageKey]: newConfig };
       autoSave(next, stageKey);
+      return next;
+    });
+  }, [autoSave]);
+
+  const applyProviderToAll = useCallback((providerName) => {
+    if (!providerName) return;
+    const model = modelsByProvider[providerName]?.[0]?.id || "";
+    setWorkflow((prev) => {
+      const next = {};
+      for (const s of STAGES) {
+        const effort = providerName === "gemini" && prev[s.key]?.effort === "extra-high" ? "high" : (prev[s.key]?.effort || "medium");
+        next[s.key] = { provider: providerName, model, effort };
+      }
+      autoSave(next, "all");
+      return next;
+    });
+  }, [modelsByProvider, autoSave]);
+
+  const applyEffortToAll = useCallback((effort) => {
+    if (!effort) return;
+    setWorkflow((prev) => {
+      const next = {};
+      for (const s of STAGES) {
+        next[s.key] = { ...prev[s.key], effort };
+      }
+      autoSave(next, "all");
       return next;
     });
   }, [autoSave]);
@@ -221,7 +208,8 @@ function PipelineSettings() {
   }
 
   return (
-    <div className="space-y-4 stagger-children">
+    <div className="space-y-5 stagger-children">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold">Pipeline</h2>
@@ -238,19 +226,146 @@ function PipelineSettings() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-        {STAGES.map((stage) => (
-          <StageBlock
-            key={stage.key}
-            stage={stage}
-            config={workflow[stage.key] || workflow.plan}
-            providers={providers}
-            modelsByProvider={modelsByProvider}
-            onChange={(newConfig) => handleStageChange(stage.key, newConfig)}
-            saving={savingStage === stage.key || savingStage === "all"}
+      {/* Quick Apply panel */}
+      <div className="bg-base-200 rounded-xl p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Apply to all stages</h3>
+          <p className="text-xs text-base-content/50 mb-2">Use one CLI and one effort across all 6 stages.</p>
+          <div className="flex flex-wrap gap-2">
+            {availableProviders.map((prov) => {
+              const name = prov.name || prov.id;
+              const isActive = allSameProvider && workflow[STAGES[0].key]?.provider === name;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={`btn btn-xs ${isActive ? "btn-primary" : "btn-soft"}`}
+                  onClick={() => applyProviderToAll(name)}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[10px] text-base-content/40 mb-2">Effort (applies to all)</div>
+          <EffortPills
+            options={bulkEffortOptions}
+            value={normalizedBulkEffort}
+            onChange={applyEffortToAll}
           />
-        ))}
+        </div>
       </div>
+
+      {/* Provider availability strip */}
+      <div className="flex flex-wrap gap-2 justify-center">
+        {providers.map((prov) => {
+          const name = prov.name || prov.id;
+          const available = prov.available !== false;
+          return (
+            <span
+              key={name}
+              className={`badge gap-1.5 badge-sm ${available ? "badge-success" : "badge-ghost opacity-40"}`}
+            >
+              {available ? <CircleCheck className="size-3" /> : <CircleX className="size-3" />}
+              <span className="font-mono">{name}</span>
+              {prov.path && (
+                <span className="opacity-50 text-[9px] hidden sm:inline">{prov.path}</span>
+              )}
+            </span>
+          );
+        })}
+      </div>
+
+      {/* Pipeline cards — 2-column grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {STAGES.map((stage) => {
+          const Icon = stage.icon;
+          const config = workflow[stage.key] || workflow.plan;
+          const models = modelsByProvider[config.provider] || [];
+          const effortOptions = getEffortOptionsForProvider(config.provider);
+          const textColor = COLOR_MAP[stage.accent] || "text-base-content";
+          const isSaving = savingStage === stage.key || savingStage === "all";
+
+          return (
+            <div key={stage.key} className="bg-base-200 rounded-xl p-4 animate-fade-in">
+              <div className="flex flex-col gap-3">
+
+                {/* Role header + provider select */}
+                <div className="flex items-center gap-3">
+                  <div className={`size-8 rounded-lg flex items-center justify-center bg-base-300 shrink-0 ${textColor}`}>
+                    <Icon className="size-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm">{stage.label}</span>
+                      {isSaving && (
+                        <span className="text-xs text-success flex items-center gap-1 animate-fade-in">
+                          <Check className="size-3" /> saved
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-base-content/40 leading-tight mt-0.5 truncate">{stage.description}</p>
+                  </div>
+                  <select
+                    className="select select-sm select-bordered w-28 shrink-0"
+                    value={config.provider}
+                    onChange={(e) => {
+                      const newProvider = e.target.value;
+                      const newModels = modelsByProvider[newProvider] || [];
+                      const newEffort = newProvider === "gemini" && config.effort === "extra-high" ? "high" : config.effort;
+                      handleStageChange(stage.key, { ...config, provider: newProvider, model: newModels[0]?.id || "", effort: newEffort });
+                    }}
+                  >
+                    {availableProviders.map((p) => {
+                      const name = p.name || p.id;
+                      return <option key={name} value={name}>{name}</option>;
+                    })}
+                  </select>
+                </div>
+
+                {/* Effort pills */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-base-content/40 shrink-0 w-10">Effort</span>
+                  <EffortPills
+                    options={effortOptions}
+                    value={config.effort || "medium"}
+                    onChange={(v) => handleStageChange(stage.key, { ...config, effort: v })}
+                  />
+                </div>
+
+                {/* Model select */}
+                {models.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-base-content/40 shrink-0 w-10">Model</span>
+                    <select
+                      className="select select-xs select-bordered flex-1"
+                      value={config.model}
+                      onChange={(e) => handleStageChange(stage.key, { ...config, model: e.target.value })}
+                    >
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}{m.tier ? ` — ${m.tier}` : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : config.model ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-base-content/40 shrink-0 w-10">Model</span>
+                    <span className="text-xs opacity-40">{config.model}</span>
+                  </div>
+                ) : null}
+
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-[11px] text-base-content/35 text-center">
+        Pipeline stages: enhance, chat, plan, execute, review, services
+      </p>
     </div>
   );
 }

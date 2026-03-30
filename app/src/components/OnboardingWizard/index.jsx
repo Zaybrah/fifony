@@ -40,7 +40,7 @@ export default function OnboardingWizard({ onComplete }) {
   const projectHydratedRef = useRef(false);
 
   // Config state
-  const [pipeline, setPipeline] = useState({ planner: "", executor: "", reviewer: "" });
+  const [pipeline, setPipeline] = useState({ enhancer: "", chatter: "", planner: "", executor: "", reviewer: "", services: "" });
   const [efforts, setEfforts] = useState(() => normalizeRoleEfforts(null));
   const [concurrency, setConcurrency] = useState(3);
   const [selectedTheme, setSelectedTheme] = useState("auto");
@@ -69,7 +69,7 @@ export default function OnboardingWizard({ onComplete }) {
   const [providers, setProviders] = useState(null);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [modelsByProvider, setModelsByProvider] = useState({});
-  const [models, setModels] = useState({ plan: "", execute: "", review: "" });
+  const [models, setModels] = useState({ enhance: "", chat: "", plan: "", execute: "", review: "", services: "" });
 
   // Workspace path and default branch from runtime state
   const [workspacePath, setWorkspacePath] = useState("");
@@ -100,17 +100,23 @@ export default function OnboardingWizard({ onComplete }) {
     if (Array.isArray(savedPipeline) && savedPipeline.length > 0) {
       const byRole = Object.fromEntries(savedPipeline.map((entry) => [entry.role, entry.provider]));
       setPipeline({
+        enhancer: byRole.enhancer || "",
+        chatter: byRole.chatter || "",
         planner: byRole.planner || "",
         executor: byRole.executor || "",
         reviewer: byRole.reviewer || "",
+        services: byRole.services || "",
       });
     }
 
     if (savedWorkflowConfig && typeof savedWorkflowConfig === "object") {
       setModels({
+        enhance: savedWorkflowConfig.enhance?.model || "",
+        chat: savedWorkflowConfig.chat?.model || "",
         plan: savedWorkflowConfig.plan?.model || "",
         execute: savedWorkflowConfig.execute?.model || "",
         review: savedWorkflowConfig.review?.model || "",
+        services: savedWorkflowConfig.services?.model || "",
       });
     }
 
@@ -181,26 +187,35 @@ export default function OnboardingWizard({ onComplete }) {
         const available = list.filter((p) => p.available !== false);
         const firstName = available[0]?.id || available[0]?.name || "";
 
-        // Default pipeline: claude plans + reviews, first available executes
+        // Default pipeline: claude plans + reviews + ancillary, first available executes
         const claudeAvailable = available.find((p) => (p.id || p.name) === "claude");
         const defaultCli = firstName;
         const planReviewCli = claudeAvailable ? "claude" : defaultCli;
         const newPipeline = {
+          enhancer: planReviewCli,
+          chatter: planReviewCli,
           planner: planReviewCli,
           executor: defaultCli,
           reviewer: planReviewCli,
+          services: planReviewCli,
         };
         setPipeline((prev) => ({
+          enhancer: prev.enhancer || newPipeline.enhancer,
+          chatter: prev.chatter || newPipeline.chatter,
           planner: prev.planner || newPipeline.planner,
           executor: prev.executor || newPipeline.executor,
           reviewer: prev.reviewer || newPipeline.reviewer,
+          services: prev.services || newPipeline.services,
         }));
 
         // Auto-select first model per stage
         setModels((prev) => ({
+          enhance: prev.enhance || fetchedModels[planReviewCli]?.[0]?.id || "",
+          chat: prev.chat || fetchedModels[planReviewCli]?.[0]?.id || "",
           plan: prev.plan || fetchedModels[planReviewCli]?.[0]?.id || "",
           execute: prev.execute || fetchedModels[defaultCli]?.[0]?.id || "",
           review: prev.review || fetchedModels[planReviewCli]?.[0]?.id || "",
+          services: prev.services || fetchedModels[planReviewCli]?.[0]?.id || "",
         }));
       }).catch(() => {
         setProviders([]);
@@ -236,9 +251,12 @@ export default function OnboardingWizard({ onComplete }) {
       }
     } else if (currentStepName === "Pipeline") {
       const pipelineProviders = [
+        { provider: pipeline.enhancer, role: "enhancer" },
+        { provider: pipeline.chatter, role: "chatter" },
         { provider: pipeline.planner, role: "planner" },
         { provider: pipeline.executor, role: "executor" },
         { provider: pipeline.reviewer, role: "reviewer" },
+        { provider: pipeline.services, role: "services" },
       ];
       saveSetting("runtime.agentProvider", pipeline.executor, "runtime").catch(() => {});
       saveSetting("runtime.pipeline", pipelineProviders, "runtime").catch(() => {});
@@ -278,9 +296,12 @@ export default function OnboardingWizard({ onComplete }) {
 
       // Save pipeline configuration
       const pipelineProviders = [
+        { provider: pipeline.enhancer, role: "enhancer" },
+        { provider: pipeline.chatter, role: "chatter" },
         { provider: pipeline.planner, role: "planner" },
         { provider: pipeline.executor, role: "executor" },
         { provider: pipeline.reviewer, role: "reviewer" },
+        { provider: pipeline.services, role: "services" },
       ];
       saves.push(saveSetting("runtime.agentProvider", pipeline.executor, "runtime"));
       saves.push(saveSetting("runtime.pipeline", pipelineProviders, "runtime"));

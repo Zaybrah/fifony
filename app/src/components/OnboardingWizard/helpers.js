@@ -11,13 +11,16 @@ export function normalizeEffortValue(value, fallback = "medium") {
 
 export function normalizeRoleEfforts(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { planner: "medium", executor: "medium", reviewer: "medium" };
+    return { enhancer: "medium", chatter: "medium", planner: "medium", executor: "medium", reviewer: "medium", services: "medium" };
   }
 
   return {
+    enhancer: normalizeEffortValue(value.enhancer ?? value.default, "medium"),
+    chatter: normalizeEffortValue(value.chatter ?? value.default, "medium"),
     planner: normalizeEffortValue(value.planner ?? value.default, "medium"),
     executor: normalizeEffortValue(value.executor ?? value.default, "medium"),
     reviewer: normalizeEffortValue(value.reviewer ?? value.default, "medium"),
+    services: normalizeEffortValue(value.services ?? value.default, "medium"),
   };
 }
 
@@ -27,9 +30,12 @@ export function normalizeRoleEfforts(value) {
  */
 export function buildWorkflowConfig(pipeline, efforts, models = {}) {
   return {
-    plan: { provider: pipeline.planner || pipeline.executor || "", model: models.plan || "", effort: efforts.planner || "medium" },
+    enhance: { provider: pipeline.enhancer || pipeline.planner || "", model: models.enhance || "", effort: efforts.enhancer || "medium" },
+    chat: { provider: pipeline.chatter || pipeline.planner || "", model: models.chat || "", effort: efforts.chatter || "medium" },
+    plan: { provider: pipeline.planner || "", model: models.plan || "", effort: efforts.planner || "medium" },
     execute: { provider: pipeline.executor || "", model: models.execute || "", effort: efforts.executor || "medium" },
     review: { provider: pipeline.reviewer || pipeline.executor || "", model: models.review || "", effort: efforts.reviewer || "medium" },
+    services: { provider: pipeline.services || pipeline.planner || "", model: models.services || "", effort: efforts.services || "medium" },
   };
 }
 
