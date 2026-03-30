@@ -104,11 +104,42 @@ function detectInstallCommand(): string {
   return "Install bubblewrap via your package manager";
 }
 
+/**
+ * Attempt to install bwrap via the system package manager.
+ * Returns true if successful, false if it can't (no sudo, no pkg manager, etc.)
+ */
+function tryInstallBwrap(): boolean {
+  const commands = [
+    "apt install -y bubblewrap",
+    "dnf install -y bubblewrap",
+    "pacman -S --noconfirm bubblewrap",
+  ];
+  for (const cmd of commands) {
+    const bin = cmd.split(" ")[0];
+    try { execSync(`which ${bin}`, { stdio: "pipe", timeout: 2_000 }); } catch { continue; }
+    // Found the package manager — try installing (with and without sudo)
+    try {
+      execSync(`sudo -n ${cmd}`, { stdio: "pipe", timeout: 60_000 });
+      logger.info("[Sandbox] bubblewrap installed via sudo");
+      return true;
+    } catch {}
+    try {
+      execSync(cmd, { stdio: "pipe", timeout: 60_000 });
+      logger.info("[Sandbox] bubblewrap installed without sudo");
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
 export async function ensureAiJail(): Promise<string> {
-  // On Linux, bwrap is a system dependency — check before downloading ai-jail
+  // On Linux, bwrap is a system dependency — try to install if missing
   if (platform() === "linux" && !isBwrapAvailable()) {
-    const cmd = detectInstallCommand();
-    throw new Error(`Sandbox requires bubblewrap (bwrap) which is not installed.\nInstall it with: ${cmd}`);
+    logger.info("[Sandbox] bubblewrap not found, attempting auto-install...");
+    if (!tryInstallBwrap()) {
+      const cmd = detectInstallCommand();
+      throw new Error(`Sandbox requires bubblewrap (bwrap). Auto-install failed.\nInstall manually with: ${cmd}`);
+    }
   }
   if (isAiJailInstalled()) return AI_JAIL_BIN;
   await downloadAiJail();
