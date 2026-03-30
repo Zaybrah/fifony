@@ -233,7 +233,7 @@ function RootLayout() {
           )}
         </div>
 
-        <Fab onClick={() => ctx.setIsCreateOpen(true)} />
+        {!pathname.startsWith("/chat") && <Fab onClick={() => ctx.setIsCreateOpen(true)} />}
         <MobileDock />
         <CreateIssueDrawer
           open={ctx.isCreateOpen}
