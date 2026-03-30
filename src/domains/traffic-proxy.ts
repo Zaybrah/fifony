@@ -189,13 +189,15 @@ export function buildProxyEnvVars(
   proxyPort: number,
   serviceId: string,
   dashboardPort: number,
+  extraNoPorts: number[] = [],
 ): Record<string, string> {
   const proxyUrl = `http://${encodeURIComponent(serviceId)}:fifony@localhost:${proxyPort}`;
+  const noProxyList = [`localhost:${dashboardPort}`, ...extraNoPorts.map((p) => `localhost:${p}`)].join(",");
   return {
     HTTP_PROXY: proxyUrl,
     http_proxy: proxyUrl,
-    NO_PROXY: `localhost:${dashboardPort}`,
-    no_proxy: `localhost:${dashboardPort}`,
+    NO_PROXY: noProxyList,
+    no_proxy: noProxyList,
   };
 }
 

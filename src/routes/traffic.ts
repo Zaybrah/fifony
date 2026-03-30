@@ -2,7 +2,7 @@ import type { RuntimeState } from "../types.ts";
 import type { RouteRegistrar } from "./http.ts";
 import { STATE_ROOT } from "../concerns/constants.ts";
 import { logger } from "../concerns/logger.ts";
-import { listServiceStatuses } from "../domains/services.ts";
+import { listServiceStatuses, getServiceRuntimeStatus } from "../domains/services.ts";
 import {
   getTrafficBuffer,
   getServiceGraph,
@@ -88,13 +88,17 @@ export function registerTrafficRoutes(
         });
         // Inject HTTP_PROXY as global env vars so all services pick it up automatically
         const dashPort = Number(state.config.dashboardPort ?? 4000);
+        // Build NO_PROXY list including dashboard + all service ports
+        const servicePorts = (state.config.services ?? [])
+          .filter((s) => s.port)
+          .map((s) => `localhost:${s.port}`);
+        const noProxyList = [`localhost:${dashPort}`, ...servicePorts].join(",");
         const proxyUrl = `http://localhost:${port}`;
-        const noProxy = `localhost:${dashPort}`;
         const vars = state.variables ?? [];
         const ts = new Date().toISOString();
         const globalVars: Record<string, string> = {
           HTTP_PROXY: proxyUrl, http_proxy: proxyUrl,
-          NO_PROXY: noProxy, no_proxy: noProxy,
+          NO_PROXY: noProxyList, no_proxy: noProxyList,
         };
         for (const [key, value] of Object.entries(globalVars)) {
           const id = `global:${key}`;
@@ -105,7 +109,23 @@ export function registerTrafficRoutes(
         }
         state.variables = vars;
         logger.info({ port }, "[Mesh] Proxy started + global env vars injected");
-        return c.json({ ok: true, running: true, port });
+        // Restart all running services so they pick up the proxy env vars
+        const runningServices = (state.config.services ?? []).filter((s) => {
+          const status = getServiceRuntimeStatus(s, STATE_ROOT);
+          return status.running;
+        });
+        for (const svc of runningServices) {
+          try {
+            const { sendServiceEvent } = await import("../persistence/plugins/fsm-service.js");
+            await sendServiceEvent(svc.id, "STOP");
+            await new Promise((r) => setTimeout(r, 500));
+            await sendServiceEvent(svc.id, "START");
+            logger.info({ id: svc.id }, "[Mesh] Restarted service to apply proxy env");
+          } catch (err) {
+            logger.warn({ err, id: svc.id }, "[Mesh] Failed to restart service for proxy");
+          }
+        }
+        return c.json({ ok: true, running: true, port, restarted: runningServices.map((s) => s.id) });
       } catch (err) {
         logger.error({ err }, "[Mesh] Failed to start proxy");
         return c.json({ ok: false, error: String(err) }, 500);
@@ -119,6 +139,22 @@ export function registerTrafficRoutes(
         (v) => v.scope !== "global" || !MESH_VAR_KEYS.includes(v.key),
       );
       logger.info("[Mesh] Proxy stopped + global env vars removed");
+      // Restart running services to remove proxy env
+      const runningServices = (state.config.services ?? []).filter((s) => {
+        const status = getServiceRuntimeStatus(s, STATE_ROOT);
+        return status.running;
+      });
+      for (const svc of runningServices) {
+        try {
+          const { sendServiceEvent } = await import("../persistence/plugins/fsm-service.js");
+          await sendServiceEvent(svc.id, "STOP");
+          await new Promise((r) => setTimeout(r, 500));
+          await sendServiceEvent(svc.id, "START");
+          logger.info({ id: svc.id }, "[Mesh] Restarted service to remove proxy env");
+        } catch (err) {
+          logger.warn({ err, id: svc.id }, "[Mesh] Failed to restart service after proxy disable");
+        }
+      }
     }
 
     return c.json({ ok: true, running: isTrafficProxyRunning(), port: getTrafficProxyPort() });

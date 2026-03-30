@@ -12,7 +12,7 @@ import {
 
 const TABS = [
   { to: "/settings/project",       label: "Project",       icon: FolderRoot },
-  { to: "/settings/pipeline",      label: "Pipeline",      icon: ListOrdered },
+  { to: "/settings/pipeline",      label: "Agents",        icon: ListOrdered },
   { to: "/settings/execution",     label: "Execution",     icon: Cpu },
   { to: "/settings/agents",        label: "Assets",        icon: Users },
   { to: "/settings/services",      label: "Services",      icon: Server },
