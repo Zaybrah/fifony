@@ -3,12 +3,15 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api.js";
 import { SETTINGS_QUERY_KEY, upsertSettingPayload } from "../../hooks.js";
-import { Lightbulb, Play, Eye, RotateCcw, Loader2, Check } from "lucide-react";
+import { Sparkles, MessageSquare, Lightbulb, Play, Eye, Activity, RotateCcw, Loader2, Check } from "lucide-react";
 
 const STAGES = [
-  { key: "plan",    label: "Plan",    icon: Lightbulb, description: "Generate the execution plan", accent: "info" },
-  { key: "execute", label: "Execute", icon: Play,      description: "Implement the changes",       accent: "primary" },
-  { key: "review",  label: "Review",  icon: Eye,       description: "Review the implementation",  accent: "secondary" },
+  { key: "enhance",  label: "Enhance",  icon: Sparkles,      description: "Improve issue title and description",   accent: "warning" },
+  { key: "chat",     label: "Chat",     icon: MessageSquare, description: "Conversational AI for issue discussion", accent: "info" },
+  { key: "plan",     label: "Plan",     icon: Lightbulb,     description: "Generate the execution plan",            accent: "info" },
+  { key: "execute",  label: "Execute",  icon: Play,          description: "Implement the changes",                  accent: "primary" },
+  { key: "review",   label: "Review",   icon: Eye,           description: "Review the implementation",              accent: "secondary" },
+  { key: "services", label: "Services", icon: Activity,      description: "AI-powered service log analysis",        accent: "success" },
 ];
 
 const EFFORTS = [
@@ -22,6 +25,8 @@ const ACCENT_MAP = {
   info:      { border: "border-info/30",      bg: "bg-info/10",      text: "text-info",      badge: "badge-info" },
   primary:   { border: "border-primary/30",   bg: "bg-primary/10",   text: "text-primary",   badge: "badge-primary" },
   secondary: { border: "border-secondary/30", bg: "bg-secondary/10", text: "text-secondary", badge: "badge-secondary" },
+  warning:   { border: "border-warning/30",   bg: "bg-warning/10",   text: "text-warning",   badge: "badge-warning" },
+  success:   { border: "border-success/30",   bg: "bg-success/10",   text: "text-success",   badge: "badge-success" },
 };
 
 function StageBlock({ stage, config, providers, modelsByProvider, onChange, saving }) {
@@ -186,10 +191,17 @@ function PipelineSettings() {
       const hasCodex = available.some((p) => p.name === "codex");
       const claudeModel = freshModels.claude?.[0]?.id || "";
       const codexModel = freshModels.codex?.[0]?.id || "";
+      const planProvider = hasClaude ? "claude" : "codex";
+      const planModel    = hasClaude ? claudeModel : codexModel;
+      const execProvider = hasCodex  ? "codex"  : "claude";
+      const execModel    = hasCodex  ? codexModel  : claudeModel;
       const defaults = {
-        plan:    { provider: hasClaude ? "claude" : "codex", model: hasClaude ? claudeModel : codexModel, effort: "high" },
-        execute: { provider: hasCodex  ? "codex"  : "claude", model: hasCodex  ? codexModel  : claudeModel, effort: "medium" },
-        review:  { provider: hasClaude ? "claude" : "codex", model: hasClaude ? claudeModel : codexModel, effort: "medium" },
+        enhance:  { provider: planProvider, model: planModel, effort: "medium" },
+        chat:     { provider: planProvider, model: planModel, effort: "medium" },
+        plan:     { provider: planProvider, model: planModel, effort: "high" },
+        execute:  { provider: execProvider, model: execModel, effort: "medium" },
+        review:   { provider: planProvider, model: planModel, effort: "medium" },
+        services: { provider: planProvider, model: planModel, effort: "medium" },
       };
       setWorkflow(defaults);
       await api.post("/config/workflow", { workflow: defaults });
@@ -226,12 +238,12 @@ function PipelineSettings() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         {STAGES.map((stage) => (
           <StageBlock
             key={stage.key}
             stage={stage}
-            config={workflow[stage.key]}
+            config={workflow[stage.key] || workflow.plan}
             providers={providers}
             modelsByProvider={modelsByProvider}
             onChange={(newConfig) => handleStageChange(stage.key, newConfig)}

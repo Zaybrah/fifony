@@ -3,7 +3,7 @@ import { logger } from "../../concerns/logger.ts";
 import { detectAvailableProviders, resolveProviderCapabilities } from "../providers.ts";
 import type { RuntimeConfig } from "../../types.ts";
 import { renderPrompt } from "../prompting.ts";
-import { resolvePlanStageConfig } from "./planning-prompts.ts";
+import { resolveEnhanceStageConfig } from "./planning-prompts.ts";
 import { ADAPTERS } from "../adapters/registry.ts";
 import { env } from "node:process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -256,8 +256,8 @@ export async function enhanceIssueField(
   const issueType = typeof payload.issueType === "string" ? payload.issueType.trim() : undefined;
   const images = Array.isArray(payload.images) ? payload.images.filter((p): p is string => typeof p === "string") : undefined;
 
-  // Use the same provider/model as the plan stage — single source of truth
-  const { provider: selectedProvider, model: selectedModel } = await resolvePlanStageConfig(config);
+  // Use enhance-specific config, falling back to plan stage config
+  const { provider: selectedProvider, model: selectedModel } = await resolveEnhanceStageConfig(config);
 
   const providers = detectAvailableProviders();
   const isAvailable = providers.some((p) => p.name === selectedProvider && p.available);

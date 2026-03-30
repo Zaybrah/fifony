@@ -143,6 +143,15 @@ function ConnectionSection({ status, wsStatus }) {
 
 function PwaSection({ pwa }) {
   const installLabel = pwa?.isInstalled ? "Installed" : pwa?.canInstall ? "Installable" : "Browser-managed";
+  const displayModeLabel = pwa?.displayMode
+    ? pwa.displayMode.replaceAll("-", " ")
+    : "browser";
+  const swStatus = !pwa?.serviceWorkerSupported
+    ? "Unavailable"
+    : pwa?.serviceWorkerRegistered
+      ? "Registered"
+      : "Not registered";
+  const updateLabel = pwa?.updateAvailable ? "Ready to apply" : "Current";
 
   return (
     <div className="card bg-base-200">
@@ -155,12 +164,32 @@ function PwaSection({ pwa }) {
           <div className="rounded-box bg-base-300 p-3">
             <div className="text-xs opacity-50">Service worker</div>
             <div className="text-sm font-medium mt-1">
-              {pwa?.serviceWorkerSupported ? "Supported" : "Unavailable"}
+              {swStatus}
             </div>
           </div>
           <div className="rounded-box bg-base-300 p-3">
             <div className="text-xs opacity-50">Install status</div>
             <div className="text-sm font-medium mt-1">{installLabel}</div>
+          </div>
+          <div className="rounded-box bg-base-300 p-3">
+            <div className="text-xs opacity-50">Display mode</div>
+            <div className="text-sm font-medium mt-1 capitalize">{displayModeLabel}</div>
+          </div>
+          <div className="rounded-box bg-base-300 p-3">
+            <div className="text-xs opacity-50">Runtime state</div>
+            <div className="text-sm font-medium mt-1">
+              {pwa?.isOnline ? "Online" : "Offline shell"}
+            </div>
+          </div>
+          <div className="rounded-box bg-base-300 p-3">
+            <div className="text-xs opacity-50">App version</div>
+            <div className="text-sm font-medium mt-1 font-mono">
+              {pwa?.serviceWorkerVersion ?? "Unavailable"}
+            </div>
+          </div>
+          <div className="rounded-box bg-base-300 p-3">
+            <div className="text-xs opacity-50">Update</div>
+            <div className="text-sm font-medium mt-1">{updateLabel}</div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

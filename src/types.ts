@@ -869,7 +869,7 @@ export type RuntimeStateRecord = {
   state: RuntimeState;
 };
 
-export type AgentProviderRole = "planner" | "executor" | "reviewer";
+export type AgentProviderRole = "planner" | "executor" | "reviewer" | "enhancer" | "chatter" | "services-analyst";
 export type ReasoningEffort = "low" | "medium" | "high" | "extra-high";
 
 /** Configuration for a single pipeline stage (plan, execute, review) */
@@ -881,9 +881,12 @@ export type PipelineStageConfig = {
 
 /** Full workflow config: what to use at each stage */
 export type WorkflowConfig = {
+  enhance?: PipelineStageConfig;
+  chat?: PipelineStageConfig;
   plan: PipelineStageConfig;
   execute: PipelineStageConfig;
   review: PipelineStageConfig;
+  services?: PipelineStageConfig;
 };
 
 export type EffortConfig = {

@@ -13,6 +13,7 @@ import {
   clearPlanningSession,
 } from "../agents/planning/issue-planner.ts";
 import { enhanceIssueField } from "../agents/planning/issue-enhancer.ts";
+import { chatWithIssue } from "../agents/planning/issue-chat.ts";
 
 export function registerPlanRoutes(
   app: RouteRegistrar,
@@ -139,6 +140,48 @@ export function registerPlanRoutes(
         { ok: false, error: error instanceof Error ? error.message : String(error) },
         500,
       );
+    }
+  });
+
+  app.post("/api/issues/:id/chat", async (c) => {
+    const issueId = c.req.param("id");
+    const issue = state.issues.find((i) => i.id === issueId || i.identifier === issueId);
+    if (!issue) {
+      return c.json({ ok: false, error: "Issue not found." }, 404);
+    }
+
+    try {
+      const body = await c.req.json() as Record<string, unknown>;
+      const message = typeof body.message === "string" ? body.message.trim() : "";
+      if (!message) {
+        return c.json({ ok: false, error: "Message is required." }, 400);
+      }
+
+      const history = Array.isArray(body.history)
+        ? body.history.filter(
+            (m: unknown): m is { role: "user" | "assistant"; content: string } =>
+              typeof m === "object" && m !== null &&
+              (((m as Record<string, unknown>).role === "user") || ((m as Record<string, unknown>).role === "assistant")) &&
+              typeof (m as Record<string, unknown>).content === "string",
+          )
+        : undefined;
+
+      const result = await chatWithIssue(
+        {
+          issueId: issue.id,
+          title: issue.title,
+          description: issue.description ?? "",
+          plan: issue.plan ?? null,
+          message,
+          history,
+        },
+        state.config,
+      );
+
+      return c.json({ ok: true, response: result.response, provider: result.provider });
+    } catch (error) {
+      logger.error({ err: error, issueId }, `Issue chat failed: ${String(error)}`);
+      return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
     }
   });
 }

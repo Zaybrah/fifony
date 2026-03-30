@@ -58,7 +58,7 @@ export function normalizeAgentProvider(value: string): string {
 
 export function normalizeAgentRole(value: string): AgentProviderRole {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "planner" || normalized === "executor" || normalized === "reviewer") {
+  if (normalized === "planner" || normalized === "executor" || normalized === "reviewer" || normalized === "enhancer" || normalized === "chatter" || normalized === "services-analyst") {
     return normalized;
   }
   return "executor";
@@ -290,7 +290,7 @@ export function getBaseAgentProviders(
   ];
 }
 
-type AgentStage = "plan" | "execute" | "review";
+type AgentStage = "plan" | "execute" | "review" | "enhance" | "chat" | "services";
 
 const EFFORT_ORDER: ReasoningEffort[] = ["low", "medium", "high", "extra-high"];
 
@@ -338,6 +338,9 @@ function maxEffort(left?: ReasoningEffort, right?: ReasoningEffort): ReasoningEf
 function stageToRole(stage: AgentStage): AgentProviderRole {
   if (stage === "plan") return "planner";
   if (stage === "review") return "reviewer";
+  if (stage === "enhance") return "enhancer";
+  if (stage === "chat") return "chatter";
+  if (stage === "services") return "services-analyst";
   return "executor";
 }
 
@@ -396,7 +399,7 @@ function specializeReviewerProvider(baseProvider: AgentProviderDefinition, issue
 }
 
 function resolveSynchronousProviderModel(provider: string, workflowConfig?: WorkflowConfig | null): string | undefined {
-  const stages = workflowConfig ? [workflowConfig.review, workflowConfig.execute, workflowConfig.plan] : [];
+  const stages = workflowConfig ? [workflowConfig.review, workflowConfig.execute, workflowConfig.plan, workflowConfig.enhance, workflowConfig.chat, workflowConfig.services] : [];
   const fromWorkflow = stages.find((stage) => stage?.provider === provider)?.model;
   if (fromWorkflow) return fromWorkflow;
   if (provider === "codex") return readCodexConfig().model;
@@ -466,6 +469,9 @@ function roleToStageKey(role: AgentProviderRole): keyof WorkflowConfig {
     case "planner": return "plan";
     case "executor": return "execute";
     case "reviewer": return "review";
+    case "enhancer": return "enhance";
+    case "chatter": return "chat";
+    case "services-analyst": return "services";
   }
 }
 
@@ -540,4 +546,28 @@ export function getEffectiveAgentProviders(
 ): AgentProviderDefinition[] {
   const effectiveWorkflowConfig = workflowConfig ?? workflowDefinitionOrConfig ?? null;
   return getSessionProvidersForIssue(state, issue, effectiveWorkflowConfig);
+}
+
+export function getEnhanceProvider(
+  state: RuntimeState,
+  issue: IssueEntry,
+  workflowConfig?: WorkflowConfig | null,
+): AgentProviderDefinition {
+  return buildStageProvider(state, issue, "enhance", workflowConfig ?? null);
+}
+
+export function getChatProvider(
+  state: RuntimeState,
+  issue: IssueEntry,
+  workflowConfig?: WorkflowConfig | null,
+): AgentProviderDefinition {
+  return buildStageProvider(state, issue, "chat", workflowConfig ?? null);
+}
+
+export function getServicesProvider(
+  state: RuntimeState,
+  issue: IssueEntry,
+  workflowConfig?: WorkflowConfig | null,
+): AgentProviderDefinition {
+  return buildStageProvider(state, issue, "services", workflowConfig ?? null);
 }

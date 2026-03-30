@@ -2,7 +2,7 @@ import { appendFileTail, extractJsonObjects } from "../../concerns/helpers.ts";
 import { logger } from "../../concerns/logger.ts";
 import { detectAvailableProviders, resolveProviderCapabilities } from "../providers.ts";
 import type { RuntimeConfig, ServiceHealthcheck } from "../../types.ts";
-import { resolvePlanStageConfig } from "./planning-prompts.ts";
+import { resolveServicesStageConfig } from "./planning-prompts.ts";
 import { ADAPTERS } from "../adapters/registry.ts";
 import { env } from "node:process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -33,6 +33,18 @@ const FIX_JSON_SCHEMA = JSON.stringify({
     issueType: { type: "string", enum: ["bug", "chore", "feature"] },
   },
   required: ["hasProblem"],
+  additionalProperties: false,
+});
+
+const INSIGHTS_JSON_SCHEMA = JSON.stringify({
+  type: "object",
+  properties: {
+    status: { type: "string", enum: ["healthy", "degraded", "error"] },
+    patterns: { type: "array", items: { type: "string" } },
+    rootCauses: { type: "array", items: { type: "string" } },
+    suggestions: { type: "array", items: { type: "string" } },
+  },
+  required: ["status", "patterns", "rootCauses", "suggestions"],
   additionalProperties: false,
 });
 
@@ -78,6 +90,28 @@ Return ONLY a JSON object:
 { "hasProblem": true, "title": "...", "description": "...", "issueType": "bug" }
 or
 { "hasProblem": false }
+
+SERVICE LOG (last lines):
+\`\`\`
+${logTail}
+\`\`\``;
+}
+
+function buildInsightsPrompt(logTail: string, serviceName: string): string {
+  return `You are analyzing the log of a service called "${serviceName}".
+
+Analyze the log and provide insights about the service's health and behavior.
+
+Identify:
+1. **Error patterns**: recurring errors, warnings, or anomalies in the log
+2. **Health status**: overall status — "healthy" if running fine, "degraded" if there are warnings or performance issues, "error" if there are critical failures
+3. **Root causes**: likely root causes for any issues found
+4. **Actionable suggestions**: concrete steps to improve the service's health or performance
+
+Return ONLY a JSON object with this exact structure:
+{"status": "healthy", "patterns": ["pattern 1", "..."], "rootCauses": ["cause 1", "..."], "suggestions": ["suggestion 1", "..."]}
+
+Use empty arrays if nothing relevant is found for a category.
 
 SERVICE LOG (last lines):
 \`\`\`
@@ -220,7 +254,7 @@ function extractJsonFromOutput<T>(raw: string): T | null {
 // ── Provider setup ─────────────────────────────────────────────────────────────
 
 async function resolveProvider(config: RuntimeConfig) {
-  const { provider: selectedProvider, model: selectedModel } = await resolvePlanStageConfig(config);
+  const { provider: selectedProvider, model: selectedModel } = await resolveServicesStageConfig(config);
 
   const providers = detectAvailableProviders();
   const isAvailable = providers.some((p) => p.name === selectedProvider && p.available);
@@ -342,5 +376,50 @@ export async function analyzeLogForFix(
     title: result.title.slice(0, 120),
     description: result.description ?? "",
     issueType,
+  };
+}
+
+export type InsightsResult = {
+  status: "healthy" | "degraded" | "error";
+  patterns: string[];
+  rootCauses: string[];
+  suggestions: string[];
+};
+
+export async function analyzeLogForInsights(
+  logTail: string,
+  serviceName: string,
+  config: RuntimeConfig,
+): Promise<InsightsResult | null> {
+  const { provider, model, adapter } = await resolveProvider(config);
+  const caps = resolveProviderCapabilities(provider);
+  const command = adapter.buildCommand({
+    model,
+    readOnly: true,
+    jsonSchema: caps.structuredOutput.mode !== "none" ? INSIGHTS_JSON_SCHEMA : undefined,
+  });
+
+  const prompt = buildInsightsPrompt(truncateLog(logTail, 150), serviceName);
+  const timeoutMs = config.commandTimeoutMs ?? 60_000;
+
+  logger.debug({ provider, serviceName }, "[LogAnalyzer] Analyzing log for insights");
+
+  const raw = await runOneShot(command, provider, prompt, timeoutMs);
+  const result = extractJsonFromOutput<{ status: string; patterns?: string[]; rootCauses?: string[]; suggestions?: string[] }>(raw);
+
+  if (result === null) {
+    logger.warn({ provider, serviceName, rawLength: raw.length }, "[LogAnalyzer] Could not extract insights from log");
+    return null;
+  }
+
+  const status = ["healthy", "degraded", "error"].includes(result.status)
+    ? (result.status as "healthy" | "degraded" | "error")
+    : "healthy";
+
+  return {
+    status,
+    patterns: Array.isArray(result.patterns) ? result.patterns.filter((p): p is string => typeof p === "string") : [],
+    rootCauses: Array.isArray(result.rootCauses) ? result.rootCauses.filter((r): r is string => typeof r === "string") : [],
+    suggestions: Array.isArray(result.suggestions) ? result.suggestions.filter((s): s is string => typeof s === "string") : [],
   };
 }

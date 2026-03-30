@@ -39,6 +39,7 @@ check "pnpm typecheck" pnpm typecheck
 echo ""
 echo "▶ Build"
 check "pnpm build" pnpm build
+check "pnpm pwa:check" pnpm pwa:check
 
 echo ""
 echo "▶ Tests"

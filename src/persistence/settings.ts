@@ -510,19 +510,47 @@ export function buildDefaultWorkflowConfig(
 
   // Default: claude for plan+review (better reasoning), codex for execute (better code)
   if (hasClaude && hasCodex) {
+    const planConfig = { ...claudeDefault, effort: "high" as ReasoningEffort };
     return {
-      plan: { ...claudeDefault, effort: "high" },
+      enhance: { ...planConfig },
+      chat: { ...planConfig, effort: "medium" as ReasoningEffort },
+      plan: planConfig,
       execute: { ...codexDefault },
       review: { ...claudeDefault },
+      services: { ...planConfig, effort: "medium" as ReasoningEffort },
     };
   }
   if (hasClaude) {
-    return { plan: { ...claudeDefault, effort: "high" }, execute: claudeDefault, review: claudeDefault };
+    const planConfig = { ...claudeDefault, effort: "high" as ReasoningEffort };
+    return {
+      enhance: { ...planConfig },
+      chat: { ...planConfig, effort: "medium" as ReasoningEffort },
+      plan: planConfig,
+      execute: claudeDefault,
+      review: claudeDefault,
+      services: { ...planConfig, effort: "medium" as ReasoningEffort },
+    };
   }
   if (hasCodex) {
-    return { plan: { ...codexDefault, effort: "high" }, execute: codexDefault, review: codexDefault };
+    const planConfig = { ...codexDefault, effort: "high" as ReasoningEffort };
+    return {
+      enhance: { ...planConfig },
+      chat: { ...planConfig, effort: "medium" as ReasoningEffort },
+      plan: planConfig,
+      execute: codexDefault,
+      review: codexDefault,
+      services: { ...planConfig, effort: "medium" as ReasoningEffort },
+    };
   }
-  return { plan: claudeDefault, execute: codexDefault, review: claudeDefault };
+  const planConfig = { ...claudeDefault };
+  return {
+    enhance: { ...planConfig },
+    chat: { ...planConfig, effort: "medium" as ReasoningEffort },
+    plan: planConfig,
+    execute: codexDefault,
+    review: claudeDefault,
+    services: { ...planConfig, effort: "medium" as ReasoningEffort },
+  };
 }
 
 /** Load workflow config from settings */
@@ -531,7 +559,15 @@ export function getWorkflowConfig(settings: RuntimeSettingRecord[]): WorkflowCon
   if (!setting?.value || typeof setting.value !== "object") return null;
   const wf = setting.value as Record<string, unknown>;
   if (isValidStage(wf.plan) && isValidStage(wf.execute) && isValidStage(wf.review)) {
-    return wf as unknown as WorkflowConfig;
+    const config: WorkflowConfig = {
+      plan: wf.plan as PipelineStageConfig,
+      execute: wf.execute as PipelineStageConfig,
+      review: wf.review as PipelineStageConfig,
+    };
+    if (isValidStage(wf.enhance)) config.enhance = wf.enhance as PipelineStageConfig;
+    if (isValidStage(wf.chat)) config.chat = wf.chat as PipelineStageConfig;
+    if (isValidStage(wf.services)) config.services = wf.services as PipelineStageConfig;
+    return config;
   }
   return null;
 }

@@ -123,6 +123,117 @@ export async function resolvePlanStageConfig(config: RuntimeConfig): Promise<Pla
   return { provider, model, effort: configuredEffort };
 }
 
+export async function resolveEnhanceStageConfig(config: RuntimeConfig): Promise<PlanStageConfig> {
+  const providers = detectAvailableProviders();
+  const available = providers.filter((p) => p.available).map((p) => p.name);
+
+  let configuredProvider: string | undefined;
+  let configuredModel: string | undefined;
+  let configuredEffort: string | undefined;
+
+  try {
+    const settings = await loadRuntimeSettings();
+    const workflowConfig = getWorkflowConfig(settings);
+    if (workflowConfig?.enhance) {
+      configuredProvider = workflowConfig.enhance.provider;
+      configuredModel = workflowConfig.enhance.model;
+      configuredEffort = workflowConfig.enhance.effort;
+    }
+  } catch {
+    // fall through to defaults
+  }
+
+  // If no enhance-specific config, fall back to plan stage config
+  if (!configuredProvider) {
+    return resolvePlanStageConfig(config);
+  }
+
+  const provider =
+    (configuredProvider && available.includes(configuredProvider)) ? configuredProvider :
+    (config.agentProvider && available.includes(config.agentProvider)) ? config.agentProvider :
+    available[0];
+
+  if (!provider) throw new Error("No AI provider available for enhance.");
+
+  const model = provider === configuredProvider ? configuredModel : undefined;
+
+  return { provider, model, effort: configuredEffort };
+}
+
+export async function resolveServicesStageConfig(config: RuntimeConfig): Promise<PlanStageConfig> {
+  const providers = detectAvailableProviders();
+  const available = providers.filter((p) => p.available).map((p) => p.name);
+
+  let configuredProvider: string | undefined;
+  let configuredModel: string | undefined;
+  let configuredEffort: string | undefined;
+
+  try {
+    const settings = await loadRuntimeSettings();
+    const workflowConfig = getWorkflowConfig(settings);
+    if (workflowConfig?.services) {
+      configuredProvider = workflowConfig.services.provider;
+      configuredModel = workflowConfig.services.model;
+      configuredEffort = workflowConfig.services.effort;
+    }
+  } catch {
+    // fall through to defaults
+  }
+
+  // If no services-specific config, fall back to plan stage config
+  if (!configuredProvider) {
+    return resolvePlanStageConfig(config);
+  }
+
+  const provider =
+    (configuredProvider && available.includes(configuredProvider)) ? configuredProvider :
+    (config.agentProvider && available.includes(config.agentProvider)) ? config.agentProvider :
+    available[0];
+
+  if (!provider) throw new Error("No AI provider available for services.");
+
+  const model = provider === configuredProvider ? configuredModel : undefined;
+
+  return { provider, model, effort: configuredEffort };
+}
+
+export async function resolveChatStageConfig(config: RuntimeConfig): Promise<PlanStageConfig> {
+  const providers = detectAvailableProviders();
+  const available = providers.filter((p) => p.available).map((p) => p.name);
+
+  let configuredProvider: string | undefined;
+  let configuredModel: string | undefined;
+  let configuredEffort: string | undefined;
+
+  try {
+    const settings = await loadRuntimeSettings();
+    const workflowConfig = getWorkflowConfig(settings);
+    if (workflowConfig?.chat) {
+      configuredProvider = workflowConfig.chat.provider;
+      configuredModel = workflowConfig.chat.model;
+      configuredEffort = workflowConfig.chat.effort;
+    }
+  } catch {
+    // fall through to defaults
+  }
+
+  // If no chat-specific config, fall back to plan stage config
+  if (!configuredProvider) {
+    return resolvePlanStageConfig(config);
+  }
+
+  const provider =
+    (configuredProvider && available.includes(configuredProvider)) ? configuredProvider :
+    (config.agentProvider && available.includes(config.agentProvider)) ? config.agentProvider :
+    available[0];
+
+  if (!provider) throw new Error("No AI provider available for chat.");
+
+  const model = provider === configuredProvider ? configuredModel : undefined;
+
+  return { provider, model, effort: configuredEffort };
+}
+
 // ── Shared: subprocess runner ─────────────────────────────────────────────────
 
 const PLAN_TIMEOUT_MS = 1_800_000;   // 30 minutes

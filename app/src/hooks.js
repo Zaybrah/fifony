@@ -52,11 +52,35 @@ const PWA_DISPLAY_MODE_QUERIES = [
   "(display-mode: window-controls-overlay)",
 ];
 
+function getPwaDisplayMode() {
+  if (typeof window === "undefined") return "browser";
+  if (document.referrer.startsWith("android-app://")) return "twa";
+  if (window.navigator.standalone === true) return "standalone";
+
+  const activeQuery = PWA_DISPLAY_MODE_QUERIES.find((query) => window.matchMedia(query).matches);
+  if (!activeQuery) return "browser";
+  return activeQuery.slice("(display-mode: ".length, -1);
+}
+
 function isInstalledPwa() {
   if (typeof window === "undefined") return false;
-  if (window.navigator.standalone === true) return true;
-  if (document.referrer.startsWith("android-app://")) return true;
-  return PWA_DISPLAY_MODE_QUERIES.some((query) => window.matchMedia(query).matches);
+  return getPwaDisplayMode() !== "browser";
+}
+
+async function queryServiceWorker(message) {
+  if (!("serviceWorker" in navigator)) return null;
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (!registration?.active) return null;
+
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timeout = window.setTimeout(() => resolve(null), 1500);
+    channel.port1.onmessage = (event) => {
+      window.clearTimeout(timeout);
+      resolve(event.data ?? null);
+    };
+    registration.active.postMessage(message, [channel.port2]);
+  });
 }
 
 /** Send a message on the shared runtime WebSocket. No-op if not connected. */
@@ -568,6 +592,9 @@ export function usePwa() {
   const [canInstall, setCanInstall] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(() => isInstalledPwa());
+  const [displayMode, setDisplayMode] = useState(() => getPwaDisplayMode());
+  const [serviceWorkerRegistered, setServiceWorkerRegistered] = useState(false);
+  const [serviceWorkerVersion, setServiceWorkerVersion] = useState(null);
 
   useEffect(() => {
     const onOnline = () => setIsOnline(true);
@@ -592,9 +619,11 @@ export function usePwa() {
       setInstallPrompt(null);
       setCanInstall(false);
       setIsInstalled(true);
+      setDisplayMode(getPwaDisplayMode());
     };
     const onDisplayModeChange = () => {
       setIsInstalled(isInstalledPwa());
+      setDisplayMode(getPwaDisplayMode());
     };
 
     // Check if prompt was captured before React mounted (in main.jsx)
@@ -625,6 +654,7 @@ export function usePwa() {
     let refreshing = false;
 
     const bindRegistration = (registration) => {
+      setServiceWorkerRegistered(Boolean(registration));
       if (!registration) return;
 
       if (registration.waiting && navigator.serviceWorker.controller) {
@@ -647,6 +677,10 @@ export function usePwa() {
       refreshing = true;
       window.location.reload();
     };
+
+    void queryServiceWorker({ type: "GET_VERSION" })
+      .then((result) => setServiceWorkerVersion(result?.version ?? null))
+      .catch(() => {});
 
     navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
     navigator.serviceWorker.getRegistration().then(bindRegistration).catch(() => {});
@@ -680,8 +714,11 @@ export function usePwa() {
     isOnline,
     canInstall: canInstall && !isInstalled,
     isInstalled,
+    displayMode,
     updateAvailable,
     serviceWorkerSupported: "serviceWorker" in navigator,
+    serviceWorkerRegistered,
+    serviceWorkerVersion,
     installApp,
     applyUpdate,
   };

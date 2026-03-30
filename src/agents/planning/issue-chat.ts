@@ -1,0 +1,171 @@
+import { appendFileTail } from "../../concerns/helpers.ts";
+import { logger } from "../../concerns/logger.ts";
+import { detectAvailableProviders, resolveProviderCapabilities } from "../providers.ts";
+import type { RuntimeConfig } from "../../types.ts";
+import { resolveChatStageConfig } from "./planning-prompts.ts";
+import { ADAPTERS } from "../adapters/registry.ts";
+import { env } from "node:process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { TARGET_ROOT } from "../../concerns/constants.ts";
+
+// ── One-shot CLI runner (same pattern as log-analyzer) ──────────────────────
+
+function readProviderOutput(resultFile: string, fallback: string): string {
+  if (existsSync(resultFile)) {
+    try {
+      return readFileSync(resultFile, "utf8").trim();
+    } catch {
+      // ignore, keep fallback
+    }
+  }
+  return fallback;
+}
+
+async function runOneShot(
+  command: string,
+  provider: string,
+  prompt: string,
+  timeoutMs: number,
+): Promise<string> {
+  const tempDir = mkdtempSync(join(tmpdir(), "fifony-chat-"));
+  const promptFile = join(tempDir, "prompt.md");
+  const resultFile = join(tempDir, "result.txt");
+  writeFileSync(promptFile, `${prompt}\n`, "utf8");
+
+  const spawnEnv = {
+    ...env,
+    FIFONY_PROMPT_FILE: promptFile,
+    FIFONY_PROMPT: prompt,
+    FIFONY_AGENT_PROVIDER: provider,
+    FIFONY_RESULT_FILE: resultFile,
+  };
+
+  return await new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    let output = "";
+    let timedOut = false;
+
+    const child = spawn(command, { shell: true, cwd: TARGET_ROOT, env: spawnEnv });
+    if (child.stdin) child.stdin.end();
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      output = appendFileTail(output, String(chunk), 12_000);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      output = appendFileTail(output, String(chunk), 12_000);
+    });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, Math.max(timeoutMs, 1_000));
+
+    child.on("error", () => {
+      clearTimeout(timer);
+      rmSync(tempDir, { recursive: true, force: true });
+      reject(new Error("Could not execute AI command."));
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const commandOutput = readProviderOutput(resultFile, output);
+      rmSync(tempDir, { recursive: true, force: true });
+
+      if (timedOut) {
+        reject(new Error(`Chat command timed out after ${Date.now() - startedAt}ms.`));
+        return;
+      }
+      if (code !== 0 && !commandOutput.trim()) {
+        reject(new Error(`Chat command failed (exit ${code ?? "unknown"}) with no output.`));
+        return;
+      }
+      if (code !== 0) {
+        logger.warn({ exitCode: code, provider }, "[Chat] Provider exited non-zero but produced output — attempting to use it");
+      }
+      resolve(commandOutput);
+    });
+  });
+}
+
+// ── Prompt builder ──────────────────────────────────────────────────────────
+
+function buildChatPrompt(payload: {
+  title: string;
+  description: string;
+  plan?: { summary?: string; steps?: Array<{ title: string }> } | null;
+  message: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+}): string {
+  const { title, description, plan, message, history } = payload;
+
+  const planSection = plan
+    ? `Plan summary: ${plan.summary ?? "(none)"}\nSteps: ${plan.steps?.map((s) => s.title).join(", ") ?? "(none)"}`
+    : "No plan yet.";
+
+  const historySection = history?.length
+    ? history.map((m) => `${m.role}: ${m.content}`).join("\n")
+    : "";
+
+  return `You are a helpful assistant discussing issue "${title}".
+
+## Issue Context
+Title: ${title}
+Description: ${description || "(none provided)"}
+${planSection}
+
+${historySection ? `## Conversation\n${historySection}\n` : ""}user: ${message}
+
+Respond concisely and helpfully. Focus on the issue context.`;
+}
+
+// ── Public API ──────────────────────────────────────────────────────────────
+
+export async function chatWithIssue(
+  payload: {
+    issueId: string;
+    title: string;
+    description: string;
+    plan?: { summary?: string; steps?: Array<{ title: string }> } | null;
+    message: string;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+  },
+  config: RuntimeConfig,
+): Promise<{ response: string; provider: string }> {
+  const { provider: selectedProvider, model: selectedModel } = await resolveChatStageConfig(config);
+
+  const providers = detectAvailableProviders();
+  const isAvailable = providers.some((p) => p.name === selectedProvider && p.available);
+  if (!isAvailable) {
+    const known = providers.map((e) => `${e.name}:${e.available ? "ok" : "missing"}`).join(", ");
+    throw new Error(`Chat provider "${selectedProvider}" is not available. Detected: ${known}`);
+  }
+
+  const adapter = ADAPTERS[selectedProvider];
+  if (!adapter) throw new Error(`No adapter for provider "${selectedProvider}".`);
+
+  const caps = resolveProviderCapabilities(selectedProvider);
+  const command = adapter.buildCommand({
+    model: selectedModel,
+    readOnly: caps.readOnlyExecution !== "none",
+  });
+
+  const prompt = buildChatPrompt(payload);
+  const timeoutMs = config.commandTimeoutMs ?? 60_000;
+
+  logger.debug({ provider: selectedProvider, issueId: payload.issueId }, "[Chat] Running chat command");
+
+  const raw = await runOneShot(command, selectedProvider, prompt, timeoutMs);
+
+  // Return raw text — no JSON parsing needed for chat
+  const response = raw.trim();
+  if (!response) {
+    throw new Error("AI provider returned an empty response.");
+  }
+
+  logger.info({ provider: selectedProvider, model: selectedModel, issueId: payload.issueId, responseLength: response.length }, "[Chat] Chat response received");
+
+  return { response, provider: selectedProvider };
+}

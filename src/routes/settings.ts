@@ -104,11 +104,20 @@ export function registerSettingsRoutes(
       const payload = await c.req.json() as JsonRecord;
       const workflow = payload.workflow as Partial<WorkflowConfig> | undefined;
       if (!workflow?.plan?.provider || !workflow?.execute?.provider || !workflow?.review?.provider) {
-        return c.json({ ok: false, error: "Invalid workflow config. Each stage needs provider, model, and effort." }, 400);
+        return c.json({ ok: false, error: "Invalid workflow config. plan, execute, and review stages are required with a provider." }, 400);
       }
-      await persistWorkflowConfig(workflow as WorkflowConfig);
-      addEvent(state, undefined, "manual", `Workflow config updated: plan=${workflow.plan.provider}/${workflow.plan.model}, execute=${workflow.execute.provider}/${workflow.execute.model}, review=${workflow.review.provider}/${workflow.review.model}.`);
-      return c.json({ ok: true, workflow });
+      // Build the config with required stages plus any valid optional stages
+      const config: WorkflowConfig = {
+        plan: workflow.plan,
+        execute: workflow.execute,
+        review: workflow.review,
+      };
+      if (workflow.enhance?.provider) config.enhance = workflow.enhance;
+      if (workflow.chat?.provider) config.chat = workflow.chat;
+      if (workflow.services?.provider) config.services = workflow.services;
+      await persistWorkflowConfig(config);
+      addEvent(state, undefined, "manual", `Workflow config updated: plan=${config.plan.provider}/${config.plan.model}, execute=${config.execute.provider}/${config.execute.model}, review=${config.review.provider}/${config.review.model}.`);
+      return c.json({ ok: true, workflow: config });
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
     }
