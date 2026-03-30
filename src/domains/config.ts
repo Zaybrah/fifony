@@ -98,6 +98,7 @@ export function deriveConfig(args: string[]): RuntimeConfig {
     afterRunHook: env.FIFONY_AFTER_RUN_HOOK ?? "",
     beforeRemoveHook: env.FIFONY_BEFORE_REMOVE_HOOK ?? "",
     autoApproveTrivialPlans: true,
+    sandboxExecution: false,
     serviceEnv: {},
   };
 }

@@ -6,7 +6,7 @@ import { useSettings, getSettingsList, getSettingValue, SETTINGS_QUERY_KEY, upse
 import { SettingsSection } from "../../components/SettingsSection.jsx";
 import { QualitySettingsPanel } from "./quality.jsx";
 import {
-  Container, Cpu, FlaskConical, GitMerge, Check, Loader2, AlertTriangle,
+  Container, Cpu, FlaskConical, GitMerge, Check, Loader2, AlertTriangle, ShieldCheck,
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings/execution")({
@@ -22,6 +22,7 @@ function ExecutionSettings() {
   // ── State ──────────────────────────────────────────────────────────────────
   const [dockerExecution, setDockerExecution] = useState(false);
   const [dockerImage, setDockerImage] = useState("fifony-agent:latest");
+  const [sandboxExecution, setSandboxExecution] = useState(false);
   const [concurrency, setConcurrency] = useState("3");
   const [testCommand, setTestCommand] = useState("");
   const [autoReviewApproval, setAutoReviewApproval] = useState(true);
@@ -51,7 +52,7 @@ function ExecutionSettings() {
   const autoResolveTimer = useRef(null);
 
   // Current value refs (avoid stale closures in timers)
-  const sandboxRef = useRef({ docker: false, image: "fifony-agent:latest" });
+  const sandboxRef = useRef({ docker: false, image: "fifony-agent:latest", aiJail: false });
   const concurrencyRef = useRef("3");
   const testRef = useRef("");
   const approveRef = useRef(true);
@@ -65,6 +66,7 @@ function ExecutionSettings() {
     if (hydrated || !settings?.length) return;
     const docker = getSettingValue(settings, "runtime.dockerExecution", false);
     const image = getSettingValue(settings, "runtime.dockerImage", "fifony-agent:latest") || "fifony-agent:latest";
+    const aiJail = getSettingValue(settings, "runtime.sandboxExecution", false);
     const conc = String(getSettingValue(settings, "runtime.workerConcurrency", 3));
     const test = getSettingValue(settings, "runtime.testCommand", "") || "";
     const approve = getSettingValue(settings, "runtime.autoReviewApproval", true);
@@ -72,6 +74,7 @@ function ExecutionSettings() {
     const turns = getSettingValue(settings, "runtime.maxTurns", 4);
     setDockerExecution(docker);
     setDockerImage(image);
+    setSandboxExecution(aiJail);
     setConcurrency(conc);
     setTestCommand(test);
     const commitMerge = getSettingValue(settings, "runtime.autoCommitBeforeMerge", true);
@@ -81,7 +84,7 @@ function ExecutionSettings() {
     setMaxTurns(turns);
     setAutoCommitBeforeMerge(commitMerge);
     setAutoResolveConflicts(resolveConf);
-    sandboxRef.current = { docker, image };
+    sandboxRef.current = { docker, image, aiJail };
     concurrencyRef.current = conc;
     testRef.current = test;
     approveRef.current = approve;
@@ -104,31 +107,39 @@ function ExecutionSettings() {
 
   // ── Handlers (auto-save on user change) ───────────────────────────────────
 
-  const handleDockerChange = useCallback((docker) => {
-    setDockerExecution(docker);
-    sandboxRef.current.docker = docker;
+  const saveSandboxSettings = useCallback(() => {
     if (sandboxTimer.current) clearTimeout(sandboxTimer.current);
     sandboxTimer.current = setTimeout(async () => {
       try {
         await saveSetting("runtime.dockerExecution", sandboxRef.current.docker);
         await saveSetting("runtime.dockerImage", sandboxRef.current.image || "fifony-agent:latest");
+        await saveSetting("runtime.sandboxExecution", sandboxRef.current.aiJail);
         flash(setSandboxSaved);
       } catch {}
     }, 600);
   }, [saveSetting]);
 
+  const handleDockerChange = useCallback((docker) => {
+    setDockerExecution(docker);
+    if (docker) setSandboxExecution(false);
+    sandboxRef.current.docker = docker;
+    if (docker) sandboxRef.current.aiJail = false;
+    saveSandboxSettings();
+  }, [saveSandboxSettings]);
+
+  const handleSandboxChange = useCallback((aiJail) => {
+    setSandboxExecution(aiJail);
+    if (aiJail) setDockerExecution(false);
+    sandboxRef.current.aiJail = aiJail;
+    if (aiJail) sandboxRef.current.docker = false;
+    saveSandboxSettings();
+  }, [saveSandboxSettings]);
+
   const handleImageChange = useCallback((image) => {
     setDockerImage(image);
     sandboxRef.current.image = image;
-    if (sandboxTimer.current) clearTimeout(sandboxTimer.current);
-    sandboxTimer.current = setTimeout(async () => {
-      try {
-        await saveSetting("runtime.dockerExecution", sandboxRef.current.docker);
-        await saveSetting("runtime.dockerImage", sandboxRef.current.image || "fifony-agent:latest");
-        flash(setSandboxSaved);
-      } catch {}
-    }, 600);
-  }, [saveSetting]);
+    saveSandboxSettings();
+  }, [saveSandboxSettings]);
 
   const handleConcurrencyChange = useCallback((val) => {
     setConcurrency(val);
@@ -241,21 +252,42 @@ function ExecutionSettings() {
       <SettingsSection
         icon={Container}
         title={<span className="flex items-center gap-2">Execution Sandbox <SavedBadge show={sandboxSaved} /></span>}
-        description="Where agent code runs — directly on your system or inside an isolated container."
+        description="Where agent code runs — directly on your system, inside ai-jail, or in a Docker container."
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <label className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${!dockerExecution ? "border-base-content/30 bg-base-300" : "border-base-content/10 bg-base-100/50 opacity-60"}`}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <label className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${!dockerExecution && !sandboxExecution ? "border-base-content/30 bg-base-300" : "border-base-content/10 bg-base-100/50 opacity-60"}`}>
             <input
               type="radio"
               className="radio radio-sm mt-0.5"
-              checked={!dockerExecution}
-              onChange={() => handleDockerChange(false)}
+              checked={!dockerExecution && !sandboxExecution}
+              onChange={() => {
+                setDockerExecution(false);
+                setSandboxExecution(false);
+                sandboxRef.current = { ...sandboxRef.current, docker: false, aiJail: false };
+                saveSandboxSettings();
+              }}
             />
             <div className="space-y-1">
               <p className="text-xs font-medium">Script (host)</p>
               <p className="text-xs opacity-50 leading-relaxed">
-                Runs directly on your system with the same user and permissions as fifony.
+                Runs directly on your system with the same user and permissions.
                 Full filesystem and network access. No setup required.
+              </p>
+            </div>
+          </label>
+
+          <label className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${sandboxExecution ? "border-info/40 bg-info/5" : "border-base-content/10 bg-base-100/50 opacity-60"}`}>
+            <input
+              type="radio"
+              className="radio radio-sm radio-info mt-0.5"
+              checked={sandboxExecution}
+              onChange={() => handleSandboxChange(true)}
+            />
+            <div className="space-y-1">
+              <p className="text-xs font-medium flex items-center gap-1"><ShieldCheck className="size-3" /> ai-jail</p>
+              <p className="text-xs opacity-50 leading-relaxed">
+                Isolates agent execution using ai-jail. Only the issue worktree is writable.
+                Auto-downloads on first use. Lightweight, no Docker required.
               </p>
             </div>
           </label>
@@ -272,7 +304,6 @@ function ExecutionSettings() {
               <p className="text-xs opacity-50 leading-relaxed">
                 Each execution runs in an isolated container. The agent only sees the issue workspace
                 and the project <code className="font-mono">.git</code> — nothing else on the host filesystem.
-                Linux capabilities dropped, privilege escalation blocked.
               </p>
             </div>
           </label>

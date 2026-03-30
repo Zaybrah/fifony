@@ -17,6 +17,7 @@ import { logger } from "../concerns/logger.ts";
 import { normalizeAgentProvider } from "./providers.ts";
 import { TARGET_ROOT } from "../concerns/constants.ts";
 import { translatePaths, buildDockerRunCommand } from "./docker-runner.ts";
+import { ensureAiJail, buildSandboxCommand } from "../domains/sandbox.ts";
 
 type NodePtyModule = typeof import("node-pty");
 
@@ -75,6 +76,7 @@ const HOOK_RUNTIME_CONFIG: RuntimeConfig = {
   autoReviewApproval: true,
   dockerExecution: false,
   dockerImage: "fifony-agent:latest",
+  sandboxExecution: false,
   afterCreateHook: "",
   beforeRunHook: "",
   afterRunHook: "",
@@ -150,6 +152,11 @@ export async function runCommandWithTimeout(
       TARGET_ROOT,
       config.dockerImage,
     );
+  } else if (config.sandboxExecution) {
+    await ensureAiJail();
+    const innerCommand = `. "${envFilePath}" && ${command}`;
+    const worktree = issue.worktreePath ?? workspacePath;
+    effectiveCommand = buildSandboxCommand(innerCommand, worktree, [workspacePath]);
   } else {
     effectiveCommand = `. "${envFilePath}" && ${command}`;
   }

@@ -57,6 +57,7 @@ export const SETTING_ID_MESH_BUFFER_SIZE = "runtime.meshBufferSize";
 export const SETTING_ID_AUTO_APPROVE_TRIVIAL_PLANS = "runtime.autoApproveTrivialPlans";
 export const SETTING_ID_AUTO_COMMIT_BEFORE_MERGE = "runtime.autoCommitBeforeMerge";
 export const SETTING_ID_AUTO_RESOLVE_CONFLICTS = "runtime.autoResolveConflicts";
+export const SETTING_ID_SANDBOX_EXECUTION = "runtime.sandboxExecution";
 
 export async function loadRuntimeSettings(): Promise<RuntimeSettingRecord[]> {
   return loadPersistedSettings();
@@ -95,6 +96,7 @@ export const RUNTIME_CONFIG_SETTING_IDS = new Set<string>([
   SETTING_ID_AUTO_APPROVE_TRIVIAL_PLANS,
   SETTING_ID_AUTO_COMMIT_BEFORE_MERGE,
   SETTING_ID_AUTO_RESOLVE_CONFLICTS,
+  SETTING_ID_SANDBOX_EXECUTION,
 ]);
 
 const VALID_REASONING_EFFORTS = new Set<ReasoningEffort>(["low", "medium", "high", "extra-high"]);
@@ -192,6 +194,7 @@ function buildRuntimeConfigSettings(
     { id: SETTING_ID_AUTO_APPROVE_TRIVIAL_PLANS, scope: "runtime", value: config.autoApproveTrivialPlans ?? true, source, updatedAt },
     { id: SETTING_ID_AUTO_COMMIT_BEFORE_MERGE, scope: "runtime", value: config.autoCommitBeforeMerge ?? true, source, updatedAt },
     { id: SETTING_ID_AUTO_RESOLVE_CONFLICTS, scope: "runtime", value: config.autoResolveConflicts ?? false, source, updatedAt },
+    { id: SETTING_ID_SANDBOX_EXECUTION, scope: "runtime", value: config.sandboxExecution ?? false, source, updatedAt },
   ];
 }
 
@@ -388,6 +391,10 @@ export function applyPersistedSettings(config: RuntimeConfig, settings: RuntimeS
       }
       case SETTING_ID_AUTO_RESOLVE_CONFLICTS: {
         nextConfig.autoResolveConflicts = toBooleanValue(setting.value, false);
+        break;
+      }
+      case SETTING_ID_SANDBOX_EXECUTION: {
+        nextConfig.sandboxExecution = toBooleanValue(setting.value, false);
         break;
       }
       default:

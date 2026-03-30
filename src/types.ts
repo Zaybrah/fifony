@@ -653,6 +653,8 @@ export type RuntimeConfig = {
   autoCommitBeforeMerge?: boolean;
   /** When merge has conflicts, re-execute agent to resolve them automatically. Default: false */
   autoResolveConflicts?: boolean;
+  /** When true, execute agents inside ai-jail sandbox for filesystem isolation. */
+  sandboxExecution?: boolean;
 };
 
 export type ProjectNameSource = "saved" | "detected" | "missing";
