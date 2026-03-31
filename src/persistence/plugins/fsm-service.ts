@@ -352,7 +352,7 @@ export async function sendServiceEvent(
     }
     if (!entry) throw new Error(`Service entry not found: ${entityId}`);
     const globalEnv = getGlobalEnv() ?? {};
-    const spawned = spawnProcess(entry, globalEnv, fifonyDir, targetRoot);
+    const spawned = spawnProcess(entry, targetRoot, fifonyDir, globalEnv);
     writePidInfo(fifonyDir, entityId, {
       pid: spawned.pid,
       command: spawned.command,
@@ -812,7 +812,7 @@ function tickOne(
       const nextRetryMs = info.nextRetryAt ? Date.parse(info.nextRetryAt) : 0;
       if (nowMs < nextRetryMs) return null;
       const globalEnvMerged = globalEnv ?? {};
-      const spawned = spawnProcess(entry, globalEnvMerged, fifonyDir, targetRoot);
+      const spawned = spawnProcess(entry, targetRoot, fifonyDir, globalEnvMerged);
       writePidInfo(fifonyDir, entry.id, { pid: spawned.pid, command: spawned.command, startedAt: now(), state: "starting", crashCount: info.crashCount ?? 0 });
       return { id: entry.id, from: "crashed", to: "starting", reason: `auto-restart after backoff (crash #${info.crashCount})`, pid: spawned.pid };
     }
