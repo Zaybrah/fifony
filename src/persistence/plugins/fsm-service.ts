@@ -330,24 +330,69 @@ export function setServiceResourceStateApi(api: ServiceResourceStateApi | null):
  * Send an FSM event for a service entity via the StateMachinePlugin.
  * Auto-initializes the entity if it hasn't been seen by the plugin yet.
  */
+/**
+ * Execute a service FSM event with side effects.
+ * Plugin actions/triggers are unreliable — side effects are applied inline here.
+ */
 export async function sendServiceEvent(
   entityId: string,
   event: string,
   context: Record<string, unknown> = {},
-): Promise<void> {
-  if (!serviceResourceStateApi) {
-    throw new Error("Service state machine not initialized");
-  }
-  try {
-    await serviceResourceStateApi.send(entityId, event, context);
-  } catch (err) {
-    if (String(err).includes("not found") || String(err).includes("not initialized")) {
-      await serviceResourceStateApi.initialize(entityId, { state: "stopped" });
-      await serviceResourceStateApi.send(entityId, event, context);
-    } else {
-      throw err;
+): Promise<{ pid?: number; state: string }> {
+  if (!serviceRuntime) throw new Error("Service runtime not initialized");
+  const { fifonyDir, targetRoot, getEntries, getGlobalEnv, onTransition } = serviceRuntime;
+  const entry = (getEntries() ?? []).find((e) => e.id === entityId);
+
+  if (event === "START") {
+    // Kill existing process if any
+    const existing = readPidInfo(fifonyDir, entityId);
+    if (existing && isProcessAlive(existing.pid)) {
+      try { process.kill(-existing.pid, "SIGKILL"); } catch {}
+      try { process.kill(existing.pid, "SIGKILL"); } catch {}
     }
+    if (!entry) throw new Error(`Service entry not found: ${entityId}`);
+    const globalEnv = getGlobalEnv() ?? {};
+    const spawned = spawnProcess(entry, globalEnv, fifonyDir, targetRoot);
+    writePidInfo(fifonyDir, entityId, {
+      pid: spawned.pid,
+      command: spawned.command,
+      startedAt: now(),
+      state: "starting",
+      crashCount: 0,
+    });
+    const transition = { id: entityId, from: "stopped", to: "starting" as ServiceState, reason: "manual start", pid: spawned.pid };
+    onTransition?.(transition);
+    logger.info({ id: entityId, pid: spawned.pid }, "[ServiceFSM] START → starting");
+    return { pid: spawned.pid, state: "starting" };
   }
+
+  if (event === "STOP") {
+    const info = readPidInfo(fifonyDir, entityId);
+    if (!info || info.state === "stopped") return { state: "stopped" };
+    // Use stopCommand if available
+    if (entry?.stopCommand) {
+      try {
+        const cwd = entry.cwd ? join(targetRoot, entry.cwd) : targetRoot;
+        execSync(entry.stopCommand, { cwd, stdio: "pipe", timeout: 15_000 });
+        logger.info({ id: entityId, stopCommand: entry.stopCommand }, "[ServiceFSM] stopCommand executed");
+      } catch (err) {
+        logger.warn({ err, id: entityId }, "[ServiceFSM] stopCommand failed, falling back to SIGTERM");
+        if (isProcessAlive(info.pid)) {
+          try { process.kill(-info.pid, "SIGTERM"); } catch {}
+        }
+      }
+    } else if (isProcessAlive(info.pid)) {
+      try { process.kill(-info.pid, "SIGTERM"); } catch {}
+      try { process.kill(info.pid, "SIGTERM"); } catch {}
+    }
+    writePidInfo(fifonyDir, entityId, { ...info, state: "stopping", stoppingAt: now() });
+    const transition = { id: entityId, from: info.state, to: "stopping" as ServiceState, reason: "manual stop", pid: info.pid };
+    onTransition?.(transition);
+    logger.info({ id: entityId, pid: info.pid }, "[ServiceFSM] STOP → stopping");
+    return { state: "stopping" };
+  }
+
+  throw new Error(`Unknown service event: ${event}`);
 }
 
 /** Shape injected by StateMachinePlugin into action/guard callbacks. */
@@ -704,3 +749,109 @@ export const serviceStateMachineConfig = {
     },
   },
 };
+
+// ── Legacy service watcher (function triggers unreliable — keep this as primary) ──
+
+function tickOne(
+  entry: ServiceEntry,
+  globalEnv: ServiceEnvironment,
+  fifonyDir: string,
+  targetRoot: string,
+): ServiceTransition | null {
+  const info = readPidInfo(fifonyDir, entry.id);
+  if (!info) return null;
+
+  const alive = isProcessAlive(info.pid);
+  const nowMs = Date.now();
+  const maxCrashes = entry.maxCrashes ?? 5;
+
+  switch (info.state) {
+    case "starting": {
+      if (!alive) {
+        const crashCount = (info.crashCount ?? 0) + 1;
+        const nextRetryAt = (entry.autoRestart ?? false) && crashCount < maxCrashes
+          ? new Date(nowMs + autoRestartBackoffMs(crashCount)).toISOString()
+          : undefined;
+        writePidInfo(fifonyDir, entry.id, { ...info, state: "crashed", crashCount, lastCrashAt: now(), nextRetryAt });
+        return { id: entry.id, from: "starting", to: "crashed", reason: `died during startup (crash #${crashCount})`, pid: info.pid };
+      }
+      const ageMs = nowMs - Date.parse(info.startedAt);
+      if (ageMs >= STARTING_GRACE_MS) {
+        writePidInfo(fifonyDir, entry.id, { ...info, state: "running" });
+        return { id: entry.id, from: "starting", to: "running", reason: "startup grace period elapsed", pid: info.pid };
+      }
+      return null;
+    }
+    case "running": {
+      if (!alive) {
+        const crashCount = (info.crashCount ?? 0) + 1;
+        const nextRetryAt = (entry.autoRestart ?? false) && crashCount < maxCrashes
+          ? new Date(nowMs + autoRestartBackoffMs(crashCount)).toISOString()
+          : undefined;
+        writePidInfo(fifonyDir, entry.id, { ...info, state: "crashed", crashCount, lastCrashAt: now(), nextRetryAt });
+        return { id: entry.id, from: "running", to: "crashed", reason: `process died unexpectedly (crash #${crashCount})`, pid: info.pid };
+      }
+      return null;
+    }
+    case "stopping": {
+      if (!alive) {
+        removePidInfo(fifonyDir, entry.id);
+        return { id: entry.id, from: "stopping", to: "stopped", reason: "process exited" };
+      }
+      const stoppingAgeMs = info.stoppingAt ? nowMs - Date.parse(info.stoppingAt) : STOPPING_KILL_MS + 1;
+      if (stoppingAgeMs >= STOPPING_KILL_MS) {
+        try { process.kill(-info.pid, "SIGKILL"); } catch {}
+        try { process.kill(info.pid, "SIGKILL"); } catch {}
+        removePidInfo(fifonyDir, entry.id);
+        return { id: entry.id, from: "stopping", to: "stopped", reason: "SIGKILL after timeout", pid: info.pid };
+      }
+      return null;
+    }
+    case "crashed": {
+      if (!(entry.autoRestart ?? false) || (info.crashCount ?? 0) >= maxCrashes) return null;
+      const nextRetryMs = info.nextRetryAt ? Date.parse(info.nextRetryAt) : 0;
+      if (nowMs < nextRetryMs) return null;
+      const globalEnvMerged = globalEnv ?? {};
+      const spawned = spawnProcess(entry, globalEnvMerged, fifonyDir, targetRoot);
+      writePidInfo(fifonyDir, entry.id, { pid: spawned.pid, command: spawned.command, startedAt: now(), state: "starting", crashCount: info.crashCount ?? 0 });
+      return { id: entry.id, from: "crashed", to: "starting", reason: `auto-restart after backoff (crash #${info.crashCount})`, pid: spawned.pid };
+    }
+    case "stopped":
+    default:
+      return null;
+  }
+}
+
+export function tickServiceWatcher(
+  entries: ServiceEntry[],
+  globalEnv: ServiceEnvironment,
+  fifonyDir: string,
+  targetRoot: string,
+): ServiceTransition[] {
+  const transitions: ServiceTransition[] = [];
+  for (const entry of entries) {
+    try {
+      const t = tickOne(entry, globalEnv, fifonyDir, targetRoot);
+      if (t) transitions.push(t);
+    } catch (err) {
+      logger.warn({ err, id: entry.id }, "[Service] Watcher tick error");
+    }
+  }
+  return transitions;
+}
+
+export function initServiceWatcher(
+  getEntries: () => ServiceEntry[],
+  getGlobalEnv: () => ServiceEnvironment,
+  fifonyDir: string,
+  targetRoot: string,
+  onTransition: (t: ServiceTransition) => void,
+): { stop: () => void } {
+  const id = setInterval(() => {
+    const transitions = tickServiceWatcher(getEntries(), getGlobalEnv(), fifonyDir, targetRoot);
+    for (const t of transitions) onTransition(t);
+  }, SERVICE_WATCHER_INTERVAL_MS);
+  return { stop: () => clearInterval(id) };
+}
+
+

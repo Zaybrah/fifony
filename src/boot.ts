@@ -89,6 +89,7 @@ function usage() {
 
 async function main() {
   let agentWatcher: { stop: () => void } | null = null;
+  let serviceWatcherRef: { stop: () => void } | null = null;
   debugBoot("main:start");
 
   const args = CLI_ARGS;
@@ -376,7 +377,26 @@ async function main() {
     }
   }
 
-  // Service watcher is handled by StateMachinePlugin function triggers — no manual watcher needed.
+  // Service watcher — StateMachinePlugin triggers are unreliable, keep manual watcher as primary
+  const { initServiceWatcher: initWatcher } = await import("./persistence/plugins/fsm-service.ts");
+  serviceWatcherRef = initWatcher(
+    () => apiState.config.services ?? [],
+    () => apiState.config.serviceEnv ?? {},
+    STATE_ROOT,
+    TARGET_ROOT,
+    (t) => {
+      logger.info({ id: t.id, from: t.from, to: t.to, reason: t.reason }, "[Service] FSM transition");
+      broadcastToWebSocketClients({
+        type: "service",
+        id: t.id,
+        state: t.to,
+        running: t.to === "starting" || t.to === "running",
+        pid: t.pid ?? null,
+      });
+      if (t.to === "starting") startServiceLogBroadcasting(t.id, STATE_ROOT);
+      else if (t.to === "stopped" || t.to === "crashed") stopServiceLogBroadcasting(t.id);
+    },
+  );
 
   agentWatcher = startManagedAgentWatcher(
     () => apiState.issues,
@@ -453,6 +473,7 @@ async function main() {
     state.updatedAt = now();
     state.metrics = computeMetrics(state.issues);
     await persistStateFull(state);
+    try { serviceWatcherRef?.stop(); } catch {}
     try { agentWatcher?.stop(); } catch {}
     try { await stopQueueWorkers(); } catch {}
     await closeStateStore();
