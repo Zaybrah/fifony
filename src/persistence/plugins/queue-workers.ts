@@ -52,6 +52,9 @@ let analyticsInterval: ReturnType<typeof setInterval> | null = null;
 /** Blocked retry check interval handle. */
 let blockedRetryInterval: ReturnType<typeof setInterval> | null = null;
 
+/** Orphan sweep interval handle. */
+let orphanSweepInterval: ReturnType<typeof setInterval> | null = null;
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
 export async function initQueueWorkers(state: RuntimeState): Promise<void> {
@@ -93,6 +96,15 @@ export async function initQueueWorkers(state: RuntimeState): Promise<void> {
     );
   }, 10_000); // every 10s
 
+  // Periodic orphan sweep: re-enqueue issues stuck in actionable states
+  // without a corresponding queue entry (safety net for dropped entries)
+  orphanSweepInterval = setInterval(() => {
+    if (!active || !runtimeState) return;
+    sweepOrphanedIssues().catch((err) =>
+      logger.error({ err }, "[Queue] Orphan sweep failed"),
+    );
+  }, 10_000); // every 10s
+
   logger.info("[Queue] Unified work queue ready");
 }
 
@@ -102,6 +114,7 @@ export async function stopQueueWorkers(): Promise<void> {
   if (persistInterval) { clearInterval(persistInterval); persistInterval = null; }
   if (analyticsInterval) { clearInterval(analyticsInterval); analyticsInterval = null; }
   if (blockedRetryInterval) { clearInterval(blockedRetryInterval); blockedRetryInterval = null; }
+  if (orphanSweepInterval) { clearInterval(orphanSweepInterval); orphanSweepInterval = null; }
   runtimeState = null;
   queue.length = 0;
   waiters.length = 0;
@@ -215,6 +228,24 @@ async function autoRetryBlockedIssues(state: RuntimeState): Promise<void> {
   }
 }
 
+// ── Orphan sweep — catch issues stuck in actionable states ───────────────
+
+async function sweepOrphanedIssues(): Promise<void> {
+  if (!runtimeState) return;
+  for (const issue of runtimeState.issues) {
+    if (issue.state === "Queued" && !running.has(issue.id) && !isAlreadyQueued(issue.id, "execute")) {
+      logger.info({ issueId: issue.id, identifier: issue.identifier }, "[Queue] Orphan sweep — re-enqueuing stuck Queued issue");
+      await enqueue(issue, "execute");
+    } else if (issue.state === "Planning" && !isAlreadyQueued(issue.id, "plan") && issue.planningStatus !== "planning" && !issue.plan) {
+      logger.info({ issueId: issue.id, identifier: issue.identifier }, "[Queue] Orphan sweep — re-enqueuing stuck Planning issue");
+      await enqueue(issue, "plan");
+    } else if (issue.state === "Reviewing" && !running.has(issue.id) && !isAlreadyQueued(issue.id, "review")) {
+      logger.info({ issueId: issue.id, identifier: issue.identifier }, "[Queue] Orphan sweep — re-enqueuing stuck Reviewing issue");
+      await enqueue(issue, "review");
+    }
+  }
+}
+
 // ── Drain loop ────────────────────────────────────────────────────────────
 
 let draining = false;
@@ -229,7 +260,12 @@ async function drain(): Promise<void> {
       if (!entry) break;
 
       const issue = getCurrentIssue(entry.issueId);
-      if (!issue || !canDispatch(issue, entry.job)) continue;
+      if (!issue || !canDispatch(issue, entry.job)) {
+        if (issue) {
+          logger.warn({ issueId: issue.id, identifier: issue.identifier, job: entry.job, state: issue.state, inRunning: running.has(issue.id) }, "[Queue] canDispatch rejected — entry dropped (orphan sweep will recover)");
+        }
+        continue;
+      }
 
       // Planning doesn't occupy a worker slot — fire and forget
       if (entry.job === "plan") {
@@ -239,13 +275,22 @@ async function drain(): Promise<void> {
         continue;
       }
 
-      // Execute/review: acquire a worker slot, run, release
+      // Review is read-only (inspects code, runs tests) — fire and forget like planning.
+      // This prevents reviews from blocking execute slots, doubling effective throughput
+      // when review and execute overlap. Inspired by Claude Code's async agent model.
+      if (entry.job === "review") {
+        dispatchReview(issue).catch((err) =>
+          logger.error({ err, issueId: issue.id }, "[Queue] Review job failed"),
+        );
+        continue;
+      }
+
+      // Execute: acquire a worker slot, run, release
       await acquireSlot();
       if (runtimeState) runtimeState.metrics.activeWorkers = inflight;
       (async () => {
         try {
-          if (entry.job === "execute") await dispatchExecute(issue);
-          else if (entry.job === "review") await dispatchReview(issue);
+          await dispatchExecute(issue);
         } catch (err) {
           logger.error({ err, issueId: issue.id, job: entry.job }, "[Queue] Job failed");
         } finally {

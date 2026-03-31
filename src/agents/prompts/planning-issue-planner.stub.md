@@ -73,6 +73,13 @@ Effort suggestion:
 - low: simple fixes, no deep reasoning needed
 - medium: standard development work
 - high: complex architecture, security, or cross-cutting changes
+
+Parallel execution (optional — only for medium/high complexity with 4+ steps):
+- If steps can be grouped into 2-3 independent sets that touch DIFFERENT files, add `parallelSubTasks` to the `executionContract`.
+- Each subtask is `{ "id": "sub-1", "label": "short description", "steps": [1, 2] }` where `steps` are indices into the plan steps array (0-based).
+- ONLY parallelize when subtasks have NO file overlap and NO shared state. Two steps editing the same file MUST be in the same subtask.
+- Don't force parallelism — serial is fine for most issues. Only parallelize when there's a genuine speedup opportunity.
+- Maximum 3 subtasks. Most issues need 0 (serial) or 2 subtasks.
 {{/unless}}
 
 ## Instructions
@@ -134,7 +141,8 @@ Use these exact field names:
     "requiredChecks": ["<command or verification step>"],
     "requiredEvidence": ["<evidence the reviewer must collect>"],
     "focusAreas": ["<path or subsystem to scrutinize>"],
-    "checkpointPolicy": "final_only|checkpointed"
+    "checkpointPolicy": "final_only|checkpointed",
+    "parallelSubTasks": []
   },
   "risks": [
     { "risk": "<YOUR risk>", "impact": "<YOUR impact>", "mitigation": "<YOUR mitigation>" }

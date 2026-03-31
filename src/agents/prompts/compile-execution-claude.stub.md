@@ -38,15 +38,20 @@ Before reporting done, VERIFY your work actually works: run the tests, check the
 
 {{#if suggestedAgents.length}}
 ## Delegation
-Fifony may decompose this work into specialist subtasks:
+Specialist agents available for this work:
 {{#each suggestedAgents}}
 - **{{this}}**
 {{/each}}
 
 {{#if hasNativeSubagents}}
-Your current runtime supports native subagents. Use them for independent subtasks to maximize parallelism.
+Your runtime supports native subagents. **Parallelism is your superpower.** Use subagents for independent subtasks:
+- **Research tasks** (reading files, searching code, checking tests) — run in parallel freely.
+- **Write tasks on different file sets** — run in parallel (no shared files).
+- **Write tasks on the same files** — run serially (one at a time).
+- Launch multiple subagents in a single turn when they're independent.
+- After subagents complete, synthesize their findings before continuing. Never delegate understanding — you must understand results before acting on them.
 {{else}}
-Your current runtime may not expose native subagents. Preserve the same delegation semantics by keeping subtask boundaries explicit and using a single integration owner for the final result.
+Your runtime doesn't expose native subagents. Keep subtask boundaries explicit and execute serially. Focus on one step at a time.
 {{/if}}
 {{/if}}
 

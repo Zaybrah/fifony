@@ -70,15 +70,18 @@ Invoke these skills during execution:
 
 {{#if suggestedAgents.length}}
 ## Delegation
-Fifony may decompose this work into specialist subtasks:
+Specialist agents available:
 {{#each suggestedAgents}}
 - **{{this}}**
 {{/each}}
 
 {{#if hasNativeSubagents}}
-Your current runtime supports native subagents. Use them for independent subtasks when that improves throughput.
+Your runtime supports subagents. Use them for independent subtasks:
+- Research (reading, searching) — parallel freely.
+- Writes on different files — parallel.
+- Writes on same files — serial.
 {{else}}
-Your current runtime may not expose native subagents. Preserve the same delegation semantics by keeping subtask boundaries explicit and maintaining a single integration owner for the final result.
+No native subagents. Execute steps serially, keeping subtask boundaries clear.
 {{/if}}
 {{/if}}
 
