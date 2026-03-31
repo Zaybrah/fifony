@@ -123,6 +123,7 @@ async function compile(
     suggestedSkills: plan.suggestedSkills ?? [],
     validationItems: (plan.validation ?? []).map((value) => ({ value })),
     outputContract: CODEX_RESULT_CONTRACT,
+    outputStyleVerbose: config.agentOutputStyle === "verbose",
   });
 
   const relativeDirs = extractPlanDirs(plan);

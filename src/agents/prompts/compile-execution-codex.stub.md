@@ -28,6 +28,14 @@ Do NOT over-engineer. Implement the SMALLEST correct change:
 {{skillContext}}
 {{/if}}
 
+{{#if outputStyleVerbose}}
+## Output Style: Verbose
+Explain your reasoning as you work. Describe what you're investigating and why.
+{{else}}
+## Output Style: Concise
+Keep output brief. Lead with what you did and what happened. Skip filler.
+{{/if}}
+
 Issue: {{issueIdentifier}}
 Title: {{title}}
 Description: {{description}}

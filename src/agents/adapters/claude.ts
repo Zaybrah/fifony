@@ -101,6 +101,7 @@ async function compile(
     title: issue.title,
     description: issue.description || "(none)",
     validationItems: (plan.validation ?? []).map((value) => ({ value })),
+    outputStyleVerbose: config.agentOutputStyle === "verbose",
   });
 
   const relativeDirs = extractPlanDirs(plan);

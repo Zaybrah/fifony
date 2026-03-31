@@ -59,6 +59,7 @@ export function buildRetryContext(issue: IssueEntry): string {
   if (summaries && summaries.length > 0) {
     lines.push("## Previous Attempts\n");
     lines.push("The following previous attempts FAILED. Do NOT repeat the same approach. Try a fundamentally different strategy.\n");
+    lines.push("**This context is self-contained** — all evidence you need is below. Do not assume prior knowledge. Read the specific errors, file paths, and suggestions carefully before starting.\n");
   }
 
   if (summaries && summaries.length >= 5) {
@@ -123,11 +124,12 @@ export function buildRetryContext(issue: IssueEntry): string {
     );
     if (failedCriteria.length > 0) {
       lines.push("## Previous Review Grade: FAIL\n");
-      lines.push("The automated reviewer graded your last submission and found these specific failures:");
+      lines.push("The automated reviewer graded your last submission and found these **specific failures with concrete evidence**. Each item below tells you exactly what was wrong and where. Fix the root cause for each — don't just make the symptom go away:");
       for (const c of failedCriteria) {
-        lines.push(`- **${c.id}** [${c.category}] FAILED: ${c.description} — ${c.evidence}`);
+        lines.push(`- **${c.id}** [${c.category}] FAILED: ${c.description}`);
+        lines.push(`  Evidence: ${c.evidence}`);
       }
-      lines.push("\nYou MUST address ALL of these before submitting. The reviewer will check each one again.\n");
+      lines.push("\nYou MUST address ALL of these before submitting. The reviewer will check each one again with the same criteria.\n");
     }
   }
 

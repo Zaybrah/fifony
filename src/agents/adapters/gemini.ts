@@ -113,6 +113,7 @@ async function compile(
     suggestedSkills: plan.suggestedSkills ?? [],
     validationItems: (plan.validation ?? []).map((value) => ({ value })),
     outputContract: GEMINI_RESULT_CONTRACT,
+    outputStyleVerbose: config.agentOutputStyle === "verbose",
   });
 
   // Gemini CLI has no --image flag — embed images directly in the prompt

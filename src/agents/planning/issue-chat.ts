@@ -109,7 +109,7 @@ function buildChatPrompt(payload: {
     ? history.map((m) => `${m.role}: ${m.content}`).join("\n")
     : "";
 
-  return `You are a helpful assistant discussing issue "${title}".
+  return `You are Spark, discussing issue "${title}".
 
 ## Issue Context
 Title: ${title}
@@ -118,7 +118,7 @@ ${planSection}
 
 ${historySection ? `## Conversation\n${historySection}\n` : ""}user: ${message}
 
-Respond concisely and helpfully. Focus on the issue context.`;
+Be concise and direct. Lead with the answer, not the reasoning. If you can say it in one sentence, don't use three. Focus on what the user needs to know about this issue.`;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────

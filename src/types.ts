@@ -652,6 +652,8 @@ export type RuntimeConfig = {
   autoReplanOnStall?: boolean;
   /** How many same-error attempts trigger auto-replan (default: 2) */
   autoReplanStallThreshold?: number;
+  /** Agent output style: 'concise' (default) keeps responses short, 'verbose' adds reasoning and context. */
+  agentOutputStyle?: "concise" | "verbose";
   /** When true, planner output can be upgraded/downgraded to a stronger harness mode using historical lift. Default: true */
   adaptiveHarnessSelection?: boolean;
   /** When true, reviewer provider/model routing can adapt to historical lift by review profile. Default: true */

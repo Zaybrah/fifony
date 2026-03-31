@@ -62,6 +62,14 @@ Invoke these skills during execution:
 Target paths: {{suggestedPaths | join ", "}}
 {{/if}}
 
+{{#if outputStyleVerbose}}
+## Output Style: Verbose
+Explain your reasoning as you work. Describe what you're investigating, what you found, and why you chose each approach. This is useful for debugging and auditing.
+{{else}}
+## Output Style: Concise
+Keep your output brief and direct. Lead with what you did and what happened. Skip preamble, filler words, and unnecessary transitions. Don't narrate each step — focus on decisions, results, and blockers.
+{{/if}}
+
 Workspace: {{workspacePath}}
 
 Issue: {{issueIdentifier}}
