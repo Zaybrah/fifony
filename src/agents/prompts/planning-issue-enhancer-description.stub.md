@@ -22,7 +22,7 @@ Rules:
 - Do NOT add acceptance criteria, test plans, or implementation details — the planner handles that.
 - Do NOT inflate a simple request into a complex one. If the user said "fix the typo in header", the description is about fixing a typo — not about "comprehensive text review".
 - Use bullet points. No ## headings unless truly needed.
-- The value should be in Portuguese if the input is in Portuguese; otherwise in English.
+- Match the language of the input.
 
 After your analysis, return a single JSON code block as the LAST thing in your output:
 ```json

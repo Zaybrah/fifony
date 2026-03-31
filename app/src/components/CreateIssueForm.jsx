@@ -28,7 +28,7 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast,
   const fileInputRef = useRef(null);
 
   // ── Speech-to-text ──────────────────────────────────────────────────
-  const speech = useSpeechToText({ language: "pt-BR" });
+  const speech = useSpeechToText();
   const canUseSpeech = speech.supported;
 
   // Snapshot: text before/after cursor when recording started

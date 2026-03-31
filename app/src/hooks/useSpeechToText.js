@@ -10,7 +10,7 @@ const SpeechRecognitionAPI =
  * Auto-restarts on session end for continuous dictation.
  * No external dependencies — works on desktop and mobile Chrome, Edge, Safari.
  */
-export function useSpeechToText({ language = "pt-BR" } = {}) {
+export function useSpeechToText({ language } = {}) {
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);

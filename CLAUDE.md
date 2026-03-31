@@ -177,7 +177,7 @@ Shortcuts are context-aware: kanban/issues shortcuts auto-disable when drawer is
 
 #### Voice Input (Speech-to-Text)
 
-`CreateIssueForm` integrates `react-speech-recognition` for voice dictation on title/description fields. Language: `pt-BR`. Mic button per field with visual recording indicator.
+`CreateIssueForm` integrates Web Speech API for voice dictation on title/description fields. Uses browser default language. Mic button per field with visual recording indicator.
 
 #### Settings Tabs
 
