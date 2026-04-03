@@ -222,6 +222,13 @@ async function main() {
       : runtimeLegacyServices;
 
   config = applyPersistedSettings(config, persistedSettings);
+
+  // Load template variants from persisted settings (Phase 5)
+  if (config.templateVariants) {
+    const { loadVariantsFromSettings } = await import("./agents/template-variants.ts");
+    loadVariantsFromSettings(config.templateVariants);
+  }
+
   if (migratedServices.length > 0) {
     config = { ...config, services: migratedServices };
     if (persistedServices.length === 0) {

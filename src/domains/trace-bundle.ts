@@ -877,6 +877,38 @@ export function finalizeAttemptForIssue(
       ...handoffFiles,
     },
   });
+
+  // Write harness outcome for Pareto tracking (Phase 4)
+  try {
+    const contextMetrics = loadContextMetrics(dir);
+    if (contextMetrics) {
+      const crossAttemptPath = join(dir, "cross-attempt.json");
+      let hypothesesCount = 0;
+      let pivotTriggered = false;
+      if (existsSync(crossAttemptPath)) {
+        const ca = JSON.parse(readFileSync(crossAttemptPath, "utf8"));
+        hypothesesCount = Array.isArray(ca?.hypotheses) ? ca.hypotheses.length : 0;
+        pivotTriggered = Boolean(ca?.strategyPivot);
+      }
+      const similarPath = join(dir, "similar-traces.json");
+      let similarCount = 0;
+      if (existsSync(similarPath)) {
+        const st = JSON.parse(readFileSync(similarPath, "utf8"));
+        similarCount = Array.isArray(st?.hits) ? st.hits.length : 0;
+      }
+      writeHarnessOutcome(dir, {
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        planVersion,
+        executeAttempt,
+        outcome: patch.outcome ?? "unknown",
+        contextMetrics,
+        hypothesesGenerated: hypothesesCount,
+        strategyPivotTriggered: pivotTriggered,
+        similarIssuesUsed: similarCount,
+      });
+    }
+  } catch { /* non-critical — don't block finalization */ }
 }
 
 // ── Harness outcome metrics (Phase 4: Meta-Harness alignment) ───────────────

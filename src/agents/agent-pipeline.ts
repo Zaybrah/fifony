@@ -586,7 +586,7 @@ export async function runAgentPipeline(
     const { selectVariant } = await import("./template-variants.ts");
     const variantSelection = selectVariant("default");
 
-    const retryCtx = buildRetryContext(issue, workspacePath, { modelName: effectiveProvider.model });
+    const retryCtx = buildRetryContext(issue, workspacePath, { modelName: effectiveProvider.model, variantId: variantSelection.variantId });
     if (retryCtx) {
       providerPrompt = `${providerPrompt}\n\n${retryCtx}`;
     }

@@ -229,19 +229,40 @@ function renderSimilarIssueTraceContext(
 export function buildRetryContext(
   issue: IssueEntry,
   worktreePath?: string,
-  options: { budget?: RetryContextBudget; maxChars?: number; modelName?: string } = {},
+  options: { budget?: RetryContextBudget; maxChars?: number; modelName?: string; variantId?: string } = {},
 ): string {
   const summaries = issue.previousAttemptSummaries;
   const recurringFailureContext = buildRecurringFailureContext(issue);
   if ((!summaries || summaries.length === 0) && !recurringFailureContext) return "";
 
+  // Resolve variant parameters (Phase 5: template variants)
+  let variantParams = { inlineTraceContent: true, hypothesisGeneration: true, lessonExtraction: true, budgetMultiplier: 1.0 };
+  if (options.variantId) {
+    try {
+      // Lazy import to avoid circular deps
+      const { getVariant } = require("./template-variants.ts") as typeof import("./template-variants.ts");
+      const variant = getVariant(options.variantId);
+      if (variant?.parameters) {
+        variantParams = { ...variantParams, ...variant.parameters };
+      }
+    } catch { /* fallback to defaults */ }
+  }
+
   const budget = options.budget ?? computeRetryBudget(options.modelName);
+  if (variantParams.budgetMultiplier !== 1.0) {
+    budget.totalChars = Math.round(budget.totalChars * variantParams.budgetMultiplier);
+    budget.traceContentChars = Math.round(budget.traceContentChars * variantParams.budgetMultiplier);
+    budget.crossAttemptChars = Math.round(budget.crossAttemptChars * variantParams.budgetMultiplier);
+    budget.similarIssueChars = Math.round(budget.similarIssueChars * variantParams.budgetMultiplier);
+    budget.gradingChars = Math.round(budget.gradingChars * variantParams.budgetMultiplier);
+  }
+
   const lines: string[] = [];
   const maxChars = budget.totalChars;
-  const canUseTraces = Boolean(worktreePath && hasTraceArtifacts(issue, worktreePath));
+  const canUseTraces = variantParams.inlineTraceContent && Boolean(worktreePath && hasTraceArtifacts(issue, worktreePath));
   const currentTraceDir = worktreePath ? traceDir(worktreePath, issue.planVersion ?? 1, issue.executeAttempt ?? 1) : "";
-  const crossAttemptContext = worktreePath ? renderCrossAttemptContext(issue, worktreePath) : "";
-  const similarIssueTraceHits = worktreePath ? findSimilarIssueTraces(issue, worktreePath, { maxResults: 2 }) : [];
+  const crossAttemptContext = (worktreePath && variantParams.hypothesisGeneration) ? renderCrossAttemptContext(issue, worktreePath) : "";
+  const similarIssueTraceHits = (worktreePath && variantParams.lessonExtraction) ? findSimilarIssueTraces(issue, worktreePath, { maxResults: 2 }) : [];
   if (worktreePath && currentTraceDir && similarIssueTraceHits.length > 0) {
     persistSimilarTraceSelection(currentTraceDir, issue, similarIssueTraceHits);
   }
