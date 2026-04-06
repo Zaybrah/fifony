@@ -572,6 +572,15 @@ h1, h2, h3, .stat-value {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* Compact dock labels to fit 7 items */
+.dock .dock-label {
+  font-size: 0.6rem;
+  max-width: 3.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Bottom sheet animations ─────────────────────────────────────────── */
 
 @keyframes slide-up-sheet {
