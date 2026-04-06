@@ -163,7 +163,7 @@ export async function mergeWorkspaceCommand(
           try {
             // Stage only the resolved conflict files (not git add -A which could stage unrelated files)
             for (const file of result.conflicts) {
-              execSync(`git add "${file}"`, { cwd: TARGET_ROOT, stdio: "pipe", timeout: 5_000 });
+              execSync(`git add '${file.replace(/'/g, "'\\''")}'`, { cwd: TARGET_ROOT, stdio: "pipe", timeout: 5_000 });
             }
             execSync(
               `git commit --no-edit`,

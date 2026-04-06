@@ -89,7 +89,7 @@ export async function resolveConflictsWithAgent(options: {
           remainingConflicts.push(file);
           logger.warn({ file, issueId: issue.id }, "[ConflictResolver] File was staged but still contains conflict markers");
           // Unstage it so git knows it's not actually resolved
-          try { execSync(`git reset HEAD "${file}"`, { cwd: targetRoot, stdio: "pipe" }); } catch {}
+          try { execSync(`git reset HEAD '${file.replace(/'/g, "'\\''")}'`, { cwd: targetRoot, stdio: "pipe" }); } catch {}
         }
       } catch { /* non-critical */ }
     }
