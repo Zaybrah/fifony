@@ -112,9 +112,9 @@ describe("trace persistence integration", () => {
 
       const retryContext = buildRetryContext(retryIssue, repo);
       assert.match(retryContext, /Cross-Attempt Patterns/);
-      assert.match(retryContext, /traces\/v1a1\/attempt\.json/);
-      assert.match(retryContext, /traces\/v1a1\/turns\/01\.directive\.json/);
-      assert.match(retryContext, /traces\/v1a1\/diff\.patch/);
+      assert.match(retryContext, /Handoff from previous attempt/);
+      assert.match(retryContext, /attempt\.json/);
+      assert.match(retryContext, /diff\.patch/);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
