@@ -58,6 +58,7 @@
   "publishConfig": {
     "access": "public"
   },
+  "packageManager": "pnpm@10.13.1",
   "engines": {
     "node": ">=23"
   },
@@ -74,8 +75,8 @@
     "raffel": "^1.0.26",
     "react-hotkeys-hook": "^5.2.4",
     "react-markdown": "^10.1.0",
-    "recker": "^1.0.87",
-    "s3db.js": "21.4.9",
+    "recker": "^1.0.101",
+    "s3db.js": "21.5.2",
     "vaulter": "^1.0.73",
     "web-push": "^3.6.7",
     "yaml": "^2.8.3"
