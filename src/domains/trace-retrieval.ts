@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import type { IssueEntry } from "../types.ts";
+import type { IssueEntry, PolicyDecisionKind } from "../types.ts";
 import { finalizeAttemptManifest, loadAttemptManifest } from "./trace-bundle.ts";
 
 type SimilarTraceCheckpoint = {
@@ -206,7 +206,7 @@ function buildQuerySignal(issue: IssueEntry): QuerySignal {
     policyDecisionKinds: new Set(
       (issue.policyDecisions ?? [])
         .map((decision) => decision.kind)
-        .filter((value): value is string => typeof value === "string" && value.length > 0),
+        .filter((value): value is PolicyDecisionKind => typeof value === "string" && value.length > 0),
     ),
   };
 }
