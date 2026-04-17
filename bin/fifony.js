@@ -2,12 +2,23 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { cwd, env, exit, argv, stderr } from "node:process";
+import { cwd, env, exit, argv, stderr, stdout } from "node:process";
 
 // Immediate visual feedback before any heavy import. Module loading + tsx
 // transpilation can take several seconds on first run; without this the
 // terminal sits silent and the user thinks nothing is happening.
-const QUIET = argv.includes("--quiet") || argv.includes("--silent") || argv.includes("--help") || argv.includes("-h");
+//
+// Only emit when BOTH streams are TTYs — otherwise we poison log scrapers
+// and child-runtime readiness probes (mesh/reverse-proxy) that tail the
+// first lines of output looking for specific ready tokens.
+const QUIET =
+  argv.includes("--quiet") ||
+  argv.includes("--silent") ||
+  argv.includes("--help") ||
+  argv.includes("-h") ||
+  env.FIFONY_CHILD_RUNTIME === "1" ||
+  !stderr.isTTY ||
+  !stdout.isTTY;
 if (!QUIET) {
   stderr.write("fifony: starting…\n");
 }
