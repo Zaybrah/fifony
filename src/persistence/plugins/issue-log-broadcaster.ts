@@ -17,6 +17,7 @@ import {
 import { agentLogPath } from "./fsm-agent.ts";
 import { sendToIssueLogRoom, issueLogRoomSize } from "../../routes/websocket.ts";
 import { logger } from "../../concerns/logger.ts";
+import { redactSecrets } from "../../concerns/exfil-guard.ts";
 
 const POLL_INTERVAL_MS = 500;
 const MAX_CHUNK_BYTES = 16_384;
@@ -70,7 +71,10 @@ export function startIssueLogBroadcasting(issueId: string, workspacePath: string
     entry.position = result.newPosition; // always advance, even without subscribers
 
     if (issueLogRoomSize(issueId) === 0) return; // no one to send to
-    sendToIssueLogRoom(issueId, JSON.stringify({ type: "issue:log", id: issueId, chunk: result.chunk }));
+    // Exfil guard — redact secrets in log chunks before broadcasting to UI.
+    // Best-effort; never blocks the stream.
+    const safeChunk = redactSecrets(result.chunk);
+    sendToIssueLogRoom(issueId, JSON.stringify({ type: "issue:log", id: issueId, chunk: safeChunk }));
   };
 
   entry.timerId = setInterval(flush, POLL_INTERVAL_MS);

@@ -25,6 +25,7 @@ import { logger } from "../concerns/logger.ts";
 import { runHook } from "../agents/command-executor.ts";
 import { buildPrompt } from "../agents/prompt-builder.ts";
 import { ensureWorkspaceMemoryFiles, recordWorkspaceMemoryEvent } from "../agents/memory-engine.ts";
+import { scanForSecrets } from "../concerns/exfil-guard.ts";
 
 // ── Source bootstrap ────────────────────────────────────────────────────────
 
@@ -288,13 +289,13 @@ export function detectDefaultBranch(dir: string): string {
 
 /** CLI config directories to copy from project root to worktree (typically gitignored). */
 const CLI_CONFIG_DIRS = [".claude", ".codex", ".gemini"];
-/** Project-root files to copy (CLAUDE.md provides project instructions to the agent). */
-const CLI_CONFIG_FILES = ["CLAUDE.md"];
+/** Project-root files to copy so the worktree keeps the repo's instruction hierarchy. */
+const CLI_CONFIG_FILES = ["AGENTS.md", "CLAUDE.md"];
 
 /**
  * Copy CLI config dirs and files from project root into the worktree.
  * git worktree only checks out tracked files — .gitignored config dirs like .claude/
- * would be missing, causing the agent to lose skills, commands, and CLAUDE.md.
+ * would be missing, causing the agent to lose skills, commands, AGENTS.md, and CLAUDE.md.
  */
 function copyCliConfigDirs(sourceRoot: string, worktreePath: string): void {
   for (const dir of CLI_CONFIG_DIRS) {
@@ -463,7 +464,7 @@ export async function createGitWorktree(issue: IssueEntry, worktreePath: string,
   issue.worktreePath = worktreePath;
 
   // Copy CLI config dirs that are typically gitignored (.claude/, .codex/, .gemini/)
-  // Without these, the agent loses CLAUDE.md, skills, commands, and project-level config
+  // Without these, the agent loses AGENTS.md, CLAUDE.md, skills, commands, and project-level config
   copyCliConfigDirs(TARGET_ROOT, worktreePath);
 
   logger.debug({ issueId: issue.id, branchName, baseBranch: resolvedBaseBranch, worktreePath }, "[Agent] Git worktree created");
@@ -714,6 +715,25 @@ function ensureWorktreeCommitted(issue: IssueEntry): void {
   execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
   const statusBeforeCommit = execSync("git status --porcelain", { cwd: worktreePath, encoding: "utf8" }).trim();
   if (!statusBeforeCommit) return;
+
+  // Exfil guard — scan staged diff for leaked secrets before they enter git history.
+  // Throwing here prevents the commit; the agent will see the error in retry context.
+  const stagedDiff = execSync("git diff --cached", {
+    cwd: worktreePath,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const scan = scanForSecrets(stagedDiff);
+  if (scan.leaked.length > 0) {
+    const summary = scan.leaked.map((l) => `${l.pattern}=${l.preview}`).join(", ");
+    logger.error(
+      { issueId: issue.id, leaked: scan.leaked },
+      "[ExfilGuard] Secret detected in staged diff — refusing to commit",
+    );
+    throw new Error(
+      `Exfil guard blocked commit for ${issue.identifier}: leaked secrets in staged diff (${summary}). Remove the secret(s) and retry.`,
+    );
+  }
 
   try {
     execSync(`git commit -m "fifony: agent changes for ${issue.identifier}"`, { cwd: worktreePath, stdio: "pipe" });

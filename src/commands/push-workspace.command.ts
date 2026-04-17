@@ -11,6 +11,7 @@ import {
 import { runValidationGate } from "../domains/validation.ts";
 import { TARGET_ROOT } from "../concerns/constants.ts";
 import { logger } from "../concerns/logger.ts";
+import { scanForSecrets } from "../concerns/exfil-guard.ts";
 
 export type PushWorkspaceInput = {
   issue: IssueEntry;
@@ -113,6 +114,21 @@ export async function pushWorkspaceCommand(
     ).trim();
   } catch {}
   const body = `## Summary\n${planSummary}\n\n## Diff Stats\n\`\`\`\n${diffStat || "No diff stats available"}\n\`\`\`\n\n*Automated by fifony*`;
+
+  // Exfil guard — scan PR body before push. Catches secrets that slipped through
+  // the per-commit guard (e.g. amended commits, force-push paths, plan summaries
+  // pulled from agent output that might quote credentials).
+  const bodyScan = scanForSecrets(body);
+  if (bodyScan.leaked.length > 0) {
+    const summary = bodyScan.leaked.map((l) => `${l.pattern}=${l.preview}`).join(", ");
+    logger.error(
+      { issueId: issue.id, leaked: bodyScan.leaked },
+      "[ExfilGuard] Secret detected in PR body — refusing to push",
+    );
+    throw new Error(
+      `Exfil guard blocked push for ${issue.identifier}: leaked secrets in PR body (${summary}).`,
+    );
+  }
 
   // Push branch (branchName is "fifony/{uuid}" — safe for shell)
   execSync(`git push -u origin "${issue.branchName}"`, { cwd: TARGET_ROOT, stdio: "pipe" });
