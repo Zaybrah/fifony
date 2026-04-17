@@ -90,6 +90,7 @@ export function registerChatRoutes(
       const systemPrompt = buildGlobalChatPrompt(state);
       const issue = issueId ? state.issues.find((i) => i.id === issueId) : null;
 
+      const chatKey = issueId ? `chat-issue-${issueId}` : "chat-global";
       const result = await chatWithIssue(
         {
           issueId: issueId || "global-chat",
@@ -98,16 +99,18 @@ export function registerChatRoutes(
           plan: issue?.plan ?? null,
           message,
           history,
+          chatKey,
         },
         state.config,
       );
 
       const actions = parseActionsFromResponse(result.response);
 
-      // If issue-linked, persist turns
+      // If issue-linked, persist turns + propagate the CLI session id so a
+      // future resume keeps the conversation context inside the provider.
       if (issueId) {
         if (!session) {
-          session = await createIssueChat(issueId, { provider: result.provider });
+          session = await createIssueChat(issueId, { provider: result.provider, sessionId: result.sessionId });
         }
         appendTurn(session, { role: "user", content: message });
         appendTurn(session, {
@@ -115,7 +118,7 @@ export function registerChatRoutes(
           content: result.response,
           actions: actions.length > 0 ? actions : undefined,
         });
-        session.cli = { provider: result.provider };
+        session.cli = { provider: result.provider, sessionId: result.sessionId ?? session.cli?.sessionId };
         await persistChatSession(session);
       }
 

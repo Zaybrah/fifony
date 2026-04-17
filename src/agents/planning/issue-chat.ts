@@ -5,11 +5,25 @@ import type { RuntimeConfig } from "../../types.ts";
 import { resolveChatStageConfig } from "./planning-prompts.ts";
 import { ADAPTERS } from "../adapters/registry.ts";
 import { env } from "node:process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TARGET_ROOT } from "../../concerns/constants.ts";
+import { loadCliSession, saveCliSession } from "../chat/cli-session-store.ts";
+import { extractSessionId } from "../chat/session-id.ts";
+
+// ── Chat-stage tuning ───────────────────────────────────────────────────────
+// Chat is interactive — it must be cheap, fast, and predictable. We always
+// force a fast model and minimal reasoning effort when no chat-specific
+// override is configured, so consumption stays predictable across runs.
+const CHAT_FAST_MODELS: Record<string, string> = {
+  claude: "claude-haiku-4-5",
+  codex: "gpt-5-mini",
+  gemini: "gemini-2.5-flash",
+};
+const CHAT_DEFAULT_EFFORT = "minimal";
 
 // ── One-shot CLI runner (same pattern as log-analyzer) ──────────────────────
 
@@ -214,10 +228,13 @@ export async function chatWithIssue(
     plan?: { summary?: string; steps?: Array<{ action?: string; title?: string }> } | null;
     message: string;
     history?: Array<{ role: "user" | "assistant"; content: string }>;
+    /** Stable key used to persist/resume the underlying CLI session. Defaults to `chat-${issueId}`. */
+    chatKey?: string;
   },
   config: RuntimeConfig,
-): Promise<{ response: string; provider: string }> {
-  const { provider: selectedProvider, model: selectedModel } = await resolveChatStageConfig(config);
+): Promise<{ response: string; provider: string; sessionId?: string }> {
+  const { provider: selectedProvider, model: configuredModel, effort: configuredEffort } =
+    await resolveChatStageConfig(config);
 
   const providers = detectAvailableProviders();
   const isAvailable = providers.some((p) => p.name === selectedProvider && p.available);
@@ -229,18 +246,55 @@ export async function chatWithIssue(
   const adapter = ADAPTERS[selectedProvider];
   if (!adapter) throw new Error(`No adapter for provider "${selectedProvider}".`);
 
+  // Force fast defaults when nothing is explicitly configured. Chat consumption
+  // must stay predictable — every other stage can override.
+  const selectedModel = configuredModel || CHAT_FAST_MODELS[selectedProvider];
+  const selectedEffort = configuredEffort || CHAT_DEFAULT_EFFORT;
+
+  // Look up persisted CLI session id for this chat key. If found AND the
+  // provider matches, resume; otherwise start fresh and pre-assign an id
+  // (claude only — codex assigns its own).
+  const chatKey = payload.chatKey || `chat-${payload.issueId || "global-chat"}`;
+  const existingSession = loadCliSession(chatKey);
+  const matchingResume = existingSession && existingSession.provider === selectedProvider
+    ? existingSession.sessionId
+    : undefined;
+  const newSessionId = !matchingResume && selectedProvider === "claude" ? randomUUID() : undefined;
+
   const caps = resolveProviderCapabilities(selectedProvider);
   const command = adapter.buildCommand({
     model: selectedModel,
+    effort: selectedEffort,
     readOnly: caps.readOnlyExecution !== "none",
+    resumeSessionId: matchingResume,
+    sessionId: newSessionId,
   });
 
-  const prompt = buildChatPrompt(payload);
+  // When the CLI is resuming, the conversation history is already in its
+  // session — we only need to send the new user turn.
+  const prompt = matchingResume
+    ? payload.message
+    : buildChatPrompt(payload);
   const timeoutMs = config.commandTimeoutMs ?? 60_000;
 
-  logger.debug({ provider: selectedProvider, issueId: payload.issueId }, "[Chat] Running chat command");
+  logger.debug(
+    { provider: selectedProvider, issueId: payload.issueId, chatKey, resume: Boolean(matchingResume) },
+    "[Chat] Running chat command",
+  );
 
   const raw = await runOneShot(command, selectedProvider, prompt, timeoutMs);
+
+  // Capture the session id BEFORE stripping CLI chrome — codex prints it in
+  // the metadata block that the chrome stripper removes.
+  const reportedSessionId = extractSessionId(selectedProvider, raw);
+  const sessionId = reportedSessionId || newSessionId || matchingResume;
+  if (sessionId) {
+    try {
+      saveCliSession({ key: chatKey, provider: selectedProvider, sessionId });
+    } catch (err) {
+      logger.warn({ err, chatKey }, "[Chat] Failed to persist CLI session id");
+    }
+  }
 
   // Strip CLI chrome (headers, metadata, prompt echo) from the raw output
   const response = stripProviderChrome(raw, selectedProvider).trim();
@@ -248,7 +302,14 @@ export async function chatWithIssue(
     throw new Error("AI provider returned an empty response.");
   }
 
-  logger.info({ provider: selectedProvider, model: selectedModel, issueId: payload.issueId, responseLength: response.length }, "[Chat] Chat response received");
+  logger.info({
+    provider: selectedProvider,
+    model: selectedModel,
+    issueId: payload.issueId,
+    responseLength: response.length,
+    chatKey,
+    resumed: Boolean(matchingResume),
+  }, "[Chat] Chat response received");
 
-  return { response, provider: selectedProvider };
+  return { response, provider: selectedProvider, sessionId };
 }

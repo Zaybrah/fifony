@@ -24,6 +24,10 @@ export type ProviderCommandOptions = {
   readOnly?: boolean;
   /** Enable web search (codex --search) */
   search?: boolean;
+  /** Resume an existing CLI session by id (claude --resume, codex exec resume, gemini --resume). */
+  resumeSessionId?: string;
+  /** Pre-assign a session id for a NEW conversation (claude --session-id; codex captures its own). */
+  sessionId?: string;
 };
 
 export type ProviderAdapter = {

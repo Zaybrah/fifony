@@ -42,7 +42,20 @@ export function buildClaudeCommand(options: ProviderCommandOptions): string {
     parts.push("--dangerously-skip-permissions");
   }
 
-  parts.push("--no-session-persistence", "--output-format json");
+  // Resume an existing conversation (chat continuity). Mutually exclusive with --session-id.
+  // When resuming OR pre-assigning a session id we MUST allow session persistence,
+  // otherwise the next turn cannot find the session on disk.
+  const wantsSession = Boolean(options.resumeSessionId || options.sessionId);
+  if (options.resumeSessionId) {
+    parts.push(`--resume ${options.resumeSessionId}`);
+  } else if (options.sessionId) {
+    parts.push(`--session-id ${options.sessionId}`);
+  }
+
+  if (!wantsSession) {
+    parts.push("--no-session-persistence");
+  }
+  parts.push("--output-format json");
 
   if (options.effort) {
     // Claude CLI uses "max" for the highest effort level; our domain uses "extra-high"

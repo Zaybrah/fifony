@@ -52,6 +52,11 @@ Return a JSON object with this exact schema when finished:
 // ── Command builder ───────────────────────────────────────────────────────────
 
 export function buildCodexCommand(options: ProviderCommandOptions): string {
+  // Codex resume uses a different subcommand layout:
+  //   codex exec resume <SESSION_ID> -   (prompt from stdin via "-")
+  // It otherwise still accepts the same global flags.
+  const isResume = Boolean(options.resumeSessionId);
+
   const parts = [
     "codex",
     "exec",
@@ -84,7 +89,12 @@ export function buildCodexCommand(options: ProviderCommandOptions): string {
     parts.push("--search");
   }
 
-  parts.push("< \"$FIFONY_PROMPT_FILE\"");
+  if (isResume) {
+    parts.push("resume", options.resumeSessionId!, "-");
+    parts.push("< \"$FIFONY_PROMPT_FILE\"");
+  } else {
+    parts.push("< \"$FIFONY_PROMPT_FILE\"");
+  }
   return parts.join(" ");
 }
 

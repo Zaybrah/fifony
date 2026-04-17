@@ -63,6 +63,12 @@ export function buildGeminiCommand(options: ProviderCommandOptions): string {
     parts.push(`--model ${options.model}`);
   }
 
+  // Resume an existing conversation. Gemini's --resume accepts a session id
+  // string OR "latest". We pass whatever was persisted.
+  if (options.resumeSessionId) {
+    parts.push(`--resume ${options.resumeSessionId}`);
+  }
+
   // screen-reader mode reduces terminal UI noise and is friendlier for text-only flows
   parts.push("--screen-reader");
 
