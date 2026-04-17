@@ -48,6 +48,27 @@ export function registerChatRoutes(
     if (!id) return c.json({ ok: false, error: "Issue id is required." }, 400);
     try {
       await deleteChatSession(id);
+      // Also wipe the CLI session pointer so the next chat starts fresh
+      // (otherwise the provider would resume a session whose transcript
+      // we already discarded).
+      const { clearCliSession } = await import("../agents/chat/cli-session-store.ts");
+      clearCliSession(`chat-issue-${id}`);
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  });
+
+  // ── Reset the global chat session ──────────────────────────────────
+  // Drops the persisted CLI session id so the next /api/chat call starts
+  // a brand-new conversation. The boot-time priming will happen again on
+  // the next runtime restart; manual users can also re-trigger by sending
+  // a fresh message.
+  app.delete("/api/chat/global", async (c) => {
+    try {
+      const { clearCliSession } = await import("../agents/chat/cli-session-store.ts");
+      clearCliSession("chat-global");
+      logger.info("[Chat] Global chat session cleared");
       return c.json({ ok: true });
     } catch (err) {
       return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);

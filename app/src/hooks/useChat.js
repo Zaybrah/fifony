@@ -121,6 +121,14 @@ export function useChat() {
     },
   });
 
+  const resetGlobalChatMut = useMutation({
+    mutationFn: () => api.delete("/chat/global"),
+    onSuccess: () => {
+      setOptimisticMessages([]);
+      qc.invalidateQueries({ queryKey: SESSIONS_KEY });
+    },
+  });
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
@@ -189,6 +197,8 @@ export function useChat() {
     [],
   );
 
+  const resetGlobalChat = useCallback(() => resetGlobalChatMut.mutateAsync(), [resetGlobalChatMut]);
+
   return {
     // State
     sessions,
@@ -213,11 +223,13 @@ export function useChat() {
     deleteSession,
     renameSession,
     selectSession,
+    resetGlobalChat,
     // Mutation states (for button spinners, etc.)
     isExecutingAction: executeActionMut.isPending,
     isCreatingSession: createSessionMut.isPending,
     isDeletingSession: deleteSessionMut.isPending,
     isRenamingSession: renameSessionMut.isPending,
+    isResettingGlobal: resetGlobalChatMut.isPending,
     // Reset send error
     clearError: () => sendMessageMut.reset(),
   };

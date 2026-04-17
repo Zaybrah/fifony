@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   ArrowDown,
+  Trash2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
@@ -733,6 +734,26 @@ function ChatPage() {
     }
   }, [chat, handleSendText]);
 
+  // Reset the active chat. For an issue chat it deletes the per-issue session
+  // (transcript + CLI pointer); for the global chat it wipes the CLI pointer
+  // so the next message starts a new conversation. Local optimistic state is
+  // also cleared so the UI immediately reflects the reset.
+  const handleResetChat = useCallback(async () => {
+    const target = selectedIssueId ? `issue ${selectedIssue?.identifier ?? selectedIssueId}` : "the global chat";
+    if (!window.confirm(`Reset ${target}? This drops the conversation context.`)) return;
+    try {
+      if (selectedIssueId) {
+        await chat.deleteSession(selectedIssueId);
+        setIssueMessages([]);
+      } else {
+        await chat.resetGlobalChat();
+      }
+      setSendError(null);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : String(err));
+    }
+  }, [selectedIssueId, selectedIssue, chat]);
+
   // ── Timestamps refresh ─────────────────────────────────────────────────
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -933,11 +954,22 @@ function ChatPage() {
                       Enter to send · Shift+Enter for newline
                     </span>
                   </div>
-                  {provider && (
-                    <span className="text-[10px] text-base-content/15">
-                      via {provider}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="btn btn-ghost btn-xs btn-square size-4 opacity-20 hover:opacity-70 hover:text-error p-0"
+                      onClick={handleResetChat}
+                      disabled={chat.isResettingGlobal || chat.isDeletingSession || isSending}
+                      aria-label="Reset chat"
+                      title={selectedIssueId ? "Reset issue chat" : "Reset global chat"}
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                    {provider && (
+                      <span className="text-[10px] text-base-content/15">
+                        via {provider}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
