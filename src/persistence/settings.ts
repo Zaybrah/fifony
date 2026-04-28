@@ -17,6 +17,11 @@ import {
   DEFAULT_MAX_REVIEW_AUTO_RETRIES,
 } from "../concerns/constants.ts";
 import { normalizeServiceEnvironment } from "../domains/service-env.ts";
+import {
+  applyExecutionBackendSelection,
+  normalizeExecutionBackend,
+  resolveExecutionBackend,
+} from "../domains/execution-backend.ts";
 import { loadPersistedSettings, replacePersistedSetting } from "./store.ts";
 import { getProviderDefaultCommand, normalizeAgentProvider, readCodexConfig } from "../agents/providers.ts";
 
@@ -42,6 +47,7 @@ export const SETTING_ID_PR_BASE_BRANCH = "runtime.prBaseBranch";
 export const SETTING_ID_AUTO_REVIEW_APPROVAL = "runtime.autoReviewApproval";
 export const SETTING_ID_DOCKER_EXECUTION = "runtime.dockerExecution";
 export const SETTING_ID_DOCKER_IMAGE = "runtime.dockerImage";
+export const SETTING_ID_EXECUTION_BACKEND = "runtime.executionBackend";
 export const SETTING_ID_MAX_REVIEW_AUTO_RETRIES = "runtime.maxReviewAutoRetries";
 export const SETTING_ID_ADAPTIVE_HARNESS_SELECTION = "runtime.adaptiveHarnessSelection";
 export const SETTING_ID_ADAPTIVE_REVIEW_ROUTING = "runtime.adaptiveReviewRouting";
@@ -95,6 +101,7 @@ export const RUNTIME_CONFIG_SETTING_IDS = new Set<string>([
   SETTING_ID_AUTO_REVIEW_APPROVAL,
   SETTING_ID_DOCKER_EXECUTION,
   SETTING_ID_DOCKER_IMAGE,
+  SETTING_ID_EXECUTION_BACKEND,
   SETTING_ID_MAX_REVIEW_AUTO_RETRIES,
   SETTING_ID_ADAPTIVE_HARNESS_SELECTION,
   SETTING_ID_ADAPTIVE_REVIEW_ROUTING,
@@ -195,6 +202,7 @@ function buildRuntimeConfigSettings(
     { id: SETTING_ID_AUTO_REVIEW_APPROVAL, scope: "runtime", value: config.autoReviewApproval, source, updatedAt },
     { id: SETTING_ID_DOCKER_EXECUTION, scope: "runtime", value: config.dockerExecution, source, updatedAt },
     { id: SETTING_ID_DOCKER_IMAGE, scope: "runtime", value: config.dockerImage, source, updatedAt },
+    { id: SETTING_ID_EXECUTION_BACKEND, scope: "runtime", value: resolveExecutionBackend(config), source, updatedAt },
     { id: SETTING_ID_MAX_REVIEW_AUTO_RETRIES, scope: "runtime", value: config.maxReviewAutoRetries ?? DEFAULT_MAX_REVIEW_AUTO_RETRIES, source, updatedAt },
     { id: SETTING_ID_ADAPTIVE_HARNESS_SELECTION, scope: "runtime", value: config.adaptiveHarnessSelection !== false, source, updatedAt },
     { id: SETTING_ID_ADAPTIVE_REVIEW_ROUTING, scope: "runtime", value: config.adaptiveReviewRouting !== false, source, updatedAt },
@@ -333,6 +341,13 @@ export function applyPersistedSettings(config: RuntimeConfig, settings: RuntimeS
       case SETTING_ID_DOCKER_IMAGE: {
         if (typeof setting.value === "string" && setting.value.trim()) {
           nextConfig.dockerImage = setting.value.trim();
+        }
+        break;
+      }
+      case SETTING_ID_EXECUTION_BACKEND: {
+        const backend = normalizeExecutionBackend(setting.value);
+        if (backend) {
+          nextConfig = applyExecutionBackendSelection(nextConfig, backend);
         }
         break;
       }

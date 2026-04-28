@@ -705,6 +705,8 @@ export type ServiceGraph = {
   seq?: number;
 };
 
+export type ExecutionBackendKind = "host" | "ai-jail" | "docker" | "sandcastle";
+
 export type RuntimeConfig = {
   pollIntervalMs: number;
   workerConcurrency: number;
@@ -733,6 +735,13 @@ export type RuntimeConfig = {
   dockerExecution: boolean;
   /** Docker image used when dockerExecution is true. */
   dockerImage: string;
+  /**
+   * Canonical execution backend selection.
+   *
+   * `dockerExecution` and `sandboxExecution` are legacy booleans kept for
+   * compatibility with existing settings and UI.
+   */
+  executionBackend?: ExecutionBackendKind;
   afterCreateHook: string;
   beforeRunHook: string;
   afterRunHook: string;

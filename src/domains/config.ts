@@ -9,6 +9,7 @@ import {
   fail,
 } from "../concerns/helpers.ts";
 import { normalizeAgentProvider } from "../agents/providers.ts";
+import { normalizeExecutionBackend } from "./execution-backend.ts";
 
 const VALID_EFFORTS = new Set(["low", "medium", "high", "extra-high"]);
 
@@ -42,6 +43,7 @@ export function deriveConfig(args: string[]): RuntimeConfig {
   let workerConcurrency = parsedConcurrency;
   let maxAttemptsDefault = parseEnvNumber("FIFONY_MAX_ATTEMPTS", 3);
   let commandTimeoutMs = parseEnvNumber("FIFONY_AGENT_TIMEOUT_MS", 1_800_000);
+  const executionBackend = normalizeExecutionBackend(env.FIFONY_EXECUTION_BACKEND) ?? "host";
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -88,8 +90,9 @@ export function deriveConfig(args: string[]): RuntimeConfig {
     maxConcurrentByState: {},
     runMode: "filesystem",
     autoReviewApproval: true,
-    dockerExecution: false,
+    dockerExecution: executionBackend === "docker",
     dockerImage: "fifony-agent:latest",
+    executionBackend,
     adaptiveHarnessSelection: toStringValue(env.FIFONY_ADAPTIVE_HARNESS_SELECTION, "true") !== "false",
     adaptiveReviewRouting: toStringValue(env.FIFONY_ADAPTIVE_REVIEW_ROUTING, "true") !== "false",
     adaptivePolicyMinSamples: clamp(parseEnvNumber("FIFONY_ADAPTIVE_POLICY_MIN_SAMPLES", 3), 1, 10),
@@ -98,7 +101,7 @@ export function deriveConfig(args: string[]): RuntimeConfig {
     afterRunHook: env.FIFONY_AFTER_RUN_HOOK ?? "",
     beforeRemoveHook: env.FIFONY_BEFORE_REMOVE_HOOK ?? "",
     autoApproveTrivialPlans: true,
-    sandboxExecution: false,
+    sandboxExecution: executionBackend === "ai-jail",
     serviceEnv: {},
   };
 }
