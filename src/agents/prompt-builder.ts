@@ -424,6 +424,7 @@ export async function buildPrompt(issue: IssueEntry, _workflowDefinition: null):
       action: step.action,
       files: step.files ?? [],
       details: step.details ?? "",
+      doneWhen: step.doneWhen ?? "",
     })),
   });
 

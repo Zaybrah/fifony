@@ -89,5 +89,19 @@
     "source": "bundled",
     "installType": "bundled",
     "stub": "skill-ci-check-loop.stub.md"
+  },
+  {
+    "name": "start",
+    "displayName": "Start — Sharpen Brief",
+    "description": "Rewrites a vague issue or request into a structured 7-section brief (objective, success criteria, scope, assumptions, open questions, execution order, next step), then interviews the user one question at a time until every Open Question is resolved. Use before approving a plan when the description feels under-specified.",
+    "domains": [
+      "backend",
+      "frontend",
+      "devops",
+      "testing"
+    ],
+    "source": "bundled",
+    "installType": "bundled",
+    "stub": "skill-start.stub.md"
   }
 ]
