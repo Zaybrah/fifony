@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -22,6 +21,7 @@ import {
 } from "../concerns/helpers.ts";
 import { deriveReviewProfile } from "./review-profile.ts";
 import { buildReviewRouteKey, recommendReviewRouteForIssue } from "./harness-policy.ts";
+import { findExecutableSync } from "./executable-locator.ts";
 
 export function resolveAgentProfile(name: string): { profilePath: string; instructions: string } {
   const normalized = name.trim();
@@ -138,7 +138,8 @@ export function detectAvailableProviders(): DetectedProvider[] {
   for (const name of ["claude", "codex", "gemini", "pi"]) {
     const capabilities = resolveProviderCapabilities(name);
     try {
-      const path = execFileSync("which", [name], { encoding: "utf8", timeout: 5000 }).trim();
+      const path = findExecutableSync(name, 5000) || "";
+      if (!path) throw new Error("not found");
       providers.push({ name, available: true, path, capabilities });
     } catch {
       providers.push({ name, available: false, path: "", capabilities });

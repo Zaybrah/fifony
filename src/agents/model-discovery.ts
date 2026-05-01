@@ -4,6 +4,7 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import type { DetectedProvider } from "../types.ts";
 import { readClaudeConfig, readCodexConfig, readGeminiConfig } from "./providers.ts";
+import { findExecutableSync } from "./executable-locator.ts";
 
 // ── Model discovery ─────────────────────────────────────────────────────────
 
@@ -21,7 +22,7 @@ const MODEL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 function resolveGeminiModelsFile(): string | null {
   try {
-    const binPath = execFileSync("which", ["gemini"], { encoding: "utf8", timeout: 3000 }).trim();
+    const binPath = findExecutableSync("gemini", 3000);
     if (!binPath) return null;
     const realBin = realpathSync(binPath);
     const cliRoot = dirname(dirname(realBin));
@@ -103,9 +104,7 @@ export async function fetchCodexModels(): Promise<DiscoveredModel[]> {
 }
 
 export async function fetchAnthropicModels(): Promise<DiscoveredModel[]> {
-  try {
-    execFileSync("which", ["claude"], { encoding: "utf8", timeout: 3000 });
-  } catch {
+  if (!findExecutableSync("claude", 3000)) {
     return [];
   }
 
@@ -117,9 +116,7 @@ export async function fetchAnthropicModels(): Promise<DiscoveredModel[]> {
 }
 
 export async function fetchPiModels(): Promise<DiscoveredModel[]> {
-  try {
-    execFileSync("which", ["pi"], { encoding: "utf8", timeout: 3000 });
-  } catch {
+  if (!findExecutableSync("pi", 3000)) {
     return [];
   }
 

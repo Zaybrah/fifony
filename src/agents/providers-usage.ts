@@ -9,16 +9,12 @@ import { collectClaudeUsageFromCli } from "./adapters/claude.ts";
 import { collectCodexUsageFromCli } from "./adapters/codex.ts";
 import { collectGeminiUsageFromCli } from "./adapters/gemini.ts";
 import type { RateLimitEntry } from "./adapters/usage.ts";
+import { executableExists, findExecutable } from "./executable-locator.ts";
 
 const execFileAsync = promisify(execFile);
 
 async function whichExists(cmd: string): Promise<boolean> {
-  try {
-    await execFileAsync("which", [cmd], { encoding: "utf8", timeout: 3000 });
-    return true;
-  } catch {
-    return false;
-  }
+  return executableExists(cmd, 3000);
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -908,8 +904,9 @@ async function collectGeminiUsage(): Promise<ProviderUsage | null> {
   // Read models from the installed CLI package (same source as discoverModels)
   const models: ModelInfo[] = [];
   try {
-    const { stdout: binPath } = await execFileAsync("which", ["gemini"], { encoding: "utf8", timeout: 3000 });
-    const realBin = realpathSync(binPath.trim());
+    const binPath = await findExecutable("gemini", 3000);
+    if (!binPath) throw new Error("gemini not found");
+    const realBin = realpathSync(binPath);
     const modelsPath = join(dirname(dirname(realBin)), "node_modules", "@google", "gemini-cli-core", "dist", "src", "config", "models.js");
     if (existsSync(modelsPath)) {
       const content = readFileSync(modelsPath, "utf8");
