@@ -27,10 +27,19 @@ export function registerSettingsRoutes(
   app: RouteRegistrar,
   state: RuntimeState,
 ): void {
-  // POST /api/settings/:id — upsert a runtime setting by ID.
-  // Note: the s3db settings resource handles GET /api/settings (list) and
-  // GET /api/settings/:id (get), but its custom POST /:id route is not reachable
-  // through s3db's routing layer, so we register it here explicitly.
+  // Register settings routes explicitly instead of relying on s3db's generated
+  // resource list endpoints. On Windows, the resource can resolve records by id
+  // while enumeration returns an empty list, which breaks onboarding and settings UI.
+  app.get("/api/settings", async (c) => {
+    const { listSettings } = await import("../persistence/resources/settings.resource.js");
+    return listSettings(c);
+  });
+
+  app.get("/api/settings/:id", async (c) => {
+    const { getSetting } = await import("../persistence/resources/settings.resource.js");
+    return getSetting(c);
+  });
+
   app.post("/api/settings/:id", async (c) => {
     const { updateSetting } = await import("../persistence/resources/settings.resource.js");
     return updateSetting(c);

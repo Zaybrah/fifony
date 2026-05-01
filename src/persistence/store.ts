@@ -22,6 +22,7 @@ import {
 import { now, debugBoot, fail } from "../concerns/helpers.ts";
 import { logger } from "../concerns/logger.ts";
 import { getMetrics } from "./metrics-cache.ts";
+import { loadPersistedSettingsFromObjectsTable } from "./settings-objects.ts";
 import { clearApiRuntimeContext } from "../persistence/plugins/api-runtime-context.ts";
 import { broadcastToWebSocketClients } from "../persistence/plugins/api-server.ts";
 import { NATIVE_RESOURCE_CONFIGS, NATIVE_RESOURCE_NAMES } from "./resources/index.ts";
@@ -565,11 +566,20 @@ export async function persistStateFull(state: RuntimeState): Promise<void> {
 }
 
 export async function loadPersistedSettings(): Promise<RuntimeSettingRecord[]> {
-  if (!settingStateResource?.list) return [];
+  const loadFallback = (): RuntimeSettingRecord[] => {
+    try {
+      return loadPersistedSettingsFromObjectsTable(S3DB_DATABASE_PATH);
+    } catch (error) {
+      logger.warn(`Failed to load persisted settings from SQLite objects table: ${String(error)}`);
+      return [];
+    }
+  };
+
+  if (!settingStateResource?.list) return loadFallback();
 
   try {
     const records = await settingStateResource.list({ limit: 500 });
-    return Array.isArray(records)
+    const normalized = Array.isArray(records)
       ? records.filter((record): record is RuntimeSettingRecord =>
         Boolean(
           record &&
@@ -578,9 +588,15 @@ export async function loadPersistedSettings(): Promise<RuntimeSettingRecord[]> {
         ),
       )
       : [];
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+
+    return loadFallback();
   } catch (error) {
     logger.warn(`Failed to load persisted settings from s3db: ${String(error)}`);
-    return [];
+    return loadFallback();
   }
 }
 
