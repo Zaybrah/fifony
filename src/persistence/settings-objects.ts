@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
 import type { RuntimeSettingRecord, RuntimeSettingScope, RuntimeSettingSource } from "../types.ts";
 
 type PersistedSettingsObjectRow = {
@@ -14,6 +14,15 @@ const SETTINGS_DATA_PREFIXES = [
 
 const VALID_SETTING_SCOPES = new Set<RuntimeSettingScope>(["runtime", "providers", "ui", "system"]);
 const VALID_SETTING_SOURCES = new Set<RuntimeSettingSource>(["user", "detected", "workflow", "system"]);
+const require = createRequire(import.meta.url);
+
+function getDatabaseSync() {
+  const sqliteModule = require("node:sqlite") as { DatabaseSync: new (path: string, options?: { readonly?: boolean }) => {
+    prepare: (sql: string) => { all: (...params: unknown[]) => unknown[] };
+    close: () => void;
+  } };
+  return sqliteModule.DatabaseSync;
+}
 
 function extractSettingIdFromObjectKey(key: string): string | null {
   for (const prefix of SETTINGS_DATA_PREFIXES) {
@@ -80,6 +89,7 @@ export function decodePersistedSettingObjectRows(rows: PersistedSettingsObjectRo
 }
 
 export function loadPersistedSettingsFromObjectsTable(databasePath: string): RuntimeSettingRecord[] {
+  const DatabaseSync = getDatabaseSync();
   const db = new DatabaseSync(databasePath, { readonly: true });
 
   try {
