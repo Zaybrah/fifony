@@ -1,4 +1,5 @@
 import { api } from "../../api";
+import { SETTINGS_QUERY_KEY, upsertSettingPayload } from "../../settings-payload.js";
 import { EFFORT_OPTIONS } from "./constants";
 
 export async function saveSetting(id, value, scope = "ui") {
@@ -45,4 +46,25 @@ export function isGitReadyForWorktrees(gitStatus) {
 
 export function canProceedFromSetup(projectName, gitStatus) {
   return Boolean(projectName) && isGitReadyForWorktrees(gitStatus);
+}
+
+export async function primeCompletedOnboardingSettings(qc, projectSettingId, projectName) {
+  const updatedAt = new Date().toISOString();
+
+  await qc.cancelQueries({ queryKey: SETTINGS_QUERY_KEY });
+
+  qc.setQueryData(SETTINGS_QUERY_KEY, (current) => upsertSettingPayload(current, {
+    id: projectSettingId,
+    scope: "system",
+    value: projectName,
+    source: "user",
+    updatedAt,
+  }));
+  qc.setQueryData(SETTINGS_QUERY_KEY, (current) => upsertSettingPayload(current, {
+    id: "ui.onboarding.completed",
+    scope: "ui",
+    value: true,
+    source: "user",
+    updatedAt,
+  }));
 }

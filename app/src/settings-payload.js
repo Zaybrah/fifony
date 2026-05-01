@@ -1,3 +1,5 @@
+export const SETTINGS_QUERY_KEY = ["settings"];
+
 export function getSettingsList(payload) {
   if (Array.isArray(payload?.settings)) return payload.settings;
   if (Array.isArray(payload?.data)) return payload.data;

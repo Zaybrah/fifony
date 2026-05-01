@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api.js";
-import { getSettingsList, getSettingValue, upsertSettingPayload } from "./settings-payload.js";
+import { SETTINGS_QUERY_KEY, getSettingsList, getSettingValue, upsertSettingPayload } from "./settings-payload.js";
 import {
   resolveAnalyticsQueryKey,
   isRuntimeStatePayload,
@@ -296,7 +296,6 @@ const ALL_DAISYUI_THEMES = [
   "winter", "dim", "nord", "sunset", "caramellatte", "abyss", "silk",
 ];
 const THEME_OPTIONS = [...PINNED_THEMES, ...ALL_DAISYUI_THEMES];
-export const SETTINGS_QUERY_KEY = ["settings"];
 const SETTING_ID_UI_THEME = "ui.theme";
 const SETTING_ID_UI_NOTIFICATIONS_ENABLED = "ui.notifications.enabled";
 export const SETTING_ID_UI_ISSUES_STATE_FILTER = "ui.issues.stateFilter";
@@ -319,7 +318,7 @@ function normalizeBoolean(value, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
 }
 
-export { getSettingsList, getSettingValue, upsertSettingPayload } from "./settings-payload.js";
+export { SETTINGS_QUERY_KEY, getSettingsList, getSettingValue, upsertSettingPayload } from "./settings-payload.js";
 
 export async function persistUiSetting(settingId, value) {
   return api.post(`/settings/${encodeURIComponent(settingId)}`, {

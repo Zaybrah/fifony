@@ -11,6 +11,7 @@ import {
   buildWorkflowConfig,
   canProceedFromSetup,
   normalizeRoleEfforts,
+  primeCompletedOnboardingSettings,
   saveSetting,
 } from "./helpers";
 
@@ -284,6 +285,8 @@ export default function OnboardingWizard({ onComplete }) {
     if (!normalizedProjectName) return;
     setLaunching(true);
     try {
+      await primeCompletedOnboardingSettings(qc, PROJECT_SETTING_ID, normalizedProjectName);
+
       // Save all settings in parallel
       const saves = [
         saveSetting(PROJECT_SETTING_ID, normalizedProjectName, "system"),
@@ -327,23 +330,6 @@ export default function OnboardingWizard({ onComplete }) {
       }
 
       await Promise.allSettled(saves);
-
-      // Optimistically update settings cache so OnboardingGate immediately sees completed=true
-      qc.setQueryData(SETTINGS_QUERY_KEY, (current) => upsertSettingPayload(current, {
-        id: PROJECT_SETTING_ID,
-        scope: "system",
-        value: normalizedProjectName,
-        source: "user",
-        updatedAt: new Date().toISOString(),
-      }));
-      qc.setQueryData(SETTINGS_QUERY_KEY, (current) => upsertSettingPayload(current, {
-        id: "ui.onboarding.completed",
-        scope: "ui",
-        value: true,
-        source: "user",
-        updatedAt: new Date().toISOString(),
-      }));
-
       // Show confetti, then navigate based on optimistic cache (completed=true already set above).
       // Invalidate in background AFTER navigation so a slow server flush can't race with OnboardingGate.
       setConfetti({ x: window.innerWidth / 2, y: window.innerHeight / 3 });
@@ -353,20 +339,7 @@ export default function OnboardingWizard({ onComplete }) {
       }, 1200);
     } catch {
       // Even on error, mark as done so user isn't stuck
-      qc.setQueryData(SETTINGS_QUERY_KEY, (current) => upsertSettingPayload(current, {
-        id: PROJECT_SETTING_ID,
-        scope: "system",
-        value: normalizedProjectName,
-        source: "user",
-        updatedAt: new Date().toISOString(),
-      }));
-      qc.setQueryData(SETTINGS_QUERY_KEY, (current) => upsertSettingPayload(current, {
-        id: "ui.onboarding.completed",
-        scope: "ui",
-        value: true,
-        source: "user",
-        updatedAt: new Date().toISOString(),
-      }));
+      await primeCompletedOnboardingSettings(qc, PROJECT_SETTING_ID, normalizedProjectName);
       await saveSetting("ui.onboarding.completed", true, "ui").catch(() => {});
       qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
       onComplete?.();
