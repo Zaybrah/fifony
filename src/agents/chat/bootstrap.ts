@@ -12,6 +12,7 @@ import { loadCliSession } from "./cli-session-store.ts";
 import { buildGlobalChatPrompt } from "./chat-prompt.ts";
 import { chatWithIssue } from "../planning/issue-chat.ts";
 import { detectAvailableProviders } from "../providers.ts";
+import { resolveProviderSecretEnvFromVariables } from "../provider-env.ts";
 
 const GLOBAL_CHAT_KEY = "chat-global";
 
@@ -62,6 +63,7 @@ export function bootstrapGlobalChat(state: RuntimeState, options: BootstrapOptio
           chatKey: GLOBAL_CHAT_KEY,
         },
         state.config,
+        resolveProviderSecretEnvFromVariables(state.variables),
       );
 
       logger.info(

@@ -14,6 +14,7 @@ import {
 } from "../agents/planning/issue-planner.ts";
 import { enhanceIssueField } from "../agents/planning/issue-enhancer.ts";
 import { chatWithIssue } from "../agents/planning/issue-chat.ts";
+import { resolveProviderSecretEnvFromVariables } from "../agents/provider-env.ts";
 
 export function registerPlanRoutes(
   app: RouteRegistrar,
@@ -43,7 +44,9 @@ export function registerPlanRoutes(
       const description = toStringValue(payload.description);
       if (!title) return c.json({ ok: false, error: "Title is required." }, 400);
       logger.info({ title: title.slice(0, 80) }, "[API] POST /api/planning/generate");
-      const result = await generatePlan(title, description, state.config, null);
+      const result = await generatePlan(title, description, state.config, null, {
+        secretEnv: resolveProviderSecretEnvFromVariables(state.variables),
+      });
       return c.json({ ok: true, plan: result.plan, usage: result.usage });
     } catch (error) {
       logger.error({ err: error }, `Plan generation failed: ${String(error)}`);
@@ -63,7 +66,9 @@ export function registerPlanRoutes(
       const title = toStringValue(payload.title);
       const description = toStringValue(payload.description);
       if (!title) return c.json({ ok: false, error: "Title is required." }, 400);
-      const result = await generatePlan(title, description, state.config, null);
+      const result = await generatePlan(title, description, state.config, null, {
+        secretEnv: resolveProviderSecretEnvFromVariables(state.variables),
+      });
       return c.json({ ok: true, plan: result.plan, usage: result.usage });
     } catch (error) {
       logger.error({ err: error }, `Plan generation failed: ${String(error)}`);
@@ -131,6 +136,7 @@ export function registerPlanRoutes(
         { field, title, description, issueType, images, provider },
         state.config,
         null,
+        resolveProviderSecretEnvFromVariables(state.variables),
       );
 
       return c.json({ ok: true, field: result.field, value: result.value, provider: result.provider });
@@ -176,6 +182,7 @@ export function registerPlanRoutes(
           history,
         },
         state.config,
+        resolveProviderSecretEnvFromVariables(state.variables),
       );
 
       return c.json({ ok: true, response: result.response, provider: result.provider });

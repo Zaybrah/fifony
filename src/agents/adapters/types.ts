@@ -10,7 +10,7 @@ export type CompiledExecution = {
   outputSchema: string;
   payload: ExecutionPayload | null;
   meta: {
-    adapter: "claude" | "codex" | "gemini" | "passthrough";
+    adapter: "claude" | "codex" | "gemini" | "pi" | "passthrough";
     reasoningEffort: string;
     model: string;
     providerCapabilities: ProviderCapabilities;

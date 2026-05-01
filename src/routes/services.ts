@@ -794,7 +794,8 @@ export function registerServiceRoutes(
       }
 
       const { analyzeLogForHealthcheck } = await import("../agents/planning/log-analyzer.ts");
-      const healthcheck = await analyzeLogForHealthcheck(logTail, entry.name, state.config);
+      const { resolveProviderSecretEnvFromVariables } = await import("../agents/provider-env.ts");
+      const healthcheck = await analyzeLogForHealthcheck(logTail, entry.name, state.config, resolveProviderSecretEnvFromVariables(state.variables));
 
       if (!healthcheck) {
         return c.json({ ok: true, found: false, healthcheck: null });
@@ -826,7 +827,8 @@ export function registerServiceRoutes(
       }
 
       const { analyzeLogForFix } = await import("../agents/planning/log-analyzer.ts");
-      const suggestion = await analyzeLogForFix(logTail, entry.name, state.config);
+      const { resolveProviderSecretEnvFromVariables } = await import("../agents/provider-env.ts");
+      const suggestion = await analyzeLogForFix(logTail, entry.name, state.config, resolveProviderSecretEnvFromVariables(state.variables));
 
       if (!suggestion) {
         return c.json({ ok: false, error: "Could not parse AI response." }, 422);
@@ -856,7 +858,8 @@ export function registerServiceRoutes(
       }
 
       const { analyzeLogForInsights } = await import("../agents/planning/log-analyzer.ts");
-      const insights = await analyzeLogForInsights(logTail, entry.name, state.config);
+      const { resolveProviderSecretEnvFromVariables } = await import("../agents/provider-env.ts");
+      const insights = await analyzeLogForInsights(logTail, entry.name, state.config, resolveProviderSecretEnvFromVariables(state.variables));
 
       if (!insights) {
         return c.json({ ok: false, error: "Could not parse AI response." }, 422);

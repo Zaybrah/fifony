@@ -30,6 +30,10 @@ describe("normalizeAgentProvider", () => {
     assert.equal(normalizeAgentProvider("codex"), "codex");
   });
 
+  it("returns 'pi' for 'pi'", () => {
+    assert.equal(normalizeAgentProvider("pi"), "pi");
+  });
+
   it("normalizes to lowercase", () => {
     assert.equal(normalizeAgentProvider("Claude"), "claude");
     assert.equal(normalizeAgentProvider("CODEX"), "codex");
@@ -154,6 +158,13 @@ describe("getProviderDefaultCommand", () => {
     assert.ok(cmd.includes("--output-format json"), "has json output");
   });
 
+  it("generates a valid pi command", () => {
+    const cmd = getProviderDefaultCommand("pi");
+    assert.ok(cmd.startsWith("pi -p \"\""), "pi command");
+    assert.ok(cmd.includes("--no-session"), "has no-session");
+    assert.ok(cmd.includes("--no-context-files"), "has no-context-files");
+  });
+
   it("returns empty string for unknown provider", () => {
     assert.equal(getProviderDefaultCommand("gpt"), "");
   });
@@ -202,6 +213,13 @@ describe("provider capability routing", () => {
     const capabilities = resolveProviderCapabilities("codex");
     assert.equal(capabilities.structuredOutput.mode, "prompt-contract");
     assert.equal(capabilities.imageInput, "cli-flag");
+    assert.equal(capabilities.nativeSubagents, "runtime-only");
+  });
+
+  it("declares read-only tool allowlist mode for pi", () => {
+    const capabilities = resolveProviderCapabilities("pi");
+    assert.equal(capabilities.readOnlyExecution, "tool-allowlist");
+    assert.equal(capabilities.structuredOutput.mode, "prompt-contract");
     assert.equal(capabilities.nativeSubagents, "runtime-only");
   });
 

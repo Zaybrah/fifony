@@ -1,5 +1,5 @@
 /**
- * All operations × 3 CLIs combinations.
+ * All operations × 4 CLIs combinations.
  *
  * Tests the full adapter pipeline for each operation:
  *   plan     → plan command flags differ from execution (noToolAccess, readOnly, json-schema)
@@ -33,7 +33,7 @@ import type {
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 const WORKSPACE = "/tmp/test-workspace";
-const PROVIDERS = ["claude", "codex", "gemini"] as const;
+const PROVIDERS = ["claude", "codex", "gemini", "pi"] as const;
 
 const BASE_CONFIG: RuntimeConfig = {
   pollIntervalMs: 5000,
@@ -173,15 +173,24 @@ describe("operation: plan — command per CLI", () => {
     assert.ok(cmd.includes("--output-format json"), "JSON output enabled");
   });
 
+  it("pi: uses read-only tool allowlist and prompt-contract output", () => {
+    const cmd = getPlanCommand("pi", "openai/gpt-5.1");
+    assert.ok(cmd.includes("pi -p \"\""), "starts with pi print mode");
+    assert.ok(!cmd.includes("--json-schema"), "pi uses prompt contract instead of native schema");
+    assert.ok(cmd.includes("--tools read,grep,find,ls"), "uses safe read-only tool list");
+  });
+
   it("plan command with images: codex passes --image, others do not", () => {
     const images = ["/tmp/screenshot.png"];
     const claudeCmd = getPlanCommand("claude", undefined, images);
     const codexCmd = getPlanCommand("codex", undefined, images);
     const geminiCmd = getPlanCommand("gemini", undefined, images);
+    const piCmd = getPlanCommand("pi", undefined, images);
 
     assert.ok(!claudeCmd.includes("--image"), "claude has no --image flag");
     assert.ok(codexCmd.includes("--image"), "codex passes --image");
     assert.ok(!geminiCmd.includes("--image"), "gemini has no --image flag");
+    assert.ok(!piCmd.includes("--image"), "pi has no --image flag");
   });
 
   it("returns empty string for unknown provider", () => {

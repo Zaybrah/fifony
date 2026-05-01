@@ -61,6 +61,7 @@ import { needsContractNegotiationWork } from "../../domains/contract-negotiation
 import { runContractNegotiation } from "../../agents/contract-negotiation.ts";
 import { recordPolicyDecision } from "../../domains/policy-decisions.ts";
 import { recordWorkspaceMemoryEvent } from "../../agents/memory-engine.ts";
+import { resolveProviderSecretEnvFromVariables } from "../../agents/provider-env.ts";
 import {
   attachNodeArtifacts,
   BLUEPRINT_EXECUTION_NODE_IDS,
@@ -557,7 +558,7 @@ export async function runPlanPhase(
       issue.description,
       state.config,
       null,
-      { fast, persistSession: false, failureContext },
+      { fast, persistSession: false, failureContext, secretEnv: resolveProviderSecretEnvFromVariables(state.variables) },
     );
 
     const plannedIssue: IssueEntry = {

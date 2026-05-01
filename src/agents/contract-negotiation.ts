@@ -31,6 +31,7 @@ import { requiresContractNegotiation } from "../domains/contract-negotiation.ts"
 import { recordPolicyDecision } from "../domains/policy-decisions.ts";
 import { savePlanForIssue } from "../persistence/store.ts";
 import { recordWorkspaceMemoryEvent } from "./memory-engine.ts";
+import { resolveProviderSecretEnvFromVariables } from "./provider-env.ts";
 
 export type ContractNegotiationResult = {
   status: ContractNegotiationStatus;
@@ -238,7 +239,9 @@ async function applyRefinedPlan(
   feedback: string,
   round: number,
 ): Promise<void> {
-  const { plan, usage } = await refinePlan(issue, feedback, state.config, null);
+  const { plan, usage } = await refinePlan(issue, feedback, state.config, null, {
+    secretEnv: resolveProviderSecretEnvFromVariables(state.variables),
+  });
   issue.plan = plan;
   issue.updatedAt = now();
   const harnessRecommendation = state.config.adaptiveHarnessSelection === false

@@ -547,60 +547,48 @@ export function buildDefaultWorkflowConfig(
   discoveredModels?: Record<string, DiscoveredModel[]>,
 ): WorkflowConfig {
   const available = detectedProviders.filter((p) => p.available);
-  const hasClaude = available.some((p) => p.name === "claude");
-  const hasCodex = available.some((p) => p.name === "codex");
+  const availableNames = new Set(available.map((p) => p.name));
 
   // Pick the first discovered model per provider (discoverModels promotes the user's configured CLI default to [0])
   const claudeModel = discoveredModels?.claude?.[0]?.id || "";
   const codexModel = discoveredModels?.codex?.[0]?.id || "";
+  const geminiModel = discoveredModels?.gemini?.[0]?.id || "";
+  const piModel = discoveredModels?.pi?.[0]?.id || "";
 
   // Use the effort the user already configured in ~/.codex/config.toml as the execute default
   const codexEffort = (readCodexConfig().reasoningEffort as ReasoningEffort | undefined) || "medium";
 
   const claudeDefault: PipelineStageConfig = { provider: "claude", model: claudeModel, effort: "medium" };
   const codexDefault: PipelineStageConfig = { provider: "codex", model: codexModel, effort: codexEffort };
+  const geminiDefault: PipelineStageConfig = { provider: "gemini", model: geminiModel, effort: "medium" };
+  const piDefault: PipelineStageConfig = { provider: "pi", model: piModel, effort: "medium" };
+
+  const pickPlanStage = (): PipelineStageConfig => {
+    if (availableNames.has("claude")) return { ...claudeDefault, effort: "high" };
+    if (availableNames.has("pi")) return { ...piDefault, effort: "high" };
+    if (availableNames.has("gemini")) return { ...geminiDefault, effort: "high" };
+    if (availableNames.has("codex")) return { ...codexDefault, effort: "high" };
+    return { ...claudeDefault, effort: "high" };
+  };
+
+  const pickExecuteStage = (): PipelineStageConfig => {
+    if (availableNames.has("codex")) return { ...codexDefault };
+    if (availableNames.has("pi")) return { ...piDefault };
+    if (availableNames.has("claude")) return { ...claudeDefault };
+    if (availableNames.has("gemini")) return { ...geminiDefault };
+    return { ...codexDefault };
+  };
 
   // Default: claude for plan+review (better reasoning), codex for execute (better code)
-  if (hasClaude && hasCodex) {
-    const planConfig = { ...claudeDefault, effort: "high" as ReasoningEffort };
-    return {
-      enhance: { ...planConfig },
-      chat: { ...planConfig, effort: "medium" as ReasoningEffort },
-      plan: planConfig,
-      execute: { ...codexDefault },
-      review: { ...claudeDefault },
-      services: { ...planConfig, effort: "medium" as ReasoningEffort },
-    };
-  }
-  if (hasClaude) {
-    const planConfig = { ...claudeDefault, effort: "high" as ReasoningEffort };
-    return {
-      enhance: { ...planConfig },
-      chat: { ...planConfig, effort: "medium" as ReasoningEffort },
-      plan: planConfig,
-      execute: claudeDefault,
-      review: claudeDefault,
-      services: { ...planConfig, effort: "medium" as ReasoningEffort },
-    };
-  }
-  if (hasCodex) {
-    const planConfig = { ...codexDefault, effort: "high" as ReasoningEffort };
-    return {
-      enhance: { ...planConfig },
-      chat: { ...planConfig, effort: "medium" as ReasoningEffort },
-      plan: planConfig,
-      execute: codexDefault,
-      review: codexDefault,
-      services: { ...planConfig, effort: "medium" as ReasoningEffort },
-    };
-  }
-  const planConfig = { ...claudeDefault };
+  const planConfig = pickPlanStage();
+  const executeConfig = pickExecuteStage();
+  const reviewConfig = { ...planConfig, effort: "medium" as ReasoningEffort };
   return {
     enhance: { ...planConfig },
     chat: { ...planConfig, effort: "medium" as ReasoningEffort },
     plan: planConfig,
-    execute: codexDefault,
-    review: claudeDefault,
+    execute: executeConfig,
+    review: reviewConfig,
     services: { ...planConfig, effort: "medium" as ReasoningEffort },
   };
 }

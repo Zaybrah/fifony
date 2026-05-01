@@ -15,6 +15,7 @@ import { buildGlobalChatPrompt } from "../agents/chat/chat-prompt.ts";
 import { parseActionsFromResponse } from "../agents/chat/action-parser.ts";
 import { executeChatAction } from "../agents/chat/action-executor.ts";
 import { chatWithIssue } from "../agents/planning/issue-chat.ts";
+import { resolveProviderSecretEnvFromVariables } from "../agents/provider-env.ts";
 
 export function registerChatRoutes(
   app: RouteRegistrar,
@@ -123,6 +124,7 @@ export function registerChatRoutes(
           chatKey,
         },
         state.config,
+        resolveProviderSecretEnvFromVariables(state.variables),
       );
 
       const actions = parseActionsFromResponse(result.response);

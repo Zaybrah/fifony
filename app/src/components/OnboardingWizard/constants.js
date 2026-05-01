@@ -38,6 +38,7 @@ export const PROVIDER_EFFORT_SUPPORT = {
   codex: EFFORT_OPTIONS,
   claude: EFFORT_OPTIONS,
   gemini: EFFORT_OPTIONS.filter((option) => option.value !== "extra-high"),
+  pi: EFFORT_OPTIONS,
 };
 
 export function getEffortOptionsForRole(role, pipeline) {

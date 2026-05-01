@@ -174,14 +174,11 @@ function PipelineSettings() {
       setProviders(freshProviders);
       setModelsByProvider(freshModels);
       const available = freshProviders.filter((p) => p.available);
-      const hasClaude = available.some((p) => p.name === "claude");
-      const hasCodex = available.some((p) => p.name === "codex");
-      const claudeModel = freshModels.claude?.[0]?.id || "";
-      const codexModel = freshModels.codex?.[0]?.id || "";
-      const planProvider = hasClaude ? "claude" : "codex";
-      const planModel    = hasClaude ? claudeModel : codexModel;
-      const execProvider = hasCodex  ? "codex"  : "claude";
-      const execModel    = hasCodex  ? codexModel  : claudeModel;
+      const pickProvider = (preferred) => preferred.find((name) => available.some((p) => p.name === name)) || "";
+      const planProvider = pickProvider(["claude", "pi", "gemini", "codex"]);
+      const execProvider = pickProvider(["codex", "pi", "claude", "gemini"]);
+      const planModel = freshModels[planProvider]?.[0]?.id || "";
+      const execModel = freshModels[execProvider]?.[0]?.id || "";
       const defaults = {
         enhance:  { provider: planProvider, model: planModel, effort: "medium" },
         chat:     { provider: planProvider, model: planModel, effort: "medium" },

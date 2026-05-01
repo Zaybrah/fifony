@@ -185,12 +185,9 @@ export default function OnboardingWizard({ onComplete }) {
 
         // Auto-select first available + set default pipeline
         const available = list.filter((p) => p.available !== false);
-        const firstName = available[0]?.id || available[0]?.name || "";
-
-        // Default pipeline: claude plans + reviews + ancillary, first available executes
-        const claudeAvailable = available.find((p) => (p.id || p.name) === "claude");
-        const defaultCli = firstName;
-        const planReviewCli = claudeAvailable ? "claude" : defaultCli;
+        const pickProvider = (preferred) => preferred.find((name) => available.some((p) => (p.id || p.name) === name)) || "";
+        const defaultCli = pickProvider(["codex", "pi", "claude", "gemini"]);
+        const planReviewCli = pickProvider(["claude", "pi", "gemini", "codex"]) || defaultCli;
         const newPipeline = {
           enhancer: planReviewCli,
           chatter: planReviewCli,

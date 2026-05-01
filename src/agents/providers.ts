@@ -51,7 +51,7 @@ export function resolveAgentProfile(name: string): { profilePath: string; instru
 
 export function normalizeAgentProvider(value: string): string {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "claude" || normalized === "codex" || normalized === "gemini") return normalized;
+  if (normalized === "claude" || normalized === "codex" || normalized === "gemini" || normalized === "pi") return normalized;
   if (!normalized) return "codex";
   return normalized;
 }
@@ -135,7 +135,7 @@ export function detectAvailableProviders(): DetectedProvider[] {
 
   const providers: DetectedProvider[] = [];
 
-  for (const name of ["claude", "codex", "gemini"]) {
+  for (const name of ["claude", "codex", "gemini", "pi"]) {
     const capabilities = resolveProviderCapabilities(name);
     try {
       const path = execFileSync("which", [name], { encoding: "utf8", timeout: 5000 }).trim();
@@ -209,6 +209,7 @@ export function resolveDefaultProvider(detected: DetectedProvider[]): string {
   const available = detected.filter((p) => p.available);
   if (available.length === 0) return "";
   if (available.some((p) => p.name === "codex")) return "codex";
+  if (available.some((p) => p.name === "pi")) return "pi";
   return available[0].name;
 }
 

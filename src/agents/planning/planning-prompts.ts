@@ -245,11 +245,12 @@ export async function runPlanningProcess(options: {
   promptFile: string;
   provider: string;
   extraEnv?: Record<string, string>;
+  secretEnv?: Record<string, string>;
   onPid?: (pid: number) => void;
   onChunk?: (bytes: number) => void;
   dockerConfig?: { enabled: boolean; image: string };
 }): Promise<string> {
-  const { command, tempDir, promptFile, provider, extraEnv = {}, onPid, onChunk, dockerConfig } = options;
+  const { command, tempDir, promptFile, provider, extraEnv = {}, secretEnv = {}, onPid, onChunk, dockerConfig } = options;
   const useDocker = dockerConfig?.enabled === true && !!dockerConfig.image;
 
   let effectiveCommand: string;
@@ -268,11 +269,11 @@ export async function runPlanningProcess(options: {
       .map(([k, v]) => `export ${k}='${String(v).replace(/'/g, "'\\''")}'`)
       .join("\n");
     writeFileSync(join(tempDir, ".env.sh"), envLines, "utf8");
-    effectiveCommand = buildDockerPlanCommand(command, tempDir, dockerConfig.image);
-    spawnEnv = undefined; // vars are in .env.sh inside the container
+    effectiveCommand = buildDockerPlanCommand(command, tempDir, dockerConfig.image, Object.keys(secretEnv));
+    spawnEnv = { ...process.env, ...secretEnv }; // secret vars are passed through docker -e flags
   } else {
     effectiveCommand = command;
-    spawnEnv = { ...process.env, FIFONY_PROMPT_FILE: promptFile, FIFONY_AGENT_PROVIDER: provider, ...extraEnv };
+    spawnEnv = { ...process.env, ...secretEnv, FIFONY_PROMPT_FILE: promptFile, FIFONY_AGENT_PROVIDER: provider, ...extraEnv };
   }
 
   return new Promise<string>((resolve, reject) => {

@@ -163,6 +163,7 @@ async function runProviderCommand(
   field: EnhancementField,
   timeoutMs: number,
   images?: string[],
+  secretEnv: Record<string, string> = {},
 ): Promise<string> {
   const tempDir = mkdtempSync(join(tmpdir(), "fifony-enhance-"));
   const promptFile = join(tempDir, "fifony-enhance-prompt.md");
@@ -175,6 +176,7 @@ async function runProviderCommand(
 
   const spawnEnv = {
     ...env,
+    ...secretEnv,
     FIFONY_ISSUE_TITLE: title,
     FIFONY_ISSUE_DESCRIPTION: description,
     FIFONY_ENHANCE_FIELD: field,
@@ -249,6 +251,7 @@ export async function enhanceIssueField(
   payload: EnhanceIssuePayload,
   config: RuntimeConfig,
   _workflowDefinition: null,
+  secretEnv: Record<string, string> = {},
 ): Promise<EnhanceResult> {
   const field: EnhancementField = payload.field === "description" ? "description" : "title";
   const title = typeof payload.title === "string" ? payload.title.trim() : "";
@@ -306,6 +309,7 @@ export async function enhanceIssueField(
     field,
     config.commandTimeoutMs,
     images,
+    secretEnv,
   );
   logger.info({ provider: selectedProvider, model: selectedModel, field, rawOutput: output.slice(0, 2000) }, "Enhance raw output");
   const value = parseEnhancerOutput(output, field);

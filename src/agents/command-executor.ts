@@ -105,6 +105,7 @@ export async function runCommandWithTimeout(
   promptFile: string,
   extraEnv: Record<string, string> = {},
   outputFile?: string,
+  secretEnv: Record<string, string> = {},
 ): Promise<{ success: boolean; code: number | null; output: string }> {
   const started = Date.now();
   const resultFile = extraEnv.FIFONY_RESULT_FILE;
@@ -143,6 +144,7 @@ export async function runCommandWithTimeout(
   writeFileSync(envFilePath, envFileLines, "utf8");
 
   let effectiveCommand: string;
+  const childEnv = { ...process.env, ...secretEnv } as Record<string, string>;
   if (config.dockerExecution && config.dockerImage) {
     const translatedCmd = translatePaths(command, workspacePath);
     effectiveCommand = buildDockerRunCommand(
@@ -151,6 +153,7 @@ export async function runCommandWithTimeout(
       issue.worktreePath,
       TARGET_ROOT,
       config.dockerImage,
+      Object.keys(secretEnv),
     );
   } else if (config.sandboxExecution) {
     await ensureAiJail();
@@ -206,6 +209,7 @@ export async function runCommandWithTimeout(
       detached: true,
       stdio: "ignore",
       cwd: effectiveCwd,
+      env: childEnv,
     });
     daemonProcess.unref();
 
@@ -242,7 +246,7 @@ export async function runCommandWithTimeout(
           cols: 220,
           rows: 50,
           cwd: ptyEffectiveCwd,
-          env: process.env as Record<string, string>,
+          env: childEnv,
         });
 
         const pid = ptyProcess.pid;
@@ -352,6 +356,7 @@ export async function runCommandWithTimeout(
       cwd: workspacePath,
       detached: !config.dockerExecution, // Docker containers don't need detached mode
       stdio: ["pipe", "pipe", "pipe"],
+      env: childEnv,
     });
 
     // Detach from parent so child survives SIGINT/restart (not needed in Docker mode)

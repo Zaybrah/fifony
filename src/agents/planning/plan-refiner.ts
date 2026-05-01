@@ -31,6 +31,7 @@ export async function refinePlan(
   feedback: string,
   config: RuntimeConfig,
   _workflowDefinition: null,
+  options?: { secretEnv?: Record<string, string> },
 ): Promise<RefinePlanResult> {
   if (!issue.plan) throw new Error("Issue has no plan to refine.");
 
@@ -67,6 +68,7 @@ export async function refinePlan(
       tempDir,
       promptFile,
       provider: preferred,
+      secretEnv: options?.secretEnv,
     }).finally(() => {
       rmSync(tempDir, { recursive: true, force: true });
     });

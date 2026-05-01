@@ -16,6 +16,7 @@ import {
 } from "../src/agents/adapters/commands.ts";
 import { buildClaudeCommand } from "../src/agents/adapters/claude.ts";
 import { buildCodexCommand } from "../src/agents/adapters/codex.ts";
+import { buildPiCommand } from "../src/agents/adapters/pi.ts";
 import {
   getProviderDefaultCommand,
   resolveAgentCommand,
@@ -172,6 +173,39 @@ describe("buildCodexCommand", () => {
   });
 });
 
+describe("buildPiCommand", () => {
+  it("produces the base skeleton", () => {
+    const cmd = buildPiCommand({});
+    assert.equal(
+      cmd,
+      'pi -p "" --no-session --no-context-files < "$FIFONY_PROMPT_FILE"',
+      "base pi command must match exactly",
+    );
+  });
+
+  it("includes model and thinking when provided", () => {
+    const cmd = buildPiCommand({ model: "openai/gpt-5.1", effort: "high" });
+    assert.ok(cmd.includes("--model openai/gpt-5.1"), "has model");
+    assert.ok(cmd.includes("--thinking high"), "has thinking");
+  });
+
+  it("maps extra-high effort to xhigh", () => {
+    const cmd = buildPiCommand({ effort: "extra-high" });
+    assert.ok(cmd.includes("--thinking xhigh"), "maps extra-high to xhigh");
+  });
+
+  it("uses read-only tool allowlist for readOnly mode", () => {
+    const cmd = buildPiCommand({ readOnly: true });
+    assert.ok(cmd.includes("--tools read,grep,find,ls"), "uses safe read-only tool list");
+    assert.ok(!cmd.includes("--no-tools"), "does not disable all tools in read-only mode");
+  });
+
+  it("disables all tools when noToolAccess is requested", () => {
+    const cmd = buildPiCommand({ noToolAccess: true });
+    assert.ok(cmd.includes("--no-tools"), "disables all tools");
+  });
+});
+
 // ── extractPlanDirs ───────────────────────────────────────────────────────────
 
 describe("extractPlanDirs", () => {
@@ -248,6 +282,12 @@ describe("getProviderDefaultCommand", () => {
     const cmd = getProviderDefaultCommand("claude");
     assert.ok(cmd.startsWith("claude "), "starts with claude");
     assert.ok(cmd.includes("--print"), "has --print");
+  });
+
+  it("returns pi command for pi provider", () => {
+    const cmd = getProviderDefaultCommand("pi");
+    assert.ok(cmd.startsWith("pi -p \"\""), "starts with pi print mode");
+    assert.ok(cmd.includes("--no-session"), "has no-session");
   });
 
   it("returns empty string for unknown provider", () => {

@@ -52,11 +52,13 @@ export type ProviderAdapter = {
 import { claudeAdapter } from "./claude.ts";
 import { codexAdapter } from "./codex.ts";
 import { geminiAdapter } from "./gemini.ts";
+import { piAdapter } from "./pi.ts";
 
 export const ADAPTERS: Record<string, ProviderAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
   gemini: geminiAdapter,
+  pi: piAdapter,
 };
 
 const UNSUPPORTED_CAPABILITIES: ProviderCapabilities = {

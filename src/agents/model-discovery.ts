@@ -116,6 +116,64 @@ export async function fetchAnthropicModels(): Promise<DiscoveredModel[]> {
   ];
 }
 
+export async function fetchPiModels(): Promise<DiscoveredModel[]> {
+  try {
+    execFileSync("which", ["pi"], { encoding: "utf8", timeout: 3000 });
+  } catch {
+    return [];
+  }
+
+  try {
+    const output = execFileSync("pi", ["--list-models"], {
+      encoding: "utf8",
+      timeout: 5000,
+      env: {
+        ...process.env,
+        PI_SKIP_VERSION_CHECK: "1",
+      },
+    }).trim();
+
+    if (!output) return [];
+
+    const models = new Map<string, DiscoveredModel>();
+    const lines = output.split(/\r?\n/);
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (/^available models:?$/i.test(line)) continue;
+      if (/^provider\s+/i.test(line)) continue;
+      if (/^id\s+/i.test(line)) continue;
+      if (/^name\s+/i.test(line)) continue;
+
+      const withoutBullet = line.replace(/^[-*]\s+/, "");
+      const idMatch = withoutBullet.match(/^([a-z0-9][a-z0-9._/-]*)(?:\s+[(-].*)?$/i);
+      const modelId = idMatch?.[1];
+      if (!modelId) continue;
+      if (modelId === "model" || modelId === "provider") continue;
+
+      const lower = withoutBullet.toLowerCase();
+      const tier = lower.includes("preview")
+        ? "Preview"
+        : lower.includes("fast")
+          ? "Fast"
+          : lower.includes("reason") || lower.includes("capable")
+            ? "Reasoning"
+            : "Available";
+
+      models.set(modelId, {
+        id: modelId,
+        provider: "pi",
+        label: modelId,
+        tier,
+      });
+    }
+
+    return [...models.values()];
+  } catch {
+    return [];
+  }
+}
+
 export async function discoverModels(providers: DetectedProvider[]): Promise<Record<string, DiscoveredModel[]>> {
   const result: Record<string, DiscoveredModel[]> = {};
 
@@ -131,6 +189,7 @@ export async function discoverModels(providers: DetectedProvider[]): Promise<Rec
     if (p.name === "codex") tasks.push({ name: "codex", fetch: fetchCodexModels });
     if (p.name === "claude") tasks.push({ name: "claude", fetch: fetchAnthropicModels });
     if (p.name === "gemini") tasks.push({ name: "gemini", fetch: fetchGeminiModels });
+    if (p.name === "pi") tasks.push({ name: "pi", fetch: fetchPiModels });
   }
 
   const settled = await Promise.allSettled(tasks.map((t) => t.fetch()));
@@ -173,6 +232,18 @@ export async function discoverModels(providers: DetectedProvider[]): Promise<Rec
         const previewIdx = models.findIndex((m) => m.tier === "Preview");
         if (previewIdx > 0) {
           models = [models[previewIdx], ...models.slice(0, previewIdx), ...models.slice(previewIdx + 1)];
+        }
+      }
+    }
+
+    if (tasks[i].name === "pi") {
+      const configuredModel = process.env.PI_MODEL?.trim() || "";
+      if (configuredModel) {
+        const idx = models.findIndex((m) => m.id === configuredModel);
+        if (idx > 0) {
+          models = [models[idx], ...models.slice(0, idx), ...models.slice(idx + 1)];
+        } else if (idx === -1) {
+          models = [{ id: configuredModel, provider: "pi", label: configuredModel, tier: "Configured default" }, ...models];
         }
       }
     }

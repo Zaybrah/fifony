@@ -31,6 +31,7 @@ import { getWorkflowConfig, loadRuntimeSettings } from "../persistence/settings.
 import { getContainer } from "../persistence/container.ts";
 import { transitionIssueCommand } from "../commands/transition-issue.command.ts";
 import { requestReworkCommand } from "../commands/request-rework.command.ts";
+import { resolveProviderSecretEnvFromVariables } from "./provider-env.ts";
 
 const TIMEOUT_MARKERS = [
   "execution timeout after",
@@ -96,7 +97,7 @@ export async function runPlanningJob(
       issue.description,
       state.config,
       null,
-      { fast, persistSession: false },
+      { fast, persistSession: false, secretEnv: resolveProviderSecretEnvFromVariables(state.variables) },
     );
 
     issue.plan = plan;

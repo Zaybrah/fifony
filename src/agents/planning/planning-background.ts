@@ -19,6 +19,7 @@ import { recordPolicyDecision } from "../../domains/policy-decisions.ts";
 import { runContractNegotiation } from "../contract-negotiation.ts";
 import { generatePlan } from "./plan-generator.ts";
 import { refinePlan } from "./plan-refiner.ts";
+import { resolveProviderSecretEnvFromVariables } from "../provider-env.ts";
 
 function resolvePlanningWorkspace(issue: IssueEntry): string {
   return join(WORKSPACE_ROOT, idToSafePath(issue.id));
@@ -194,7 +195,10 @@ export function generatePlanInBackground(
 
   addEvent(state, issue.id, "info", `${fast ? "Fast plan" : "Plan"} generation starting for ${issue.identifier} (provider detection in progress).`);
 
-  generatePlan(issue.title, issue.description, state.config, null, { fast })
+  generatePlan(issue.title, issue.description, state.config, null, {
+    fast,
+    secretEnv: resolveProviderSecretEnvFromVariables(state.variables),
+  })
     .then(async ({ plan, usage, prompt }) => {
       await finalizePlanUpdate(state, issue, plan, usage, {
         prompt,
@@ -234,7 +238,9 @@ export function refinePlanInBackground(
   const feedbackSnippet = feedback.length > 60 ? `${feedback.slice(0, 57)}...` : feedback;
   addEvent(state, issue.id, "info", `Plan refinement starting for ${issue.identifier}: "${feedbackSnippet}".`);
 
-  refinePlan(issue, feedback, state.config, null)
+  refinePlan(issue, feedback, state.config, null, {
+    secretEnv: resolveProviderSecretEnvFromVariables(state.variables),
+  })
     .then(async ({ plan, usage }) => {
       await finalizePlanUpdate(state, issue, plan, usage, {
         activityLabel: "Refinement",

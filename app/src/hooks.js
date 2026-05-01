@@ -218,7 +218,7 @@ export function useParallelism({ pollInterval = 15000 } = {}) {
   });
 }
 
-const PROVIDER_USAGE_PROVIDERS = ["claude", "codex", "gemini"];
+const PROVIDER_USAGE_PROVIDERS = ["claude", "codex", "gemini", "pi"];
 
 function normalizeProvidersUsageResponse(payload) {
   if (!payload || typeof payload !== "object") return null;

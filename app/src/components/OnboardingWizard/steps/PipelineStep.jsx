@@ -114,7 +114,7 @@ function PipelineStep({
         </div>
       ) : availableProviders.length === 0 ? (
         <div className="alert alert-warning text-sm">
-          No providers detected. Install claude, codex, or gemini CLI first.
+          No providers detected. Install claude, codex, gemini, or pi CLI first.
         </div>
       ) : (
         <>

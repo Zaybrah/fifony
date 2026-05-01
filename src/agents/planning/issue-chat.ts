@@ -43,6 +43,7 @@ async function runOneShot(
   provider: string,
   prompt: string,
   timeoutMs: number,
+  secretEnv: Record<string, string> = {},
 ): Promise<string> {
   const tempDir = mkdtempSync(join(tmpdir(), "fifony-chat-"));
   const promptFile = join(tempDir, "prompt.md");
@@ -51,6 +52,7 @@ async function runOneShot(
 
   const spawnEnv = {
     ...env,
+    ...secretEnv,
     FIFONY_PROMPT_FILE: promptFile,
     FIFONY_PROMPT: prompt,
     FIFONY_AGENT_PROVIDER: provider,
@@ -232,6 +234,7 @@ export async function chatWithIssue(
     chatKey?: string;
   },
   config: RuntimeConfig,
+  secretEnv: Record<string, string> = {},
 ): Promise<{ response: string; provider: string; sessionId?: string }> {
   const { provider: selectedProvider, model: configuredModel, effort: configuredEffort } =
     await resolveChatStageConfig(config);
@@ -282,7 +285,7 @@ export async function chatWithIssue(
     "[Chat] Running chat command",
   );
 
-  const raw = await runOneShot(command, selectedProvider, prompt, timeoutMs);
+  const raw = await runOneShot(command, selectedProvider, prompt, timeoutMs, secretEnv);
 
   // Capture the session id BEFORE stripping CLI chrome — codex prints it in
   // the metadata block that the chrome stripper removes.

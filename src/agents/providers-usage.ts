@@ -64,7 +64,7 @@ interface ProvidersUsageResult {
   collectedAt: string;
 }
 
-const PROVIDER_USAGE_ORDER = ["claude", "codex", "gemini"] as const;
+const PROVIDER_USAGE_ORDER = ["claude", "codex", "gemini", "pi"] as const;
 
 type ProviderUsageName = (typeof PROVIDER_USAGE_ORDER)[number];
 
@@ -1041,6 +1041,42 @@ async function collectGeminiUsage(): Promise<ProviderUsage | null> {
   };
 }
 
+async function collectPiUsage(): Promise<ProviderUsage | null> {
+  const available = await whichExists("pi");
+  if (!available) return null;
+
+  let version: string | null = null;
+  try {
+    const { stdout } = await execFileAsync("pi", ["--version"], { encoding: "utf8", timeout: 5000 });
+    const match = stdout.trim().match(/([0-9]+(?:\.[0-9]+)+)/);
+    version = match?.[1] ?? (stdout.trim() || null);
+  } catch {
+    version = null;
+  }
+
+  return {
+    name: "pi",
+    available: true,
+    models: [],
+    currentModel: "",
+    usage: {
+      today: makePeriod(0, 0, 0, ""),
+      thisWeek: makePeriod(0, 0, 0, ""),
+      last5Hours: makePeriod(0, 0, 0, ""),
+      allTime: makePeriod(0, 0, 0, ""),
+    },
+    resetInfo: "Session and account usage are managed by Pi's configured upstream provider.",
+    nextResetAt: "",
+    weeklyLimitEstimate: null,
+    percentUsed: null,
+    version,
+    plan: null,
+    account: null,
+    effort: null,
+    rateLimits: [],
+  };
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 let usageCache: ProvidersUsageResult | null = null;
@@ -1056,6 +1092,7 @@ export async function collectProvidersUsage(): Promise<ProvidersUsageResult> {
     collectClaudeUsage(),
     collectCodexUsage(),
     collectGeminiUsage(),
+    collectPiUsage(),
   ]);
 
   usageCache = {
@@ -1072,5 +1109,6 @@ export async function collectProviderUsage(providerName: string): Promise<Provid
 
   if (normalized === "claude") return collectClaudeUsage();
   if (normalized === "codex") return collectCodexUsage();
-  return collectGeminiUsage();
+  if (normalized === "gemini") return collectGeminiUsage();
+  return collectPiUsage();
 }

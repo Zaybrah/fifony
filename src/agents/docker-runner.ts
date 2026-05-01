@@ -36,6 +36,7 @@ export function buildDockerRunCommand(
   worktreePath: string | undefined,
   targetRoot: string,
   image: string,
+  secretEnvKeys: string[] = [],
 ): string {
   const home = homedir();
   const ui = userInfo();
@@ -46,6 +47,7 @@ export function buildDockerRunCommand(
     `-v "${targetRoot}/.git:${targetRoot}/.git:z"`,
     ...authMounts(home),
   ];
+  const envFlags = secretEnvKeys.map((key) => `-e ${key}`);
 
   const escapedInner = innerCommand.replace(/'/g, "'\\''");
 
@@ -55,6 +57,7 @@ export function buildDockerRunCommand(
     "--network host",
     "--cap-drop ALL",
     "--security-opt no-new-privileges",
+    ...envFlags,
     ...mounts,
     `-w "${cwd}"`,
     image,
@@ -73,6 +76,7 @@ export function buildDockerPlanCommand(
   innerCommand: string,
   tempDir: string,
   image: string,
+  secretEnvKeys: string[] = [],
 ): string {
   const home = homedir();
   const ui = userInfo();
@@ -85,6 +89,7 @@ export function buildDockerPlanCommand(
     `-v "${tempDir}:${CONTAINER_PLANNING}:z"`,
     ...authMounts(home),
   ];
+  const envFlags = secretEnvKeys.map((key) => `-e ${key}`);
 
   return [
     "docker run --rm --init",
@@ -92,6 +97,7 @@ export function buildDockerPlanCommand(
     "--network host",
     "--cap-drop ALL",
     "--security-opt no-new-privileges",
+    ...envFlags,
     ...mounts,
     `-w "${CONTAINER_PLANNING}"`,
     image,

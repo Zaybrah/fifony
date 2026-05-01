@@ -223,8 +223,8 @@ function ProviderCard({ provider }) {
     rateLimits,
   } = provider;
 
-  const displayName = name === "claude" ? "Claude Code" : name === "codex" ? "Codex CLI" : name;
-  const brandColor = name === "claude" ? "text-warning" : "text-info";
+  const displayName = name === "claude" ? "Claude Code" : name === "codex" ? "Codex CLI" : name === "pi" ? "Pi" : name;
+  const brandColor = name === "claude" ? "text-warning" : name === "pi" ? "text-secondary" : "text-info";
   const last5hUsage = usage.last5Hours ?? usage.today;
 
   return (

@@ -137,6 +137,7 @@ async function runOneShot(
   provider: string,
   prompt: string,
   timeoutMs: number,
+  secretEnv: Record<string, string> = {},
 ): Promise<string> {
   const tempDir = mkdtempSync(join(tmpdir(), "fifony-log-analyze-"));
   const promptFile = join(tempDir, "prompt.md");
@@ -145,6 +146,7 @@ async function runOneShot(
 
   const spawnEnv = {
     ...env,
+    ...secretEnv,
     FIFONY_PROMPT_FILE: promptFile,
     FIFONY_PROMPT: prompt,
     FIFONY_AGENT_PROVIDER: provider,
@@ -280,6 +282,7 @@ export async function analyzeLogForHealthcheck(
   logTail: string,
   serviceName: string,
   config: RuntimeConfig,
+  secretEnv: Record<string, string> = {},
 ): Promise<ServiceHealthcheck | null> {
   const { provider, model, adapter } = await resolveProvider(config);
   const caps = resolveProviderCapabilities(provider);
@@ -294,7 +297,7 @@ export async function analyzeLogForHealthcheck(
 
   logger.debug({ provider, serviceName }, "[LogAnalyzer] Detecting healthcheck config from log");
 
-  const raw = await runOneShot(command, provider, prompt, timeoutMs);
+  const raw = await runOneShot(command, provider, prompt, timeoutMs, secretEnv);
   const result = extractJsonFromOutput<{ host: string; port: number; protocol: string }>(raw);
 
   if (!result?.port || result.port <= 0) {
@@ -329,6 +332,7 @@ export async function analyzeLogForFix(
   logTail: string,
   serviceName: string,
   config: RuntimeConfig,
+  secretEnv: Record<string, string> = {},
 ): Promise<FixResult | null> {
   const { provider, model, adapter } = await resolveProvider(config);
   const caps = resolveProviderCapabilities(provider);
@@ -343,7 +347,7 @@ export async function analyzeLogForFix(
 
   logger.debug({ provider, serviceName }, "[LogAnalyzer] Analyzing log for fix suggestion");
 
-  const raw = await runOneShot(command, provider, prompt, timeoutMs);
+  const raw = await runOneShot(command, provider, prompt, timeoutMs, secretEnv);
   const result = extractJsonFromOutput<{ hasProblem: boolean; title?: string; description?: string; issueType?: string }>(raw);
 
   if (result === null) {
@@ -390,6 +394,7 @@ export async function analyzeLogForInsights(
   logTail: string,
   serviceName: string,
   config: RuntimeConfig,
+  secretEnv: Record<string, string> = {},
 ): Promise<InsightsResult | null> {
   const { provider, model, adapter } = await resolveProvider(config);
   const caps = resolveProviderCapabilities(provider);
@@ -404,7 +409,7 @@ export async function analyzeLogForInsights(
 
   logger.debug({ provider, serviceName }, "[LogAnalyzer] Analyzing log for insights");
 
-  const raw = await runOneShot(command, provider, prompt, timeoutMs);
+  const raw = await runOneShot(command, provider, prompt, timeoutMs, secretEnv);
   const result = extractJsonFromOutput<{ status: string; patterns?: string[]; rootCauses?: string[]; suggestions?: string[] }>(raw);
 
   if (result === null) {

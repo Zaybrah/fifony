@@ -45,7 +45,7 @@ export async function generatePlan(
   description: string,
   config: RuntimeConfig,
   _workflowDefinition: null,
-  options?: { fast?: boolean; persistSession?: boolean; images?: string[]; failureContext?: string },
+  options?: { fast?: boolean; persistSession?: boolean; images?: string[]; failureContext?: string; secretEnv?: Record<string, string> },
 ): Promise<GeneratePlanResult> {
   const fast = options?.fast ?? false;
   const images = options?.images;
@@ -105,6 +105,7 @@ export async function generatePlan(
       promptFile,
       provider: preferred,
       extraEnv: images?.length ? { FIFONY_IMAGE_PATHS: images.join(",") } : {},
+      secretEnv: options?.secretEnv,
       dockerConfig: { enabled: config.dockerExecution, image: config.dockerImage },
       onPid: (pid) => {
         session.pid = pid;

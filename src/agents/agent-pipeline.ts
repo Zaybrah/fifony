@@ -35,6 +35,7 @@ import { readAgentDirective, addTokenUsage } from "./directive-parser.ts";
 import { buildTurnPrompt, buildProviderBasePrompt, buildRetryContext, getLastRetryContextMetrics, resolveContextWindow } from "./prompt-builder.ts";
 import { resolveMaxTurns } from "../persistence/plugins/fsm-agent.ts";
 import { runCommandWithTimeout, runHook, writeToDaemon } from "./command-executor.ts";
+import { resolveProviderSecretEnvFromVariables } from "./provider-env.ts";
 import { writeHandoffArtifact } from "./handoff-writer.ts";
 import { DEFAULT_MAX_CONTEXT_RESETS, DEFAULT_CONTEXT_RESET_THRESHOLD_PCT } from "../concerns/constants.ts";
 import { runDeterministicNode } from "./deterministic-node-runner.ts";
@@ -234,6 +235,7 @@ export async function runAgentSession(
   addEvent(state, issue.id, "runner", `Turn ${turnIndex}/${maxTurns} started for ${issue.identifier}.`);
 
   const sessionStartTs = Date.now();
+  const providerSecretEnv = resolveProviderSecretEnvFromVariables(state.variables);
   broadcastIssueProgress({
     issueId: issue.id,
     identifier: issue.identifier,
@@ -245,7 +247,7 @@ export async function runAgentSession(
     elapsedMs: 0,
   });
 
-  const turnResult = await runCommandWithTimeout(provider.command, workspacePath, issue, state.config, turnPromptFile, turnEnv, outputFilePath);
+  const turnResult = await runCommandWithTimeout(provider.command, workspacePath, issue, state.config, turnPromptFile, turnEnv, outputFilePath, providerSecretEnv);
 
   if (state.config.afterRunHook) {
     await runHook(state.config.afterRunHook, workspacePath, issue, "after_run", {

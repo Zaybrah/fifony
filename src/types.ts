@@ -927,6 +927,7 @@ export type BudgetPolicy = {
 export type ProviderReadOnlyExecutionMode =
   | "plan"
   | "approval"
+  | "tool-allowlist"
   | "none";
 
 export type ProviderStructuredOutputMode =
