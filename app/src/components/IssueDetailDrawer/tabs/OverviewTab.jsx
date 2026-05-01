@@ -1,5 +1,5 @@
 import React from "react";
-import { Ban, Layers, GitMerge, AlertOctagon } from "lucide-react";
+import { Ban, Layers, GitMerge, AlertOctagon, ExternalLink } from "lucide-react";
 import { formatDate, formatDuration } from "../../../utils.js";
 import { Section, Field } from "../shared.jsx";
 
@@ -42,6 +42,20 @@ export function OverviewTab({ issue }) {
           {issue.baseBranch && <Field label="Base branch" value={issue.baseBranch} mono />}
           {issue.worktreePath && <Field label="Code worktree" value={issue.worktreePath} mono />}
           {issue.url && <Field label="URL" value={issue.url} mono />}
+          {issue.linearUrl && (
+            <div className="flex justify-between items-baseline gap-4 py-0.5">
+              <span className="text-xs opacity-50 shrink-0">Linear</span>
+              <a
+                href={issue.linearUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-right text-xs font-mono text-primary hover:underline"
+              >
+                {issue.linearIdentifier || issue.linearUrl}
+                <ExternalLink className="size-3 shrink-0" />
+              </a>
+            </div>
+          )}
           <Field label="Created" value={formatDate(issue.createdAt)} />
           {issue.startedAt && <Field label="Started" value={formatDate(issue.startedAt)} />}
           {issue.completedAt && <Field label="Completed" value={formatDate(issue.completedAt)} />}

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Lightbulb, Loader2, Sparkles, FileText, Bug, RefreshCw, BookOpen, Wrench, Paperclip, ImageIcon, Mic, MicOff } from "lucide-react";
+import { X, Lightbulb, Loader2, Sparkles, FileText, Bug, RefreshCw, BookOpen, Wrench, Paperclip, ImageIcon, Mic, MicOff, ExternalLink, Link2 } from "lucide-react";
 import { useSwipeToDismiss } from "../hooks/useSwipeToDismiss.js";
 import { api } from "../api.js";
 import { useSpeechToText } from "../hooks/useSpeechToText.js";
 import { VoiceWaveform } from "./VoiceWaveform.jsx";
+import { LinearIssueImportModal } from "./LinearIssueImportModal.jsx";
 
 const ISSUE_TEMPLATES = [
   { id: "blank",    label: "Blank",         icon: FileText,  activeColor: "border-base-content/30 bg-base-content/5 text-base-content",         title: "",            description: "" },
@@ -18,6 +19,8 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast,
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("blank");
+  const [linearDraft, setLinearDraft] = useState(null);
+  const [linearImportOpen, setLinearImportOpen] = useState(false);
   const [enhancing, setEnhancing] = useState({ title: false, description: false });
   const [images, setImages] = useState([]); // [{ name, preview, path }]
   const [uploading, setUploading] = useState(false);
@@ -90,6 +93,7 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast,
       setTitle(defaultValues?.title ?? "");
       setDescription(defaultValues?.description ?? "");
       setSelectedTemplate(defaultValues?.issueType ?? "blank");
+      setLinearDraft(defaultValues?.linearImport ?? null);
       setImages([]);
       setTimeout(() => titleRef.current?.focus(), 100);
     }
@@ -149,9 +153,23 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast,
       title: title.trim(),
       description: description.trim(),
       issueType: selectedTemplate !== "blank" ? selectedTemplate : undefined,
+      labels: linearDraft?.labels?.length ? linearDraft.labels : undefined,
+      linearIssueId: linearDraft?.linearIssueId,
+      linearIdentifier: linearDraft?.linearIdentifier,
+      linearUrl: linearDraft?.linearUrl,
+      linearTeamId: linearDraft?.linearTeamId,
+      linearProjectId: linearDraft?.linearProjectId,
       images: images.map((img) => img.path),
     });
   };
+
+  const handleLinearImport = useCallback((draft) => {
+    if (!draft) return;
+    setLinearDraft(draft);
+    setSelectedTemplate("blank");
+    setTitle(draft.title || "");
+    setDescription(draft.description || "");
+  }, []);
 
   const handleEnhance = async (field) => {
     if (!title.trim() && field === "description") return;
@@ -205,6 +223,14 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast,
           <div ref={scrollRef} className={`flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 flex flex-col gap-4 drawer-safe-bottom ${open ? "stagger-children" : ""}`}>
             {/* Templates — compact wrap on mobile, grid on desktop */}
             <div className="flex flex-wrap sm:grid sm:grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setLinearImportOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 sm:py-2 rounded-lg border text-left transition-all duration-150 text-xs sm:text-sm font-medium border-primary/30 bg-primary/6 text-primary hover:bg-primary/10 sm:col-span-3"
+              >
+                <Link2 className="size-3.5 shrink-0" />
+                Import from Linear
+              </button>
               {ISSUE_TEMPLATES.map((tpl) => {
                 const Icon = tpl.icon;
                 const isActive = selectedTemplate === tpl.id;
@@ -225,6 +251,27 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast,
                 );
               })}
             </div>
+
+            {linearDraft && (
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className="badge badge-sm badge-primary badge-soft font-mono">{linearDraft.linearIdentifier}</span>
+                    <span className="badge badge-sm badge-ghost">{linearDraft.priorityLabel}</span>
+                    {linearDraft.labels?.slice(0, 3).map((label) => (
+                      <span key={label} className="badge badge-sm badge-outline">{label}</span>
+                    ))}
+                  </div>
+                  {linearDraft.linearUrl && (
+                    <a href={linearDraft.linearUrl} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-ghost gap-1 shrink-0">
+                      <ExternalLink className="size-3" />
+                      Linear
+                    </a>
+                  )}
+                </div>
+                <p className="text-xs opacity-65">Imported from Linear. You can still edit the title and description before creating the Fifony issue.</p>
+              </div>
+            )}
 
             {/* Title field */}
             <div className="form-control">
@@ -349,6 +396,13 @@ export function CreateIssueDrawer({ open, onClose, onSubmit, isLoading, onToast,
           </div>
         </form>
       </div>
+
+      <LinearIssueImportModal
+        open={linearImportOpen}
+        onClose={() => setLinearImportOpen(false)}
+        onImport={handleLinearImport}
+        onToast={onToast}
+      />
     </>
   );
 }

@@ -289,10 +289,13 @@ async function main() {
 
   if (!state.config.agentCommand.trim()) {
     const available = detectedProviders.filter((p) => p.available).map((p) => p.name);
-    fail(
+    logger.warn(
+      {
+        availableProviders: available,
+      },
       available.length === 0
-        ? "No agent command configured and no providers (claude, codex) found in PATH.\nInstall claude or codex, or set FIFONY_AGENT_COMMAND."
-        : "No agent command configured. Set FIFONY_AGENT_COMMAND.",
+        ? "No agent command configured and no providers (claude, codex) found in PATH. Dashboard will stay available, but execution is disabled until you install a provider or set FIFONY_AGENT_COMMAND."
+        : "No agent command configured. Dashboard will stay available, but execution is disabled until you set FIFONY_AGENT_COMMAND.",
     );
   }
 

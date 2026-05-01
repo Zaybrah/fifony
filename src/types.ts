@@ -43,6 +43,12 @@ export type IssueEntry = {
   headCommitAtStart?: string;
   worktreePath?: string;
   url?: string;
+  linearIssueId?: string;
+  linearIdentifier?: string;
+  linearUrl?: string;
+  linearTeamId?: string;
+  linearProjectId?: string;
+  linearSyncedAt?: string;
   assigneeId?: string;
   labels: string[];
   paths?: string[];

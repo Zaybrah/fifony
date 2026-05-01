@@ -410,6 +410,21 @@ export const issueStateMachineConfig = {
       if (issue) {
         (async () => {
           try {
+            const { maybeSyncLinearMergeComment } = await import("../../integrations/linear/sync.ts");
+            const synced = await maybeSyncLinearMergeComment(issue);
+            if (synced) {
+              issue.linearSyncedAt = issue.linearSyncedAt ?? new Date().toISOString();
+              const resource = issueResource(machine);
+              resource?.patch(machine.entityId, { linearSyncedAt: issue.linearSyncedAt }).catch(() => {});
+            }
+          } catch (err) {
+            logger.warn({ err, issueId: issue.id }, "[Linear] Merge comment sync failed (non-fatal)");
+            emitFsmEvent(issue.id, "warn", `Linear merge sync failed for ${issue.identifier}.`);
+          }
+        })();
+
+        (async () => {
+          try {
             const { appendWikiLog, ensureWikiInitialized } = await import("../../domains/wiki.ts");
             ensureWikiInitialized();
             const summary = (issue.plan?.summary || issue.title || "no summary").slice(0, 200);

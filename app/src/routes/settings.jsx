@@ -8,6 +8,7 @@ import {
   SlidersHorizontal,
   Settings,
   Server,
+  PlugZap,
 } from "lucide-react";
 
 const TABS = [
@@ -16,6 +17,7 @@ const TABS = [
   { to: "/settings/execution",     label: "Execution",     icon: Cpu },
   { to: "/settings/assets",        label: "Assets",        icon: Users },
   { to: "/settings/services",      label: "Services",      icon: Server },
+  { to: "/settings/integrations",  label: "Integrations",  icon: PlugZap },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/providers",     label: "Providers",     icon: SlidersHorizontal },
   { to: "/settings/system",        label: "System",        icon: Settings },

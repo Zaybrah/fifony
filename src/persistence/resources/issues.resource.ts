@@ -188,6 +188,23 @@ async function createIssue(c: unknown) {
       container,
     );
     await persistState(context.state);
+    try {
+      const { maybeSyncLinearImportComment } = await import("../../integrations/linear/sync.ts");
+      const synced = await maybeSyncLinearImportComment(issue, context.state);
+      if (synced) {
+        addEvent(context.state, issue.id, "info", `Linear import comment posted for ${issue.linearIdentifier || issue.identifier}.`);
+        await persistState(context.state);
+      }
+    } catch (error) {
+      logger.warn({ err: error, issueId: issue.id }, "[Linear] Import comment sync failed (non-fatal)");
+      addEvent(
+        context.state,
+        issue.id,
+        "warn",
+        `Linear import sync failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      await persistState(context.state);
+    }
     return { body: { ok: true, issue } };
   } catch (error) {
     return { status: 400, body: { ok: false, error: error instanceof Error ? error.message : String(error) } };
@@ -1053,6 +1070,12 @@ export default {
     milestoneId: "string|optional",
     branchName: "string|optional",
     url: "string|optional",
+    linearIssueId: "string|optional",
+    linearIdentifier: "string|optional",
+    linearUrl: "string|optional",
+    linearTeamId: "string|optional",
+    linearProjectId: "string|optional",
+    linearSyncedAt: "datetime|optional",
     assigneeId: "string|optional",
     labels: "json|required",
     paths: "json|optional",

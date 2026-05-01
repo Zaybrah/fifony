@@ -1,5 +1,7 @@
 import { createClient } from "vaulter";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { mkdirSync } from "node:fs";
+import { cwd, platform } from "node:process";
 import { STATE_ROOT } from "../concerns/constants.ts";
 import { logger } from "../concerns/logger.ts";
 import type { VariableEntry } from "../types.ts";
@@ -9,9 +11,26 @@ export const VAULTER_ENV = "local";
 
 let _client: ReturnType<typeof createClient> | null = null;
 
+function toVaulterConnectionString(dbPath: string): string {
+  if (platform !== "win32") {
+    return `sqlite:///${dbPath.replace(/\\/g, "/")}`;
+  }
+
+  const relativePath = relative(cwd(), dbPath).replace(/\\/g, "/");
+  if (!relativePath || isAbsolute(relativePath) || /^[a-zA-Z]:\//.test(relativePath)) {
+    throw new Error(`[Vaulter] Cannot resolve a Windows-safe relative sqlite path for ${dbPath}`);
+  }
+
+  const normalizedPath = relativePath.startsWith("./") || relativePath.startsWith("../")
+    ? relativePath
+    : `./${relativePath}`;
+  return `sqlite://${normalizedPath}`;
+}
+
 export async function initVaulterClient(): Promise<void> {
   const dbPath = join(STATE_ROOT, "secrets.db");
-  const client = createClient({ connectionString: `file://${dbPath}` });
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const client = createClient({ connectionString: toVaulterConnectionString(dbPath) });
   await client.connect();
   _client = client;
   logger.debug({ dbPath }, "[Vaulter] Connected");

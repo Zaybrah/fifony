@@ -310,6 +310,11 @@ export function IssueDetailDrawer({ issue, onClose, onStateChange, onRetry, onCa
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-mono text-xs opacity-40 shrink-0">{issue.identifier}</span>
+              {issue.linearIdentifier && (
+                <span className="badge badge-sm badge-primary badge-soft font-mono shrink-0">
+                  {issue.linearIdentifier}
+                </span>
+              )}
               <StateActionMenu
                 issue={issue}
                 onStateChange={onStateChange}
